@@ -9,8 +9,9 @@ import { hostname } from "node:os";
 import { randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
 import { server as wisp, logging } from "@mercuryworkshop/wisp-js/server";
 import { scramjetPath } from "@mercuryworkshop/scramjet/path";
-import { baremuxPath } from "@mercuryworkshop/bare-mux/node";
-import { libcurlPath } from "@mercuryworkshop/libcurl-transport";
+import { fileURLToPath as _furl } from "node:url";
+const libcurlPath = join(fileURLToPath(new URL(".", import.meta.url)), "..", "node_modules", "@mercuryworkshop", "libcurl-transport", "dist");
+const controllerPath = join(fileURLToPath(new URL(".", import.meta.url)), "..", "node_modules", "@mercuryworkshop", "scramjet-controller", "dist");
 
 const PORT = Number(process.env.RAMJET_PORT || 4204);
 const HOST = process.env.RAMJET_HOST || "0.0.0.0";
@@ -224,8 +225,8 @@ const MIME = {
 };
 
 const mounts = [
-	{ prefix: "/scram/", root: scramjetPath },
-	{ prefix: "/baremux/", root: baremuxPath },
+	{ prefix: "/scramjet/", root: scramjetPath },
+	{ prefix: "/controller/", root: controllerPath },
 	{ prefix: "/libcurl/", root: libcurlPath },
 ];
 
@@ -370,10 +371,14 @@ async function handleLoginAccount(req, res, pw, username) {
 }
 
 
-async function handleSync(req, res) {
+async function handleSync(req, res, storage) {
 	const sr = sessionRecord(req);
 	if (!sr || !sr.user) return json(res, 401, { error: "no session" });
-	const file = userDataFile(sr.user);
+	if (storage) {
+		const acct = readAccounts()[sr.user];
+		if (!acct || acct.role !== "admin") return json(res, 403, { error: "admin only" });
+	}
+	const file = storage ? userDataFile(sr.user).replace(".blob.json", ".storage.json") : userDataFile(sr.user);
 	if (req.method === "GET") {
 		return json(res, 200, { ok: true, blob: readJson(file, null) });
 	}
@@ -470,6 +475,7 @@ const server = createServer(async (req, res) => {
 		if (pathname === "/auth/signup" && req.method === "POST") return await handleSignup(req, res);
 		if (pathname === "/auth/passwd" && req.method === "POST") return await handlePasswd(req, res);
 		if (pathname === "/auth/sync" && (req.method === "GET" || req.method === "PUT" || req.method === "POST")) return await handleSync(req, res);
+		if (pathname === "/auth/sync-storage" && (req.method === "GET" || req.method === "PUT" || req.method === "POST")) return await handleSync(req, res, true);
 		if (pathname === "/auth/me") {
 			const sr = sessionRecord(req);
 			if (!sr || !sr.user) return json(res, 401, { error: "no session" });

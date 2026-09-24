@@ -234,6 +234,19 @@ body.in-flight #rj-framehost { display: block; }
 
 #rj-foot .ver { color: #4b5058; }
 
+
+/* mobile-only tab count button (shown by the phone shell) */
+#rj-tabsbtn {
+	display: none;
+	border: 1px solid var(--edge);
+	border-radius: 8px;
+	background: none;
+	color: var(--text);
+	font: 600 14px/1 var(--mono);
+	cursor: pointer;
+}
+#rj-tabcount { pointer-events: none; }
+
 /* ------- mobile ------- */
 @media (max-width: 640px) {
 	#rj-chrome { padding: 14px 16px; }
@@ -241,12 +254,86 @@ body.in-flight #rj-framehost { display: block; }
 	#rj-form { margin-left: 12px; margin-right: 12px; }
 	#rj-address { font-size: 16px; } /* >=16px stops iOS focus zoom */
 	#rj-address::placeholder { font-size: 13px; }
-	body.in-flight #rj-address { font-size: 13.5px; }
-	.rj-nav button, .rj-nav a { width: 32px; height: 40px; font-size: 15px; }
-	#rj-fwd { display: none !important; }
-	body.in-flight .ignite { display: none; } /* enter key ignites; space goes to the url */
-	body.in-flight #rj-form { margin: 0; border-left: 0; border-right: 0; border-radius: 0; }
 	#rj-hint { font-size: 12px; }
+
+	/* --- phone browser shell: bottom bar, big touch targets, safe areas --- */
+	body.in-flight { padding-bottom: 0; } /* frame is fixed-anchored above the bar */
+	body.has-tabs.in-flight #rj-tabs { display: none !important; } /* strip lives in the card switcher */
+	body.in-flight #rj-foot { display: none; } /* status strip crowds the phone bar */
+	body.in-flight #rj-chrome { display: none; } /* landing header off the phone shell */
+	body.in-flight #rj-framehost { inset: 0 0 calc(62px + env(safe-area-inset-bottom, 0px)) 0; } /* full height above the phone bar */
+	body.in-flight #rj-form {
+		position: fixed;
+		left: 0; right: 0; bottom: 0;
+		margin: 0;
+		padding: 8px 10px calc(8px + env(safe-area-inset-bottom, 0px));
+		background: var(--panel);
+		border-top: 1px solid var(--edge);
+		border-left: 0; border-right: 0; border-radius: 0;
+		z-index: 40;
+	}
+	body.in-flight #rj-address { font-size: 13.5px; }
+	body.in-flight .ignite { display: none; } /* enter key ignites; space goes to the url */
+	body.in-flight .rj-nav button, body.in-flight .rj-nav a {
+		width: 44px; height: 44px; font-size: 17px;
+		display: inline-flex; align-items: center; justify-content: center;
+	}
+	body.in-flight #rj-fwd,
+	body.in-flight #rj-home,
+	body.in-flight #rj-cloak,
+	body.in-flight #rj-fs { display: none !important; }
+	body.in-flight #rj-tabsbtn { display: inline-flex !important; }
+
+	/* tab switcher: full-screen card grid */
+	#rj-switcher[hidden] { display: none; }
+	#rj-switcher {
+		position: fixed; inset: 0; z-index: 60;
+		background: var(--bg);
+		display: flex; flex-direction: column;
+		padding: env(safe-area-inset-top, 0px) 0 env(safe-area-inset-bottom, 0px);
+	}
+	#rj-switcher > header {
+		display: flex; align-items: center; justify-content: space-between;
+		padding: 14px 18px;
+		border-bottom: 1px solid var(--edge);
+	}
+	#rj-switcher > header h2 { margin: 0; font-size: 17px; font-weight: 600; }
+	#rj-switcher-close {
+		background: none; border: 0; color: var(--text);
+		font-size: 26px; width: 44px; height: 44px;
+	}
+	#rj-switcher-grid {
+		flex: 1; overflow-y: auto;
+		display: grid; grid-template-columns: 1fr 1fr; gap: 12px;
+		padding: 16px;
+		align-content: start;
+	}
+	.rj-card {
+		position: relative;
+		background: var(--panel);
+		border: 1px solid var(--edge);
+		border-radius: 12px;
+		min-height: 120px;
+	}
+	.rj-card.active { border-color: var(--amber); }
+	.rj-card-body {
+		display: flex; flex-direction: column; align-items: center; justify-content: center;
+		gap: 8px; width: 100%; min-height: 120px;
+		background: none; border: 0; color: var(--text);
+		font-size: 13px; padding: 12px; text-align: center;
+	}
+	.rj-card-body img { width: 22px; height: 22px; }
+	.rj-card-body span { overflow-wrap: anywhere; }
+	.rj-card-close {
+		position: absolute; top: 4px; right: 4px;
+		width: 32px; height: 32px;
+		background: none; border: 0; color: var(--muted); font-size: 18px;
+	}
+	.rj-card-add {
+		display: flex; align-items: center; justify-content: center;
+		color: var(--muted); font-size: 14px;
+		border-style: dashed;
+	}
 }
 /* Ramjet UI - GoatTech. hand-tuned, no framework. */
 
@@ -1028,3 +1115,42 @@ body.in-flight.bmbar #rj-framehost { inset: 75px 0 30px 0; }
 	white-space: nowrap;
 }
 .rj-bm:hover { background: rgba(255,255,255,0.06); }
+
+/* phone shell final overrides (must beat the legacy in-flight.has-tabs anchor) */
+@media (max-width: 640px) {
+	body.in-flight.has-tabs #rj-framehost,
+	body.in-flight #rj-framehost { inset: 0 0 calc(62px + env(safe-area-inset-bottom, 0px)) 0; }
+}
+
+/* phone polish: pill address field, calmer bar rhythm */
+@media (max-width: 640px) {
+	#rj-form { border-radius: 999px; }
+	body.in-flight #rj-form { border-radius: 0; }
+	body.in-flight #rj-address {
+		border-radius: 999px;
+		background: #1b1e24;
+		padding: 11px 16px;
+	}
+	body.in-flight .rj-nav { gap: 2px; }
+	#rj-switcher-grid { padding-bottom: calc(20px + env(safe-area-inset-bottom, 0px)); }
+	.rj-card { min-height: 132px; }
+	.rj-card-body { min-height: 132px; font-size: 13.5px; }
+}
+
+/* settings changelog */
+#rj-changelog h4 { font-size: 13px; color: var(--amber); margin: 12px 0 4px; font-family: var(--mono); }
+#rj-changelog h4:first-child { margin-top: 2px; }
+#rj-changelog ul { margin: 0 0 8px; padding-left: 18px; font-size: 13px; }
+#rj-changelog li { margin: 2px 0; }
+#rj-changelog p { font-size: 13px; margin: 4px 0; opacity: 0.75; }
+
+/* site storage manager */
+.rj-store-site { border: 1px solid var(--edge); border-radius: 10px; padding: 8px 10px; margin-bottom: 8px; }
+.rj-store-head { display: flex; align-items: baseline; gap: 8px; }
+.rj-store-host { font-weight: 600; word-break: break-all; }
+.rj-store-meta { margin-left: auto; font-size: 11.5px; white-space: nowrap; }
+.rj-store-detail { margin-top: 8px; }
+.rj-store-sub { margin: 6px 0 4px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; }
+.rj-store-line { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+.rj-store-k { font-size: 12px; color: var(--muted); min-width: 90px; max-width: 40%; word-break: break-all; }
+.rj-store-v { flex: 1; min-width: 0; background: rgba(255,255,255,0.03); border: 1px solid var(--edge); border-radius: 8px; color: inherit; font: 12px ui-monospace, monospace; padding: 5px 8px; }

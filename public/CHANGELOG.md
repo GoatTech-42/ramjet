@@ -1,0 +1,21 @@
+# ramjet changelog
+
+## 0.7.0
+- new engine: scramjet 2 - more sites just work
+- phone layout: real bottom bar, card-grid tabs, pill address field
+- mobile login: form stacks properly on phones
+- custom accent color: pick any color in settings
+- settings sync: theme + options follow you across devices
+- cache self-heal: updates reach you on next open, no more stale versions
+- changelog in settings (you are here)
+- cookie sync (admin): site logins follow you phone <-> desktop
+- site data sync (admin): per-site localStorage rides along too
+- site storage manager: per-site cookies + data, view/edit/delete, clear one or all
+- login form plays nice with password autofill now
+- custom search engine: set any engine with your own search url
+- startup option: reopen last session's tabs (on by default)
+
+## 0.6.0
+- encrypted per-account sync (history, bookmarks, settings)
+- tab cloak + panic key
+- zoom control

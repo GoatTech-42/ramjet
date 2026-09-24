@@ -1,18 +1,9 @@
-// Ramjet service worker - standard Scramjet engine integration
-// (ScramjetServiceWorker API, @mercuryworkshop/scramjet, MIT).
-importScripts("/scram/scramjet.all.js");
+// Ramjet service worker - Scramjet v2 engine integration
+// (@mercuryworkshop/scramjet-controller, MIT).
+importScripts("/controller/controller.sw.js");
 
-const { ScramjetServiceWorker } = $scramjetLoadWorker();
-const scramjet = new ScramjetServiceWorker();
-
-async function handleRequest(event) {
-	await scramjet.loadConfig();
-	if (scramjet.route(event)) {
-		return scramjet.fetch(event);
+addEventListener("fetch", (e) => {
+	if ($scramjetController.shouldRoute(e)) {
+		e.respondWith($scramjetController.route(e));
 	}
-	return fetch(event.request);
-}
-
-self.addEventListener("fetch", (event) => {
-	event.respondWith(handleRequest(event));
 });
