@@ -192,8 +192,13 @@ function ensureFrame(tab) {
 				const origin = new URL(f.frame.contentWindow.location.href).origin;
 				if (origin && origin.startsWith("http") && origin !== location.origin) iconUrl = origin + "/favicon.ico";
 			}
-			if (iconUrl && !iconUrl.startsWith(location.origin)) iconUrl = scramjet.rewriteUrl(iconUrl);
-			if (iconUrl) tab.icon = iconUrl;
+			if (iconUrl && iconUrl.startsWith(location.origin)) iconUrl = null;
+			if (iconUrl) {
+				const w = f.frame.contentWindow;
+				w.fetch(iconUrl).then((r) => { if (!r.ok) throw new Error("icon " + r.status); return r.blob(); }).then((b) => {
+					if (b.size > 0 && b.size < 1048576) { tab.icon = URL.createObjectURL(b); renderTabs(); }
+				}).catch(() => {});
+			}
 		} catch (err) {}
 		if (tab === activeTab) syncBar();
 		renderTabs();
