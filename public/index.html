@@ -55,8 +55,13 @@
 </form>
 
 <p id="rj-hint">no accounts, no install. the whole web, one bar. <span class="kbd">/</span> focuses it.</p>
+<div id="rj-dial"></div>
 
 <div id="rj-peek" title="Show the bar"></div>
+<div id="rj-find" hidden>
+	<input id="rj-find-in" type="text" placeholder="find in page" autocomplete="off" spellcheck="false">
+	<button id="rj-find-x" type="button" aria-label="Close find">&times;</button>
+</div>
 <div id="rj-framehost" hidden></div>
 
 <div id="rj-menu" hidden></div>
@@ -70,7 +75,14 @@
 
 		<section>
 			<h3>Appearance</h3>
-			<label class="rj-check"><input id="rj-darkpages" type="checkbox"> Darken pages <span class="rj-beta">beta</span></label>
+			<select id="rj-zoom" aria-label="Zoom" style="margin-bottom:12px">
+				<option value="80">Zoom 80%</option>
+				<option value="90">Zoom 90%</option>
+				<option value="100">Zoom 100%</option>
+				<option value="110">Zoom 110%</option>
+				<option value="125">Zoom 125%</option>
+				<option value="150">Zoom 150%</option>
+			</select>
 			<div id="rj-themes">
 				<button type="button" data-theme="amber" style="--sw:#ffa028">amber</button>
 				<button type="button" data-theme="mint" style="--sw:#34d399">mint</button>
@@ -122,6 +134,7 @@
 		<section>
 			<h3>History <button id="rj-history-clear" type="button" class="rj-mini">clear</button></h3>
 			<ul id="rj-history"></ul>
+			<label class="rj-check"><input id="rj-clearhist" type="checkbox"> Clear history when ramjet closes</label>
 		</section>
 
 		<section>
@@ -131,6 +144,9 @@
 				<li><span class="kbd">`</span> panic</li>
 				<li><span class="kbd">esc</span> close this panel</li>
 				<li><span class="kbd">enter</span> ignite</li>
+				<li><span class="kbd">ctrl l</span> focus the bar</li>
+				<li><span class="kbd">ctrl f</span> find in page</li>
+				<li><span class="kbd">alt &#8592;&#8594;</span> back / forward</li>
 			</ul>
 		</section>
 			<p class="rj-ver">ramjet v0.3.0</p>
