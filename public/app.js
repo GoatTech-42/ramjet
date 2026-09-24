@@ -1,6 +1,15 @@
 // Ramjet client - ignition logic + settings, bookmarks, history, cloak, panic. GoatTech, 2026. MIT.
 "use strict";
 
+const APP_VERSION = "0.7.0-alpha"; // bump every release; index.html + labels + asset params follow
+// stale-client self-heal: mixed HTML/JS from caches gets one clean reload
+if (window.RJ_VERSION && window.RJ_VERSION !== APP_VERSION && !sessionStorage.getItem("rj-reheal")) {
+	sessionStorage.setItem("rj-reheal", "1");
+	location.reload();
+} else {
+	sessionStorage.removeItem("rj-reheal");
+}
+
 // Scramjet v2: controller + transport are created in ensureReady() once the
 // routing service worker controls the page.
 let scramjet = null; // { createFrame } shim over the v2 Controller
