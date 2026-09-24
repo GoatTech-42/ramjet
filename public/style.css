@@ -665,3 +665,19 @@ body.in-flight #rj-framehost { display: block; }
 	#rj-panel-card { width: 100vw; border-left: 0; }
 }
 .rj-row input { flex: 1; min-width: 0; }
+
+/* ------- v0.2 restyle: real browser settings look ------- */
+#rj-panel-card h2 { font: 600 17px/1.2 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+#rj-panel-card section { margin-top: 22px; border-top: 1px solid var(--edge); padding-top: 14px; }
+#rj-panel-card section:first-of-type { border-top: 0; padding-top: 0; margin-top: 14px; }
+#rj-panel-card h3 { font: 600 13px/1.2 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; text-transform: none; letter-spacing: 0; color: var(--text); margin: 0 0 10px; }
+#rj-themes { gap: 10px; }
+#rj-themes button { border: 2px solid transparent; border-radius: 50%; width: 26px; height: 26px; padding: 0; font-size: 0; display: inline-block; }
+#rj-themes button::before { width: 18px; height: 18px; display: block; margin: 2px auto; }
+#rj-themes button.active { border-color: var(--sw); }
+#rj-panel-card select, #rj-panel-card input[type="text"] { font: 13.5px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; background: #0e0f12; border-radius: 6px; padding: 7px 9px; }
+.rj-bm-open { font: 13px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; background: #0e0f12; border-radius: 6px; }
+.rj-ver { margin: 34px 0 0; font-size: 11px; color: #4b5058; }
+body.in-flight .ignite { display: none; }
+body.in-flight #rj-address { font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+.rj-row input[type="text"] { width: auto; }
