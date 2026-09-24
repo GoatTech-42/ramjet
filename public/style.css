@@ -748,3 +748,200 @@ body.in-flight .rj-nav button, body.in-flight .rj-nav a { width: 34px; height: 3
 /* specificity: needs the panel-card prefix to beat "#rj-panel-card select" (1,0,1) */
 #rj-panel-card #rj-panic-key { width: 46%; flex: none; }
 #rj-panel-card #rj-panic-url { flex: 1; min-width: 0; width: auto; }
+
+/* ------- v0.3: autocomplete, fullscreen, popout, dark pages, history ------- */
+#rj-form { position: relative; overflow: visible; }
+.ignite { border-radius: 0 9px 9px 0; }
+body.in-flight .ignite { border-radius: 0; }
+#rj-suggest {
+	position: absolute;
+	top: calc(100% + 6px);
+	left: -1px;
+	right: -1px;
+	background: #17191d;
+	border: 1px solid #2a2f37;
+	border-radius: 10px;
+	box-shadow: 0 16px 40px rgba(0,0,0,.55);
+	padding: 4px;
+	z-index: 30;
+}
+#rj-suggest[hidden] { display: none; }
+.rj-sug-row {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	width: 100%;
+	background: none;
+	border: 0;
+	border-radius: 6px;
+	color: var(--text);
+	font: 13.5px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+	padding: 8px 10px;
+	cursor: pointer;
+	text-align: left;
+}
+.rj-sug-row .rj-sug-icon { color: var(--muted); font-size: 12px; width: 14px; text-align: center; flex: none; }
+.rj-sug-row .rj-sug-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rj-sug-row:hover, .rj-sug-row.active { background: #ffffff10; }
+.rj-sug-row:hover .rj-sug-icon, .rj-sug-row.active .rj-sug-icon { color: var(--amber); }
+#rj-fs svg { width: 15px; height: 15px; display: block; }
+#rj-peek { position: fixed; top: 0; left: 0; right: 0; height: 8px; z-index: 25; display: none; }
+body.in-flight.no-chrome #rj-form { display: none; }
+body.in-flight.no-chrome #rj-peek { display: block; }
+body.in-flight.no-chrome #rj-framehost { inset: 0 0 30px 0; }
+body.in-flight.dark-pages #rj-frame { filter: invert(0.92) hue-rotate(180deg); }
+.rj-check {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	font: 13.5px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+	color: var(--text);
+	margin: 0 0 12px;
+	cursor: pointer;
+}
+.rj-check input { accent-color: var(--amber); width: 15px; height: 15px; margin: 0; }
+.rj-beta { font-size: 10px; color: var(--muted); border: 1px solid var(--edge); border-radius: 4px; padding: 0 4px; }
+.rj-action {
+	width: 100%;
+	background: #101216;
+	border: 1px solid #2a2f37;
+	border-radius: 8px;
+	color: var(--text);
+	font: 13.5px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+	padding: 8px 10px;
+	cursor: pointer;
+	text-align: left;
+	transition: border-color 140ms ease, background 140ms ease;
+}
+.rj-action:hover { border-color: #3a404a; background: #15181d; }
+.rj-mini {
+	background: none;
+	border: 0;
+	color: var(--muted);
+	font: 11px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+	cursor: pointer;
+	padding: 0 2px;
+	margin-left: 4px;
+}
+.rj-mini:hover { color: var(--err); }
+#rj-history { list-style: none; margin: 0; padding: 0; }
+#rj-history li { display: flex; margin-bottom: 6px; }
+#rj-gear2 svg { width: 16px; height: 16px; display: block; }
+
+/* ------- v0.3: tab strip ------- */
+#rj-tabs { display: none; }
+body.has-tabs #rj-tabs {
+	display: flex;
+	align-items: flex-end;
+	background: #0e0f12;
+	border-bottom: 1px solid var(--edge);
+	padding: 6px 8px 0;
+	position: relative;
+	z-index: 6;
+}
+body.has-tabs #rj-landing { padding-top: 8px; }
+#rj-tablist {
+	display: flex;
+	align-items: flex-end;
+	gap: 2px;
+	flex: 1;
+	overflow-x: auto;
+	scrollbar-width: none;
+}
+#rj-tablist::-webkit-scrollbar { display: none; }
+.rj-tab {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	max-width: 190px;
+	min-width: 0;
+	background: #14161a00;
+	border: 1px solid transparent;
+	border-bottom: 0;
+	border-radius: 8px 8px 0 0;
+	color: var(--muted);
+	font: 12.5px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+	padding: 7px 8px 8px 12px;
+	cursor: pointer;
+	user-select: none;
+	flex: 0 1 auto;
+}
+.rj-tab:hover { background: #ffffff08; color: var(--text); }
+.rj-tab.active {
+	background: var(--panel);
+	border-color: var(--edge);
+	color: var(--text);
+	position: relative;
+}
+.rj-tab.active::after {
+	content: "";
+	position: absolute;
+	left: 0; right: 0; bottom: -1px;
+	height: 1px;
+	background: var(--panel);
+}
+.rj-tab-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
+.rj-tab-close {
+	background: none;
+	border: 0;
+	border-radius: 50%;
+	color: var(--muted);
+	font-size: 13px;
+	line-height: 1;
+	width: 18px;
+	height: 18px;
+	padding: 0;
+	cursor: pointer;
+	flex: none;
+}
+.rj-tab-close:hover { background: #ffffff14; color: var(--text); }
+#rj-newtab {
+	background: none;
+	border: 0;
+	border-radius: 50%;
+	color: var(--muted);
+	font-size: 17px;
+	width: 26px;
+	height: 26px;
+	margin: 0 2px 4px 4px;
+	cursor: pointer;
+	flex: none;
+}
+#rj-newtab:hover { background: #ffffff10; color: var(--text); }
+.rj-tabframe { width: 100%; height: 100%; border: 0; display: block; }
+body.in-flight.has-tabs #rj-framehost { inset: 81px 0 30px 0; }
+body.in-flight.dark-pages .rj-tabframe { filter: invert(0.92) hue-rotate(180deg); }
+body.in-flight.no-chrome #rj-tabs { display: none; }
+@media (max-width: 640px) {
+	.rj-tab { max-width: 130px; font-size: 12px; padding: 6px 6px 7px 10px; }
+	body.in-flight.has-tabs #rj-framehost { inset: 77px 0 30px 0; }
+}
+body.in-flight.no-chrome.has-tabs #rj-framehost { inset: 0 0 30px 0; }
+
+/* custom context menu */
+#rj-menu {
+	position: fixed;
+	min-width: 200px;
+	background: #17191d;
+	border: 1px solid #2a2f37;
+	border-radius: 10px;
+	box-shadow: 0 16px 40px rgba(0,0,0,.55);
+	padding: 4px;
+	z-index: 60;
+	animation: rj-fade-in 100ms ease-out;
+}
+#rj-menu[hidden] { display: none; }
+.rj-menu-item {
+	display: block;
+	width: 100%;
+	background: none;
+	border: 0;
+	border-radius: 6px;
+	color: var(--text);
+	font: 13px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+	padding: 7px 10px;
+	cursor: pointer;
+	text-align: left;
+}
+.rj-menu-item:hover { background: #ffffff10; }
+.rj-menu-sep { height: 1px; background: #262a31; margin: 4px 6px; }
