@@ -789,7 +789,6 @@ body.in-flight .ignite { border-radius: 0; }
 body.in-flight.no-chrome #rj-form { display: none; }
 body.in-flight.no-chrome #rj-peek { display: block; }
 body.in-flight.no-chrome #rj-framehost { inset: 0 0 30px 0; }
-body.in-flight.dark-pages #rj-frame { filter: invert(0.92) hue-rotate(180deg); }
 .rj-check {
 	display: flex;
 	align-items: center;
@@ -910,7 +909,6 @@ body.has-tabs #rj-landing { padding-top: 8px; }
 #rj-newtab:hover { background: #ffffff10; color: var(--text); }
 .rj-tabframe { width: 100%; height: 100%; border: 0; display: block; }
 body.in-flight.has-tabs #rj-framehost { inset: 81px 0 30px 0; }
-body.in-flight.dark-pages .rj-tabframe { filter: invert(0.92) hue-rotate(180deg); }
 body.in-flight.no-chrome #rj-tabs { display: none; }
 @media (max-width: 640px) {
 	.rj-tab { max-width: 130px; font-size: 12px; padding: 6px 6px 7px 10px; }
@@ -945,3 +943,66 @@ body.in-flight.no-chrome.has-tabs #rj-framehost { inset: 0 0 30px 0; }
 }
 .rj-menu-item:hover { background: #ffffff10; }
 .rj-menu-sep { height: 1px; background: #262a31; margin: 4px 6px; }
+
+/* find bar */
+#rj-find {
+	position: fixed;
+	top: 88px;
+	right: 14px;
+	z-index: 35;
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	background: #17191d;
+	border: 1px solid #2a2f37;
+	border-radius: 9px;
+	box-shadow: 0 12px 32px rgba(0,0,0,.5);
+	padding: 5px 6px;
+	animation: rj-fade-in 120ms ease-out;
+}
+#rj-find[hidden] { display: none; }
+#rj-find-in {
+	width: 200px;
+	background: #101216;
+	border: 1px solid #2a2f37;
+	border-radius: 6px;
+	color: var(--text);
+	font: 13px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+	padding: 6px 9px;
+	outline: none;
+	transition: border-color 140ms ease;
+}
+#rj-find-in:focus { border-color: var(--amber-deep); }
+#rj-find-in.miss { border-color: var(--err); }
+#rj-find-x {
+	background: none;
+	border: 0;
+	border-radius: 50%;
+	color: var(--muted);
+	font-size: 15px;
+	width: 24px;
+	height: 24px;
+	cursor: pointer;
+}
+#rj-find-x:hover { background: #ffffff10; color: var(--text); }
+
+/* speed dial */
+#rj-dial {
+	display: flex;
+	justify-content: center;
+	flex-wrap: wrap;
+	gap: 8px;
+	margin: 12px 22px 0;
+}
+body.in-flight #rj-dial { display: none; }
+.rj-chip {
+	background: var(--panel);
+	border: 1px solid var(--edge);
+	border-radius: 999px;
+	color: var(--muted);
+	font: 12.5px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+	padding: 6px 14px;
+	cursor: pointer;
+	transition: color 140ms ease, border-color 140ms ease;
+}
+.rj-chip:hover { color: var(--text); border-color: var(--amber-deep); }

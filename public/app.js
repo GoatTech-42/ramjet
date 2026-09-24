@@ -32,6 +32,12 @@ let tabSeq = 0;
 function renderTabs() {
 	document.body.classList.toggle("has-tabs", tabs.length > 0);
 	tablist.innerHTML = "";
+	try {
+		localStorage.setItem(TABS_KEY, JSON.stringify({
+			active: tabs.indexOf(activeTab),
+			tabs: tabs.map((t) => ({ url: t.url, title: t.title })),
+		}));
+	} catch (err) {}
 	for (const tab of tabs) {
 		const el = document.createElement("div");
 		el.className = "rj-tab" + (tab === activeTab ? " active" : "");
@@ -47,6 +53,10 @@ function renderTabs() {
 		close.addEventListener("click", (e) => { e.stopPropagation(); closeTab(tab); });
 		el.append(label, close);
 		el.addEventListener("click", () => activateTab(tab));
+		el.addEventListener("contextmenu", (e) => {
+			e.preventDefault();
+			openTabMenu(e.clientX, e.clientY, tab);
+		});
 		tablist.appendChild(el);
 	}
 	const add = document.createElement("button");
@@ -63,9 +73,12 @@ function activateTab(tab) {
 	for (const t of tabs) {
 		if (t.frame) t.frame.frame.style.display = t === tab ? "block" : "none";
 	}
+	hideFind();
 	if (tab.frame) {
 		document.body.classList.add("in-flight");
 		syncBar();
+	} else if (tab.url) {
+		ensureReady().then(() => { if (activeTab === tab && !tab.frame) ignite(tab.url); }).catch(() => {});
 	} else {
 		document.body.classList.remove("in-flight");
 		address.value = "";
@@ -124,6 +137,7 @@ function ensureFrame(tab) {
 const SETTINGS_KEY = "rj.settings";
 const BOOKMARKS_KEY = "rj.bookmarks";
 const HISTORY_KEY = "rj.history";
+const TABS_KEY = "rj.tabs";
 
 const DEFAULTS = {
 	theme: "amber",
@@ -131,7 +145,8 @@ const DEFAULTS = {
 	cloak: "off",
 	panicKey: "`",
 	panicUrl: "https://www.google.com",
-	darkPages: false,
+	zoom: "100",
+	clearOnExit: false,
 };
 
 let settings = { ...DEFAULTS };
@@ -151,6 +166,7 @@ function recordHistory(url) {
 	history.unshift({ url, ts: Date.now() });
 	history = history.slice(0, 100);
 	saveHistory();
+	renderDial();
 }
 
 const THEMES = {
@@ -189,8 +205,10 @@ function applyTheme() {
 	document.documentElement.style.setProperty("--amber-deep", deep);
 }
 
-function applyDarkPages() {
-	document.body.classList.toggle("dark-pages", !!settings.darkPages);
+function applyZoom() {
+	for (const t of tabs) {
+		if (t.frame) t.frame.frame.style.zoom = settings.zoom + "%";
+	}
 }
 
 function applyCloak() {
@@ -421,7 +439,8 @@ function syncSettingsUI() {
 	panicKeySel.value = settings.panicKey;
 	panicUrlIn.value = settings.panicUrl;
 	cloakBtn.classList.toggle("cloaked", settings.cloak !== "off");
-	document.getElementById("rj-darkpages").checked = !!settings.darkPages;
+	zoomSel.value = settings.zoom;
+	clearHistToggle.checked = !!settings.clearOnExit;
 }
 
 // -- shortcuts + panic --------------------------------------------------------
@@ -431,7 +450,26 @@ document.addEventListener("keydown", (e) => {
 		return;
 	}
 	if (e.key === "Escape" && !panel.hidden) { closeSettings(); return; }
-	const typing = document.activeElement === address || document.activeElement === panicUrlIn;
+	if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "l") {
+		e.preventDefault();
+		address.focus();
+		address.select();
+		return;
+	}
+	if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "f" && document.body.classList.contains("in-flight")) {
+		e.preventDefault();
+		openFind();
+		return;
+	}
+	if (e.altKey && e.key === "ArrowLeft") {
+		if (activeTab && activeTab.frame) activeTab.frame.frame.contentWindow.history.back();
+		return;
+	}
+	if (e.altKey && e.key === "ArrowRight") {
+		if (activeTab && activeTab.frame) activeTab.frame.frame.contentWindow.history.forward();
+		return;
+	}
+	const typing = document.activeElement === address || document.activeElement === panicUrlIn || document.activeElement === findIn;
 	if (typing) return;
 	if (e.key === "/" || ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k")) {
 		e.preventDefault();
@@ -592,12 +630,21 @@ document.getElementById("rj-popout").addEventListener("click", () => {
 	w.document.close();
 });
 
-// dark pages toggle
-const darkToggle = document.getElementById("rj-darkpages");
-darkToggle.addEventListener("change", () => {
-	settings.darkPages = darkToggle.checked;
+// zoom
+const zoomSel = document.getElementById("rj-zoom");
+zoomSel.addEventListener("change", () => {
+	settings.zoom = zoomSel.value;
 	saveSettings();
-	applyDarkPages();
+	applyZoom();
+});
+// clear history on exit
+const clearHistToggle = document.getElementById("rj-clearhist");
+clearHistToggle.addEventListener("change", () => {
+	settings.clearOnExit = clearHistToggle.checked;
+	saveSettings();
+});
+window.addEventListener("beforeunload", () => {
+	if (settings.clearOnExit) localStorage.removeItem(HISTORY_KEY);
 });
 
 
@@ -679,14 +726,95 @@ document.addEventListener("click", hideMenu);
 document.addEventListener("keydown", (e) => { if (e.key === "Escape") hideMenu(); });
 window.addEventListener("blur", hideMenu);
 
+
+// -- tab strip context menu --
+function openTabMenu(x, y, tab) {
+	menu.innerHTML = "";
+	menu.appendChild(menuItem("duplicate", () => { if (tab.url) newTab(tab.url); }));
+	menu.appendChild(menuItem("close other tabs", () => {
+		for (const t of tabs.slice()) if (t !== tab) closeTab(t);
+	}));
+	menu.appendChild(menuItem("close tab", () => closeTab(tab)));
+	menu.hidden = false;
+	menu.style.left = Math.min(x, window.innerWidth - menu.offsetWidth - 8) + "px";
+	menu.style.top = Math.min(y, window.innerHeight - menu.offsetHeight - 8) + "px";
+}
+
+// -- find in page --
+const findBar = document.getElementById("rj-find");
+const findIn = document.getElementById("rj-find-in");
+function openFind() {
+	if (!document.body.classList.contains("in-flight")) return;
+	findBar.hidden = false;
+	findIn.focus();
+	findIn.select();
+}
+function hideFind() { findBar.hidden = true; }
+function doFind(back) {
+	const w = activeTab && activeTab.frame ? activeTab.frame.frame.contentWindow : null;
+	if (!w || !findIn.value) return;
+	let ok = false;
+	try { ok = w.find(findIn.value, false, !!back, true, false, true, false); } catch (err) {}
+	findIn.classList.toggle("miss", !ok);
+}
+findIn.addEventListener("input", () => doFind(false));
+findIn.addEventListener("keydown", (e) => {
+	if (e.key === "Enter") { e.preventDefault(); doFind(e.shiftKey); }
+	if (e.key === "Escape") { hideFind(); address.focus(); e.stopPropagation(); }
+});
+document.getElementById("rj-find-x").addEventListener("click", () => { hideFind(); address.focus(); });
+
+// -- speed dial on the landing --
+function renderDial() {
+	const dial = document.getElementById("rj-dial");
+	dial.innerHTML = "";
+	const seen = new Set();
+	const picks = [];
+	for (const h of history) {
+		let host;
+		try { host = new URL(h.url).hostname; } catch (err) { continue; }
+		if (seen.has(host)) continue;
+		seen.add(host);
+		picks.push({ host, url: h.url });
+		if (picks.length >= 6) break;
+	}
+	for (const b of bookmarks) {
+		let host;
+		try { host = new URL(b.url).hostname; } catch (err) { continue; }
+		if (seen.has(host)) continue;
+		seen.add(host);
+		picks.push({ host, url: b.url });
+		if (picks.length >= 6) break;
+	}
+	for (const p of picks) {
+		const chip = document.createElement("button");
+		chip.type = "button";
+		chip.className = "rj-chip";
+		chip.textContent = p.host;
+		chip.title = p.url;
+		chip.addEventListener("click", () => { address.value = p.url; form.requestSubmit(); });
+		dial.appendChild(chip);
+	}
+}
+
 // warm the engine in the background once the page is idle
 if ("requestIdleCallback" in window) {
 	requestIdleCallback(() => ensureReady().catch(() => {}), { timeout: 4000 });
 }
 
+let savedTabs = { tabs: [], active: 0 };
+try { savedTabs = JSON.parse(localStorage.getItem(TABS_KEY) || '{"tabs":[],"active":0}'); } catch (err) {}
+for (const st of savedTabs.tabs || []) {
+	if (tabs.length >= 8) break;
+	tabs.push({ id: ++tabSeq, frame: null, url: st.url || null, title: st.title || "" });
+}
+if (tabs.length) {
+	activateTab(tabs[Math.max(0, Math.min(savedTabs.active || 0, tabs.length - 1))]);
+}
+
 applyTheme();
 applyCloak();
-applyDarkPages();
 syncSettingsUI();
+renderDial();
 setStatus("engine: scramjet 1.1.0 \u00b7 transport: wisp \u00b7 ready", "idle");
 address.focus();
