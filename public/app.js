@@ -151,15 +151,15 @@ const DEFAULTS = {
 
 let settings = { ...DEFAULTS };
 try { Object.assign(settings, JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}")); } catch (err) {}
-function saveSettings() { localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); }
+function saveSettings() { localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); scheduleSyncPush(); }
 
 let bookmarks = [];
 try { bookmarks = JSON.parse(localStorage.getItem(BOOKMARKS_KEY) || "[]"); } catch (err) {}
-function saveBookmarks() { localStorage.setItem(BOOKMARKS_KEY, JSON.stringify(bookmarks)); }
+function saveBookmarks() { localStorage.setItem(BOOKMARKS_KEY, JSON.stringify(bookmarks)); scheduleSyncPush(); }
 
 let history = [];
 try { history = JSON.parse(localStorage.getItem(HISTORY_KEY) || "[]"); } catch (err) {}
-function saveHistory() { localStorage.setItem(HISTORY_KEY, JSON.stringify(history)); }
+function saveHistory() { localStorage.setItem(HISTORY_KEY, JSON.stringify(history)); scheduleSyncPush(); }
 function recordHistory(url) {
 	if (!url) return;
 	history = history.filter((h) => h.url !== url);
@@ -797,6 +797,167 @@ function renderDial() {
 	}
 }
 
+// -- zero-knowledge sync + account --------------------------------------------
+let syncTimer = null;
+let meInfo = null; // { user, role }
+function scheduleSyncPush() {
+	if (typeof RJCrypto === "undefined" || !RJCrypto.unlocked()) return;
+	clearTimeout(syncTimer);
+	syncTimer = setTimeout(async () => {
+		try {
+			await RJCrypto.push({ history: history.slice(0, 200), bookmarks: bookmarks.slice(0, 100), settings });
+			markSync("synced");
+		} catch (err) { markSync("sync failed"); }
+	}, 800);
+}
+function markSync(txt) {
+	const el = document.getElementById("rj-sync-state");
+	if (el) el.textContent = txt;
+}
+async function hydrateFromServer() {
+	try {
+		const meRes = await fetch("/auth/me");
+		if (!meRes.ok) { renderAccount(); return; }
+		meInfo = await meRes.json();
+		const data = await RJCrypto.pull();
+		if (data) {
+			if (Array.isArray(data.history)) { history = data.history.slice(0, 200); localStorage.setItem(HISTORY_KEY, JSON.stringify(history)); }
+			if (Array.isArray(data.bookmarks)) { bookmarks = data.bookmarks.slice(0, 100); localStorage.setItem(BOOKMARKS_KEY, JSON.stringify(bookmarks)); }
+			if (data.settings && typeof data.settings === "object") {
+				settings = { ...DEFAULTS, ...data.settings };
+				localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+			}
+			applyTheme();
+			applyCloak();
+			applyZoom();
+			syncSettingsUI();
+			renderBookmarks();
+			renderHistory();
+			renderDial();
+			syncStar();
+			markSync("synced");
+		} else {
+			markSync("locked");
+		}
+	} catch (err) {}
+	renderAccount();
+}
+function renderAccount() {
+	const box = document.getElementById("rj-acct");
+	if (!box) return;
+	box.innerHTML = "";
+	if (!meInfo || !meInfo.user) {
+		box.textContent = "not signed in";
+		return;
+	}
+	const row = document.createElement("div");
+	row.className = "rj-row";
+	row.style.justifyContent = "space-between";
+	const who = document.createElement("span");
+	who.textContent = meInfo.user + (meInfo.role === "admin" ? " (admin)" : "");
+	const state = document.createElement("span");
+	state.id = "rj-sync-state";
+	state.style.color = "#7d838d";
+	state.style.fontSize = "12px";
+	state.textContent = RJCrypto.unlocked() ? "synced" : "locked";
+	row.appendChild(who);
+	row.appendChild(state);
+	box.appendChild(row);
+
+	const btns = document.createElement("div");
+	btns.className = "rj-row";
+	btns.style.marginTop = "8px";
+	const mk = (label, fn) => {
+		const b = document.createElement("button");
+		b.type = "button";
+		b.className = "rj-mini";
+		b.textContent = label;
+		b.addEventListener("click", fn);
+		btns.appendChild(b);
+		return b;
+	};
+	if (!RJCrypto.unlocked()) {
+		mk("unlock sync", async () => {
+			const pw = prompt("password to unlock your encrypted data:");
+			if (!pw) return;
+			const ok = await RJCrypto.unlockWithPassword(pw);
+			if (ok) { await hydrateFromServer(); }
+			else alert("could not unlock - wrong password?");
+		});
+	}
+	mk("change password", async () => {
+		const oldPw = prompt("current password:");
+		if (!oldPw) return;
+		const newPw = prompt("new password (4+ chars):");
+		if (!newPw || newPw.length < 4) { alert("new password too short"); return; }
+		const r = await RJCrypto.changePassword(oldPw, newPw);
+		alert(r.ok ? "password changed" : ("failed: " + (r.error || "unknown")));
+	});
+	mk("sign out", async () => {
+		await RJCrypto.lock();
+		location.href = "/auth/logout";
+	});
+	box.appendChild(btns);
+
+	if (meInfo.role === "admin") {
+		document.getElementById("rj-admin-sec").hidden = false;
+		renderAdmin();
+	}
+}
+async function renderAdmin() {
+	const box = document.getElementById("rj-admin");
+	if (!box) return;
+	let data;
+	try {
+		const res = await fetch("/auth/admin/users");
+		if (!res.ok) return;
+		data = await res.json();
+	} catch { return; }
+	box.innerHTML = "";
+	for (const u of data.users) {
+		const row = document.createElement("div");
+		row.className = "rj-row";
+		row.style.justifyContent = "space-between";
+		const label = document.createElement("span");
+		label.textContent = u.username + " - " + u.status + (u.role === "admin" ? " (admin)" : "");
+		row.appendChild(label);
+		const acts = document.createElement("span");
+		if (u.username !== meInfo.user) {
+			const mk = (txt, action) => {
+				const b = document.createElement("button");
+				b.type = "button";
+				b.className = "rj-mini";
+				b.textContent = txt;
+				b.style.marginLeft = "6px";
+				b.addEventListener("click", async () => {
+					await fetch("/auth/admin/" + action, {
+						method: "POST",
+						headers: { "content-type": "application/x-www-form-urlencoded" },
+						body: "username=" + encodeURIComponent(u.username),
+					});
+					renderAdmin();
+				});
+				acts.appendChild(b);
+			};
+			if (u.status === "pending") mk("approve", "approve");
+			if (u.status === "pending") mk("deny", "deny");
+			if (u.status === "denied") mk("approve", "approve");
+			mk("remove", "remove");
+		}
+		row.appendChild(acts);
+		box.appendChild(row);
+	}
+	const tog = document.getElementById("rj-require-approval");
+	tog.checked = !!data.requireApproval;
+	tog.onchange = async () => {
+		await fetch("/auth/admin/config", {
+			method: "POST",
+			headers: { "content-type": "application/x-www-form-urlencoded" },
+			body: "requireApproval=" + (tog.checked ? "1" : "0"),
+		});
+	};
+}
+
 // warm the engine in the background once the page is idle
 if ("requestIdleCallback" in window) {
 	requestIdleCallback(() => ensureReady().catch(() => {}), { timeout: 4000 });
@@ -817,4 +978,5 @@ applyCloak();
 syncSettingsUI();
 renderDial();
 setStatus("engine: scramjet 1.1.0 \u00b7 transport: wisp \u00b7 ready", "idle");
+hydrateFromServer();
 address.focus();
