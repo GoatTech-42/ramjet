@@ -1060,25 +1060,6 @@ body.in-flight.no-chrome.has-tabs #rj-framehost { inset: 0 0 30px 0; }
 #rj-find-x:hover { background: #ffffff10; color: var(--text); }
 
 /* speed dial */
-#rj-dial {
-	display: flex;
-	justify-content: center;
-	flex-wrap: wrap;
-	gap: 8px;
-	margin: 12px 22px 0;
-}
-body.in-flight #rj-dial { display: none; }
-.rj-chip {
-	background: var(--panel);
-	border: 1px solid var(--edge);
-	border-radius: 6px;
-	color: var(--muted);
-	font: 12.5px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-	padding: 7px 12px;
-	cursor: pointer;
-	transition: color 140ms ease, border-color 140ms ease;
-}
-.rj-chip:hover { color: var(--text); border-color: var(--amber-deep); }
 
 /* ------- v0.3: settings page tab + bookmarks bar ------- */
 body.page-view #rj-landing, body.page-view #rj-form, body.page-view #rj-framehost, body.page-view #rj-bmbar { display: none !important; }
