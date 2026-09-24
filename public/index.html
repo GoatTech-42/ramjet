@@ -8,11 +8,12 @@
 <link rel="icon" href="/assets/ramjet.svg" type="image/svg+xml">
 <link rel="manifest" href="/site.webmanifest">
 <meta name="theme-color" content="#0b0c0e">
-<link rel="stylesheet" href="/style.css">
-<script src="/scram/scramjet.all.js"></script>
-<script src="/baremux/index.js"></script>
+<link rel="stylesheet" href="/style.css?v=18">
+<script>window.RJ_VERSION="0.7.0-alpha";</script>
+<script src="/scramjet/scramjet_bundled.js"></script>
+<script src="/controller/controller.api.js"></script>
 <script src="/rjcrypto.js"></script>
-<script src="/app.js" defer></script>
+<script src="/app.js?v=18" defer></script>
 </head>
 <body>
 
@@ -44,6 +45,7 @@
 		<button id="rj-gear2" type="button" title="Settings" aria-label="Settings">
 			<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="2.2"/><path d="M8 1.8v1.7M8 12.5v1.7M1.8 8h1.7M12.5 8h1.7M3.6 3.6l1.2 1.2M11.2 11.2l1.2 1.2M12.4 3.6l-1.2 1.2M4.8 11.2l-1.2 1.2"/></svg>
 		</button>
+		<button id="rj-tabsbtn" type="button" title="Tabs" aria-label="Tabs"><span id="rj-tabcount">1</span></button>
 		<button id="rj-fs" type="button" title="Hide the bar" aria-label="Hide the bar">
 			<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 6V2h4M10 2h4v4M14 10v4h-4M6 14H2v-4"/></svg>
 		</button>
@@ -66,6 +68,14 @@
 <div id="rj-framehost" hidden></div>
 
 <div id="rj-menu" hidden></div>
+
+<div id="rj-switcher" hidden>
+	<header>
+		<h2>Tabs</h2>
+		<button id="rj-switcher-close" type="button" aria-label="Close">&times;</button>
+	</header>
+	<div id="rj-switcher-grid"></div>
+</div>
 
 <div id="rj-pagehost" hidden>
 	<div id="rj-panel-card" role="dialog" aria-label="Settings">
@@ -102,7 +112,9 @@
 				<button type="button" data-theme="sky" style="--sw:#38bdf8">sky</button>
 				<button type="button" data-theme="violet" style="--sw:#a78bfa">violet</button>
 				<button type="button" data-theme="ember" style="--sw:#f87171">ember</button>
+				<button type="button" data-theme="custom" id="rj-theme-custom" style="--sw:#ffa028">custom</button>
 			</div>
+			<label id="rj-custom-row" class="rj-check" hidden>Accent color <input id="rj-custom-accent" type="color" value="#ffa028"></label>
 		</section>
 
 		<section>
@@ -112,7 +124,17 @@
 				<option value="google">Google</option>
 				<option value="bing">Bing</option>
 				<option value="brave">Brave</option>
+				<option value="custom">custom</option>
 			</select>
+			<div id="rj-custom-engine-row" hidden style="margin-top:8px">
+				<input id="rj-custom-engine-name" type="text" placeholder="name" spellcheck="false" aria-label="Engine name" style="margin-bottom:6px">
+				<input id="rj-custom-engine-url" type="text" inputmode="url" placeholder="search url, %s where the query goes" spellcheck="false" aria-label="Engine search URL">
+			</div>
+		</section>
+
+		<section>
+			<h3>Startup</h3>
+			<label class="rj-check"><input id="rj-restore-tabs" type="checkbox"> Reopen tabs from last session</label>
 		</section>
 
 		<section>
@@ -145,9 +167,19 @@
 		</section>
 
 		<section>
+			<h3>What's new</h3>
+			<div id="rj-changelog"><p class="rj-muted">loading...</p></div>
+		</section>
+
+		<section>
 			<h3>History <button id="rj-history-clear" type="button" class="rj-mini">clear</button></h3>
 			<ul id="rj-history"></ul>
 			<label class="rj-check"><input id="rj-clearhist" type="checkbox"> Clear history when ramjet closes</label>
+		</section>
+
+		<section>
+			<h3>Site storage <button id="rj-storage-clearall" type="button" class="rj-mini">clear all</button></h3>
+			<div id="rj-storage"><p class="rj-muted">nothing stored yet</p></div>
 		</section>
 
 		<section>
@@ -162,13 +194,13 @@
 				<li><span class="kbd">alt &#8592;&#8594;</span> back / forward</li>
 			</ul>
 		</section>
-			<p class="rj-ver">ramjet v0.6.1</p>
+			<p class="rj-ver">ramjet v0.7.0</p>
 	</div>
 </div>
 
 <footer id="rj-foot">
 	<span id="rj-status" data-mode="idle"></span>
-	<span class="ver">v0.6.1</span>
+	<span class="ver">v0.7.0</span>
 </footer>
 
 </body>

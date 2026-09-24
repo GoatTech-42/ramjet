@@ -1,18 +1,18 @@
 // Ramjet client - ignition logic + settings, bookmarks, history, cloak, panic. GoatTech, 2026. MIT.
 "use strict";
 
-const { ScramjetController } = $scramjetLoadController();
+const APP_VERSION = "0.7.0-alpha"; // bump every release; index.html + labels + asset params follow
+// stale-client self-heal: mixed HTML/JS from caches gets one clean reload
+if (window.RJ_VERSION && window.RJ_VERSION !== APP_VERSION && !sessionStorage.getItem("rj-reheal")) {
+	sessionStorage.setItem("rj-reheal", "1");
+	location.reload();
+} else {
+	sessionStorage.removeItem("rj-reheal");
+}
 
-const scramjet = new ScramjetController({
-	files: {
-		wasm: "/scram/scramjet.wasm.wasm",
-		all: "/scram/scramjet.all.js",
-		sync: "/scram/scramjet.sync.js",
-	},
-});
-scramjet.init();
-
-const connection = new BareMux.BareMuxConnection("/baremux/worker.js");
+// Scramjet v2: controller + transport are created in ensureReady() once the
+// routing service worker controls the page.
+let scramjet = null; // { createFrame } shim over the v2 Controller
 
 const form = document.getElementById("rj-form");
 const address = document.getElementById("rj-address");
@@ -106,7 +106,56 @@ function renderTabs() {
 	add.textContent = "+";
 	add.addEventListener("click", () => newTab());
 	tablist.appendChild(add);
+	const badge = document.getElementById("rj-tabcount");
+	if (badge) badge.textContent = String(tabs.length);
 }
+
+// -- mobile tab switcher (card grid) --
+function openSwitcher() {
+	const sw = document.getElementById("rj-switcher");
+	const grid = document.getElementById("rj-switcher-grid");
+	grid.textContent = "";
+	for (const tab of tabs) {
+		const card = document.createElement("div");
+		card.className = "rj-card" + (tab === activeTab ? " active" : "");
+		const body = document.createElement("button");
+		body.type = "button";
+		body.className = "rj-card-body";
+		if (tab.icon) {
+			const icon = document.createElement("img");
+			icon.src = tab.icon;
+			icon.alt = "";
+			body.appendChild(icon);
+		}
+		const label = document.createElement("span");
+		label.textContent = tab.page || tab.title || "new tab";
+		body.appendChild(label);
+		body.addEventListener("click", () => { activateTab(tab); closeSwitcher(); });
+		const close = document.createElement("button");
+		close.type = "button";
+		close.className = "rj-card-close";
+		close.textContent = "\u00d7";
+		close.title = "Close tab";
+		close.addEventListener("click", (e) => { e.stopPropagation(); closeTab(tab); if (!tabs.length) closeSwitcher(); else openSwitcher(); });
+		card.append(body, close);
+		grid.appendChild(card);
+	}
+	const addCard = document.createElement("button");
+	addCard.type = "button";
+	addCard.className = "rj-card rj-card-add";
+	addCard.textContent = "+ new tab";
+	addCard.addEventListener("click", () => { newTab(); closeSwitcher(); });
+	grid.appendChild(addCard);
+	sw.hidden = false;
+}
+function closeSwitcher() {
+	document.getElementById("rj-switcher").hidden = true;
+}
+document.getElementById("rj-tabsbtn").addEventListener("click", () => {
+	const sw = document.getElementById("rj-switcher");
+	sw.hidden ? openSwitcher() : closeSwitcher();
+});
+document.getElementById("rj-switcher-close").addEventListener("click", closeSwitcher);
 
 function activateTab(tab) {
 	activeTab = tab;
@@ -167,6 +216,8 @@ function closeTab(tab) {
 		if (next) activateTab(next);
 		else {
 			document.body.classList.remove("in-flight");
+			document.body.classList.remove("page-view");
+			document.getElementById("rj-pagehost").hidden = true;
 			address.value = "";
 			renderTabs();
 		}
@@ -200,7 +251,7 @@ function ensureFrame(tab) {
 				}).catch(() => {});
 			}
 		} catch (err) {}
-		if (tab === activeTab) { syncBar(); setStatus("", "idle"); }
+		if (tab === activeTab) { syncBar(); setStatus("", "idle"); scheduleStoragePush(); }
 		renderTabs();
 		wireFrameDoc(tab, f);
 	});
@@ -223,6 +274,9 @@ const DEFAULTS = {
 	panicUrl: "https://www.google.com",
 	zoom: "100",
 	clearOnExit: false,
+	restoreTabs: true,
+	customEngineName: "",
+	customEngineUrl: "",
 };
 
 let settings = { ...DEFAULTS };
@@ -281,9 +335,22 @@ const CLOAKS = {
 };
 
 function applyTheme() {
-	const [amber, deep] = THEMES[settings.theme] || THEMES.amber;
+	let amber, deep;
+	if (settings.theme === "custom") {
+		amber = settings.customAccent || "#ffa028";
+		deep = shadeHex(amber, -0.35);
+	} else {
+		[amber, deep] = THEMES[settings.theme] || THEMES.amber;
+	}
 	document.documentElement.style.setProperty("--amber", amber);
 	document.documentElement.style.setProperty("--amber-deep", deep);
+	const customBtn = document.getElementById("rj-theme-custom");
+	if (customBtn) customBtn.style.setProperty("--sw", amber);
+}
+function shadeHex(hex, amt) {
+	const n = parseInt(hex.slice(1), 16);
+	const ch = (v) => Math.max(0, Math.min(255, Math.round(v * (1 + amt))));
+	return "#" + [ch(n >> 16), ch((n >> 8) & 255), ch(n & 255)].map((v) => v.toString(16).padStart(2, "0")).join("");
 }
 
 function applyZoom() {
@@ -316,17 +383,37 @@ async function ensureReady() {
 	if (!swReady) {
 		setStatus("spooling up...", "busy");
 		swReady = (async () => {
-			await navigator.serviceWorker.register("/sw.js");
+			const registration = await navigator.serviceWorker.register("/sw.js", { updateViaCache: "none" });
+			registration.update();
+			if (!navigator.serviceWorker.controller) {
+				await new Promise((resolve) => {
+					navigator.serviceWorker.addEventListener("controllerchange", () => resolve(), { once: true });
+					setTimeout(resolve, 10000);
+				});
+			}
+			await navigator.serviceWorker.ready;
+			const readySw = navigator.serviceWorker.controller || registration.active;
+			if (!readySw) throw new Error("service worker not ready");
 			const wispUrl =
 				(location.protocol === "https:" ? "wss" : "ws") +
 				"://" +
 				location.host +
 				"/wisp/";
-			if ((await connection.getTransport()) !== "/libcurl/index.mjs") {
-				await connection.setTransport("/libcurl/index.mjs", [
-					{ websocket: wispUrl },
-				]);
-			}
+			const { default: LibcurlClient } = await import("/libcurl/index.mjs");
+			const transport = new LibcurlClient({ wisp: wispUrl });
+			const controller = new $scramjetController.Controller({
+				serviceworker: readySw,
+				transport,
+				scramjetConfig: $scramjet.defaultConfig,
+			});
+			window.__rjController = controller;
+			await controller.wait();
+			scramjet = {
+				createFrame() {
+					const fr = controller.createFrame();
+					return { go: (u) => fr.go(u), frame: fr.element, _raw: fr };
+				},
+			};
 		})();
 	}
 	return swReady;
@@ -343,7 +430,10 @@ function resolveInput(raw) {
 		const url = new URL("http://" + input);
 		if (url.hostname.includes(".")) return url.toString();
 	} catch (err) {}
-	const eng = ENGINES[settings.engine] || ENGINES.ddg;
+	let eng = ENGINES[settings.engine];
+	if (settings.engine === "custom" && settings.customEngineUrl) eng = [settings.customEngineName || "custom", settings.customEngineUrl];
+	if (!eng) eng = ENGINES.ddg;
+	if (eng[1].includes("%s")) return eng[1].replace("%s", encodeURIComponent(input));
 	return eng[1] + encodeURIComponent(input);
 }
 
@@ -363,14 +453,19 @@ function ignite(url) {
 }
 
 function peelProxied(href) {
-	// undo any number of proxy wrappings (redirect chains can nest them)
-	const prefix = location.origin + "/scramjet/";
+	// v2 URL shape: /~/sj/<scramtag>/<codec>/<encodeURIComponent(realUrl)>
+	const prefix = location.origin + "/~/sj/";
 	let out = href;
-	let guard = 0;
-	while (out.startsWith(prefix) && guard++ < 10) {
-		try { out = decodeURIComponent(out.slice(prefix.length)); }
-		catch (err) { return href; }
+	if (href.startsWith(prefix)) {
+		try {
+			const seg = href.slice(prefix.length).split("/").filter(Boolean).pop();
+			const dec = decodeURIComponent(seg || "");
+			if (/^(https?|about|data|blob):/.test(dec)) out = dec;
+		} catch (err) { return href; }
 	}
+	// v2 appends its own $-prefixed tracking params to proxied URLs; hide them
+	out = out.replace(/([?&])\$[^&#]*(&|$)/g, (m, p1, p2) => (p2 === "&" ? p1 : ""));
+	out = out.replace(/\?$/, "");
 	return out;
 }
 
@@ -382,7 +477,7 @@ function syncBar() {
 		if (href === "about:blank") return;
 		// show the real destination, not our encoded proxy path
 		const real = peelProxied(href);
-		if (real === href && href.includes("/scramjet/")) return; // still mid-redirect
+		if (real === href && href.includes("/~/sj/")) return; // still mid-redirect
 		address.value = real;
 		if (activeTab) activeTab.url = real;
 		syncStar();
@@ -479,6 +574,8 @@ function renderBookmarks() {
 
 // -- settings panel ----------------------------------------------------------
 function openSettings() {
+	loadChangelog();
+	renderSiteStorage();
 	newPageTab("settings");
 	return;
 }
@@ -488,22 +585,50 @@ function closeSettings() {
 document.getElementById("rj-gear").addEventListener("click", openSettings);
 document.getElementById("rj-gear2").addEventListener("click", openSettings);
 document.getElementById("rj-panel-close").addEventListener("click", closeSettings);
+document.getElementById("rj-storage-clearall").addEventListener("click", async () => {
+	if (!confirm("clear ALL site storage? this logs you out of every site")) return;
+	await storeWrite("{}");
+	for (const [host, entries] of Object.entries(collectSiteStorage())) {
+		for (const k of Object.keys(entries)) localStorage.removeItem(host + "@" + k);
+	}
+	scheduleStoragePush();
+	renderSiteStorage();
+});
 
 // theme buttons
 for (const btn of document.querySelectorAll("#rj-themes button")) {
 	btn.addEventListener("click", () => {
 		settings.theme = btn.dataset.theme;
+		if (settings.theme === "custom" && !settings.customAccent) settings.customAccent = "#ffa028";
 		saveSettings();
 		applyTheme();
 		syncSettingsUI();
 	});
 }
+const customAccentIn = document.getElementById("rj-custom-accent");
+customAccentIn.addEventListener("input", () => {
+	settings.theme = "custom";
+	settings.customAccent = customAccentIn.value;
+	saveSettings();
+	applyTheme();
+	syncSettingsUI();
+});
 // engine select
 const engineSel = document.getElementById("rj-engine");
 engineSel.addEventListener("change", () => {
 	settings.engine = engineSel.value;
+	customEngineRow.hidden = settings.engine !== "custom";
 	saveSettings();
 });
+// custom search engine
+const customEngineRow = document.getElementById("rj-custom-engine-row");
+const customEngineName = document.getElementById("rj-custom-engine-name");
+const customEngineUrl = document.getElementById("rj-custom-engine-url");
+customEngineName.addEventListener("change", () => { settings.customEngineName = customEngineName.value.trim(); saveSettings(); });
+customEngineUrl.addEventListener("change", () => { settings.customEngineUrl = customEngineUrl.value.trim(); saveSettings(); });
+// startup: reopen last session's tabs
+const restoreTabsToggle = document.getElementById("rj-restore-tabs");
+restoreTabsToggle.addEventListener("change", () => { settings.restoreTabs = restoreTabsToggle.checked; saveSettings(); });
 // cloak select + quick button
 const cloakSel = document.getElementById("rj-cloak-sel");
 cloakSel.addEventListener("change", () => {
@@ -540,7 +665,49 @@ function syncSettingsUI() {
 	panicUrlIn.value = settings.panicUrl;
 	cloakBtn.classList.toggle("cloaked", settings.cloak !== "off");
 	zoomSel.value = settings.zoom;
+	document.getElementById("rj-custom-row").hidden = settings.theme !== "custom";
+	if (settings.customAccent) customAccentIn.value = settings.customAccent;
 	clearHistToggle.checked = !!settings.clearOnExit;
+	customEngineRow.hidden = settings.engine !== "custom";
+	customEngineName.value = settings.customEngineName || "";
+	customEngineUrl.value = settings.customEngineUrl || "";
+	restoreTabsToggle.checked = settings.restoreTabs !== false;
+}
+
+
+// -- changelog ----------------------------------------------------------------
+let changelogLoaded = false;
+async function loadChangelog() {
+	if (changelogLoaded) return;
+	const box = document.getElementById("rj-changelog");
+	try {
+		const res = await fetch("/CHANGELOG.md", { cache: "no-store" });
+		if (!res.ok) throw new Error("no changelog");
+		const md = await res.text();
+		box.innerHTML = renderChangelog(md);
+		changelogLoaded = true;
+	} catch (err) {
+		box.innerHTML = '<p class="rj-muted">no changelog yet</p>';
+	}
+}
+function renderChangelog(md) {
+	const esc = (t) => t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+	let html = "", inList = false;
+	for (const raw of md.split("\n")) {
+		const line = raw.trim();
+		if (line.startsWith("## ")) {
+			if (inList) { html += "</ul>"; inList = false; }
+			html += "<h4>" + esc(line.slice(3)) + "</h4>";
+		} else if (line.startsWith("- ")) {
+			if (!inList) { html += "<ul>"; inList = true; }
+			html += "<li>" + esc(line.slice(2)) + "</li>";
+		} else if (line && !line.startsWith("# ")) {
+			if (inList) { html += "</ul>"; inList = false; }
+			html += "<p>" + esc(line) + "</p>";
+		}
+	}
+	if (inList) html += "</ul>";
+	return html || '<p class="rj-muted">no changelog yet</p>';
 }
 
 // -- shortcuts + panic --------------------------------------------------------
@@ -933,6 +1100,188 @@ function markSync(txt) {
 	const el = document.getElementById("rj-sync-state");
 	if (el) el.textContent = txt;
 }
+
+// -- storage sync (admin only): site logins follow the account across devices.
+// The scramjet controller cookie db is the local source of truth; we read and
+// write it directly so the controller picks changes up via its BroadcastChannel.
+const STORE_DB = "__scramjet_controller", STORE_STORE = "state", STORE_KEY = "cookies";
+const STORE_CHAN = "__scramjet_controller_channel";
+function storeDb() {
+	return new Promise((resolve, reject) => {
+		const req = indexedDB.open(STORE_DB, 1);
+		req.onupgradeneeded = () => { if (!req.result.objectStoreNames.contains(STORE_STORE)) req.result.createObjectStore(STORE_STORE); };
+		req.onsuccess = () => resolve(req.result);
+		req.onerror = () => reject(req.error);
+	});
+}
+async function storeRead() {
+	try {
+		const db = await storeDb();
+		return await new Promise((resolve) => {
+			const tx = db.transaction(STORE_STORE, "readonly").objectStore(STORE_STORE).get(STORE_KEY);
+			tx.onsuccess = () => resolve(tx.result || null);
+			tx.onerror = () => resolve(null);
+		});
+	} catch (err) { return null; }
+}
+async function storeWrite(cookies) {
+	const db = await storeDb();
+	const updatedAt = Date.now();
+	await new Promise((resolve, reject) => {
+		const tx = db.transaction(STORE_STORE, "readwrite");
+		tx.objectStore(STORE_STORE).put({ updatedAt, cookies }, STORE_KEY);
+		tx.oncomplete = () => resolve();
+		tx.onerror = () => reject(tx.error);
+	});
+	try { new BroadcastChannel(STORE_CHAN).postMessage({ updatedAt }); } catch (err) {}
+}
+function storageSyncOn() {
+	return typeof RJCrypto !== "undefined" && RJCrypto.unlocked() && meInfo && meInfo.role === "admin";
+}
+let storeSyncTimer = null;
+function scheduleStoragePush() {
+	if (!storageSyncOn()) return;
+	clearTimeout(storeSyncTimer);
+	storeSyncTimer = setTimeout(pushStorageNow, 4000);
+}
+function collectSiteStorage() {
+	const out = {};
+	for (let i = 0; i < localStorage.length; i++) {
+		const k = localStorage.key(i);
+		const at = k.indexOf("@");
+		if (at < 1) continue;
+		const host = k.slice(0, at), key = k.slice(at + 1);
+		if (!/^[a-z0-9.-]+(:\d+)?$/i.test(host)) continue; // scramjet site keys are host@key
+		(out[host] = out[host] || {})[key] = localStorage.getItem(k);
+	}
+	return out;
+}
+async function pushStorageNow() {
+	if (!storageSyncOn()) return;
+	try {
+		const state = await storeRead();
+		const sites = collectSiteStorage();
+		const cookies = state && typeof state.cookies === "string" && state.cookies ? state.cookies : null;
+		if (!cookies && !Object.keys(sites).length) return;
+		const ok = await RJCrypto.pushStorage({ cookies, sitestorage: sites, syncedAt: Date.now() });
+		if (ok) { localStorage.setItem("rj-store-ts", String(Date.now())); markSync("synced"); }
+	} catch (err) {}
+}
+// -- site storage manager (feature 5): per-site cookies + site data ----------
+async function jarMutate(fn) {
+	const state = await storeRead();
+	let jar = {};
+	try { jar = state && state.cookies ? JSON.parse(state.cookies) : {}; } catch (err) {}
+	fn(jar);
+	await storeWrite(JSON.stringify(jar));
+	scheduleStoragePush();
+}
+async function renderSiteStorage() {
+	const box = document.getElementById("rj-storage");
+	if (!box) return;
+	const state = await storeRead();
+	let jar = {};
+	try { jar = state && state.cookies ? JSON.parse(state.cookies) : {}; } catch (err) {}
+	const bySite = {};
+	for (const [id, c] of Object.entries(jar)) {
+		if (!c || typeof c !== "object") continue;
+		const dom = (c.domain || "").replace(/^\./, "") || "(unknown)";
+		(bySite[dom] = bySite[dom] || { cookies: [], storage: {} }).cookies.push({ id, ...c });
+	}
+	for (const [host, entries] of Object.entries(collectSiteStorage())) {
+		(bySite[host] = bySite[host] || { cookies: [], storage: {} }).storage = entries;
+	}
+	const hosts = Object.keys(bySite).sort();
+	if (!hosts.length) { box.innerHTML = '<p class="rj-muted">nothing stored yet</p>'; return; }
+	box.innerHTML = "";
+	for (const host of hosts) {
+		const info = bySite[host];
+		const lsBytes = Object.entries(info.storage).reduce((n, [k, v]) => n + k.length + String(v).length, 0);
+		const cBytes = info.cookies.reduce((n, c) => n + (c.name || "").length + (c.value || "").length, 0);
+		const wrap = document.createElement("div");
+		wrap.className = "rj-store-site";
+		const head = document.createElement("div");
+		head.className = "rj-store-head";
+		head.innerHTML = '<span class="rj-store-host"></span><span class="rj-muted rj-store-meta"></span><button type="button" class="rj-mini" data-act="view">view</button><button type="button" class="rj-mini" data-act="clear">clear</button>';
+		head.querySelector(".rj-store-host").textContent = host;
+		head.querySelector(".rj-store-meta").textContent = info.cookies.length + " cookies \u00b7 " + ((lsBytes + cBytes) / 1024).toFixed(1) + " KB";
+		const detail = document.createElement("div");
+		detail.className = "rj-store-detail";
+		detail.hidden = true;
+		head.querySelector('[data-act="view"]').addEventListener("click", () => {
+			detail.hidden = !detail.hidden;
+			head.querySelector('[data-act="view"]').textContent = detail.hidden ? "view" : "hide";
+		});
+		head.querySelector('[data-act="clear"]').addEventListener("click", async () => {
+			await jarMutate((j) => { for (const [id, c] of Object.entries(j)) { if (((c.domain || "").replace(/^\./, "")) === host) delete j[id]; } });
+			for (const k of Object.keys(info.storage)) localStorage.removeItem(host + "@" + k);
+			scheduleStoragePush();
+			renderSiteStorage();
+		});
+		if (info.cookies.length) {
+			const h = document.createElement("p");
+			h.className = "rj-muted rj-store-sub";
+			h.textContent = "cookies";
+			detail.appendChild(h);
+			for (const c of info.cookies.sort((a, b) => (a.name || "").localeCompare(b.name || ""))) {
+				const r = document.createElement("div");
+				r.className = "rj-store-line";
+				r.innerHTML = '<span class="rj-store-k"></span><input class="rj-store-v" type="text" spellcheck="false"><button type="button" class="rj-mini">del</button>';
+				r.querySelector(".rj-store-k").textContent = c.name;
+				const inp = r.querySelector(".rj-store-v");
+				inp.value = c.value || "";
+				inp.addEventListener("change", async () => {
+					const v = inp.value;
+					await jarMutate((j) => { if (j[c.id]) j[c.id].value = v; });
+				});
+				r.querySelector(".rj-mini").addEventListener("click", async () => {
+					await jarMutate((j) => { delete j[c.id]; });
+					renderSiteStorage();
+				});
+				detail.appendChild(r);
+			}
+		}
+		const siteKeys = Object.keys(info.storage).sort();
+		if (siteKeys.length) {
+			const h = document.createElement("p");
+			h.className = "rj-muted rj-store-sub";
+			h.textContent = "site data";
+			detail.appendChild(h);
+			for (const k of siteKeys) {
+				const r = document.createElement("div");
+				r.className = "rj-store-line";
+				r.innerHTML = '<span class="rj-store-k"></span><input class="rj-store-v" type="text" spellcheck="false"><button type="button" class="rj-mini">del</button>';
+				r.querySelector(".rj-store-k").textContent = k;
+				const inp = r.querySelector(".rj-store-v");
+				inp.value = info.storage[k];
+				inp.addEventListener("change", () => { localStorage.setItem(host + "@" + k, inp.value); scheduleStoragePush(); });
+				r.querySelector(".rj-mini").addEventListener("click", () => { localStorage.removeItem(host + "@" + k); scheduleStoragePush(); renderSiteStorage(); });
+				detail.appendChild(r);
+			}
+		}
+		wrap.appendChild(head);
+		wrap.appendChild(detail);
+		box.appendChild(wrap);
+	}
+}
+
+async function hydrateStorage() {
+	if (!meInfo || meInfo.role !== "admin" || typeof RJCrypto === "undefined" || !RJCrypto.unlocked()) return;
+	try {
+		const data = await RJCrypto.pullStorage();
+		if (!data || (!data.cookies && !data.sitestorage)) return;
+		const ts = data.syncedAt || 0;
+		if (ts <= +(localStorage.getItem("rj-store-ts") || 0)) return;
+		if (typeof data.cookies === "string" && data.cookies) await storeWrite(data.cookies);
+		if (data.sitestorage && typeof data.sitestorage === "object") {
+			for (const [host, entries] of Object.entries(data.sitestorage)) {
+				if (!entries || typeof entries !== "object") continue;
+				for (const [k, v] of Object.entries(entries)) localStorage.setItem(host + "@" + k, v);
+			}
+		}
+		localStorage.setItem("rj-store-ts", String(ts));
+	} catch (err) {}
+}
 async function hydrateFromServer() {
 	try {
 		const meRes = await fetch("/auth/me");
@@ -958,6 +1307,7 @@ async function hydrateFromServer() {
 		} else {
 			markSync("locked");
 		}
+		await hydrateStorage();
 	} catch (err) {}
 	renderAccount();
 }
@@ -1095,12 +1445,14 @@ if ("requestIdleCallback" in window) {
 
 let savedTabs = { tabs: [], active: 0 };
 try { savedTabs = JSON.parse(localStorage.getItem(TABS_KEY) || '{"tabs":[],"active":0}'); } catch (err) {}
-for (const st of savedTabs.tabs || []) {
-	if (tabs.length >= 8) break;
-	tabs.push({ id: ++tabSeq, frame: null, url: st.url || null, title: st.title || "", page: st.page || null, icon: st.icon || null });
-}
-if (tabs.length) {
-	activateTab(tabs[Math.max(0, Math.min(savedTabs.active || 0, tabs.length - 1))]);
+if (settings.restoreTabs !== false) {
+	for (const st of savedTabs.tabs || []) {
+		if (tabs.length >= 8) break;
+		tabs.push({ id: ++tabSeq, frame: null, url: st.url || null, title: st.title || "", page: st.page || null, icon: st.icon || null });
+	}
+	if (tabs.length) {
+		activateTab(tabs[Math.max(0, Math.min(savedTabs.active || 0, tabs.length - 1))]);
+	}
 }
 
 applyTheme();
@@ -1108,6 +1460,7 @@ applyCloak();
 syncSettingsUI();
 renderBookmarks();
 renderDial();
-setStatus("", "idle");
-hydrateFromServer();
-address.focus();
+setStatus("", "idle");document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") scheduleStoragePush(); });
+window.addEventListener("pagehide", () => { if (storageSyncOn()) pushStorageNow(); });
+setInterval(() => { if (document.visibilityState === "visible") scheduleStoragePush(); }, 5 * 60 * 1000);
+hydrateFromServer();address.focus();
