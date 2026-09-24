@@ -13,7 +13,7 @@
 <script src="/scramjet/scramjet_bundled.js"></script>
 <script src="/controller/controller.api.js"></script>
 <script src="/rjcrypto.js"></script>
-<script src="/app.js?v=16" defer></script>
+<script src="/app.js?v=17" defer></script>
 </head>
 <body>
 
@@ -124,7 +124,17 @@
 				<option value="google">Google</option>
 				<option value="bing">Bing</option>
 				<option value="brave">Brave</option>
+				<option value="custom">custom</option>
 			</select>
+			<div id="rj-custom-engine-row" hidden style="margin-top:8px">
+				<input id="rj-custom-engine-name" type="text" placeholder="name" spellcheck="false" aria-label="Engine name" style="margin-bottom:6px">
+				<input id="rj-custom-engine-url" type="text" inputmode="url" placeholder="search url, %s where the query goes" spellcheck="false" aria-label="Engine search URL">
+			</div>
+		</section>
+
+		<section>
+			<h3>Startup</h3>
+			<label class="rj-check"><input id="rj-restore-tabs" type="checkbox"> Reopen tabs from last session</label>
 		</section>
 
 		<section>
