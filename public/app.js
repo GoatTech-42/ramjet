@@ -356,7 +356,8 @@ async function ensureReady() {
 	if (!swReady) {
 		setStatus("spooling up...", "busy");
 		swReady = (async () => {
-			const registration = await navigator.serviceWorker.register("/sw.js");
+			const registration = await navigator.serviceWorker.register("/sw.js", { updateViaCache: "none" });
+			registration.update();
 			if (!navigator.serviceWorker.controller) {
 				await new Promise((resolve) => {
 					navigator.serviceWorker.addEventListener("controllerchange", () => resolve(), { once: true });
