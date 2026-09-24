@@ -272,6 +272,9 @@ const DEFAULTS = {
 	panicUrl: "https://www.google.com",
 	zoom: "100",
 	clearOnExit: false,
+	restoreTabs: true,
+	customEngineName: "",
+	customEngineUrl: "",
 };
 
 let settings = { ...DEFAULTS };
@@ -425,7 +428,10 @@ function resolveInput(raw) {
 		const url = new URL("http://" + input);
 		if (url.hostname.includes(".")) return url.toString();
 	} catch (err) {}
-	const eng = ENGINES[settings.engine] || ENGINES.ddg;
+	let eng = ENGINES[settings.engine];
+	if (settings.engine === "custom" && settings.customEngineUrl) eng = [settings.customEngineName || "custom", settings.customEngineUrl];
+	if (!eng) eng = ENGINES.ddg;
+	if (eng[1].includes("%s")) return eng[1].replace("%s", encodeURIComponent(input));
 	return eng[1] + encodeURIComponent(input);
 }
 
@@ -609,8 +615,18 @@ customAccentIn.addEventListener("input", () => {
 const engineSel = document.getElementById("rj-engine");
 engineSel.addEventListener("change", () => {
 	settings.engine = engineSel.value;
+	customEngineRow.hidden = settings.engine !== "custom";
 	saveSettings();
 });
+// custom search engine
+const customEngineRow = document.getElementById("rj-custom-engine-row");
+const customEngineName = document.getElementById("rj-custom-engine-name");
+const customEngineUrl = document.getElementById("rj-custom-engine-url");
+customEngineName.addEventListener("change", () => { settings.customEngineName = customEngineName.value.trim(); saveSettings(); });
+customEngineUrl.addEventListener("change", () => { settings.customEngineUrl = customEngineUrl.value.trim(); saveSettings(); });
+// startup: reopen last session's tabs
+const restoreTabsToggle = document.getElementById("rj-restore-tabs");
+restoreTabsToggle.addEventListener("change", () => { settings.restoreTabs = restoreTabsToggle.checked; saveSettings(); });
 // cloak select + quick button
 const cloakSel = document.getElementById("rj-cloak-sel");
 cloakSel.addEventListener("change", () => {
@@ -650,6 +666,10 @@ function syncSettingsUI() {
 	document.getElementById("rj-custom-row").hidden = settings.theme !== "custom";
 	if (settings.customAccent) customAccentIn.value = settings.customAccent;
 	clearHistToggle.checked = !!settings.clearOnExit;
+	customEngineRow.hidden = settings.engine !== "custom";
+	customEngineName.value = settings.customEngineName || "";
+	customEngineUrl.value = settings.customEngineUrl || "";
+	restoreTabsToggle.checked = settings.restoreTabs !== false;
 }
 
 
@@ -1423,12 +1443,14 @@ if ("requestIdleCallback" in window) {
 
 let savedTabs = { tabs: [], active: 0 };
 try { savedTabs = JSON.parse(localStorage.getItem(TABS_KEY) || '{"tabs":[],"active":0}'); } catch (err) {}
-for (const st of savedTabs.tabs || []) {
-	if (tabs.length >= 8) break;
-	tabs.push({ id: ++tabSeq, frame: null, url: st.url || null, title: st.title || "", page: st.page || null, icon: st.icon || null });
-}
-if (tabs.length) {
-	activateTab(tabs[Math.max(0, Math.min(savedTabs.active || 0, tabs.length - 1))]);
+if (settings.restoreTabs !== false) {
+	for (const st of savedTabs.tabs || []) {
+		if (tabs.length >= 8) break;
+		tabs.push({ id: ++tabSeq, frame: null, url: st.url || null, title: st.title || "", page: st.page || null, icon: st.icon || null });
+	}
+	if (tabs.length) {
+		activateTab(tabs[Math.max(0, Math.min(savedTabs.active || 0, tabs.length - 1))]);
+	}
 }
 
 applyTheme();

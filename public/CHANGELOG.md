@@ -12,6 +12,8 @@
 - site data sync (admin): per-site localStorage rides along too
 - site storage manager: per-site cookies + data, view/edit/delete, clear one or all
 - login form plays nice with password autofill now
+- custom search engine: set any engine with your own search url
+- startup option: reopen last session's tabs (on by default)
 
 ## 0.6.0
 - encrypted per-account sync (history, bookmarks, settings)
