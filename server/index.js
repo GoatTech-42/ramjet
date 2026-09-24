@@ -71,12 +71,12 @@ async function newSession(res) {
 	// prune expired
 	for (const k of Object.keys(sessions)) if (sessions[k] < Date.now()) delete sessions[k];
 	await writeJson(SESSIONS_FILE, sessions);
-	res.setHeader("Set-Cookie", `rj_session=${token}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${SESSION_TTL_MS / 1000}`);
+	res.setHeader("Set-Cookie", `rj_session=${token}; Secure; HttpOnly; SameSite=Lax; Path=/; Max-Age=${SESSION_TTL_MS / 1000}`);
 }
 async function killSession(req, res) {
 	const token = sessionFrom(req);
 	if (token) { const s = readJson(SESSIONS_FILE, {}); delete s[token]; await writeJson(SESSIONS_FILE, s); }
-	res.setHeader("Set-Cookie", "rj_session=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0");
+	res.setHeader("Set-Cookie", "rj_session=; Secure; HttpOnly; SameSite=Lax; Path=/; Max-Age=0");
 }
 
 const PUBLIC_PREFIXES = ["/login", "/auth/login", "/auth/logout", "/healthz", "/assets/", "/style.css", "/favicon"];
@@ -200,8 +200,14 @@ const server = createServer(async (req, res) => {
 		const file = resolveFile(pathname);
 		const st = await stat(file).catch(() => null);
 		if (!st || !st.isFile()) {
-			res.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
-			res.end("404 - lost in the pasture");
+			const page404 = await readFile(join(publicPath, "404.html")).catch(() => null);
+			if (page404) {
+				res.writeHead(404, { "content-type": "text/html; charset=utf-8", "cache-control": "no-cache" });
+				res.end(page404);
+			} else {
+				res.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
+				res.end("404 - lost in the pasture");
+			}
 			return;
 		}
 		const type = MIME[extname(file).toLowerCase()] || "application/octet-stream";
