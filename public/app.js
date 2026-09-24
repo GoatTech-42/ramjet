@@ -301,7 +301,6 @@ function recordHistory(url) {
 	history.unshift({ url, ts: Date.now() });
 	history = history.slice(0, 100);
 	saveHistory();
-	renderDial();
 }
 
 const THEMES = {
@@ -1050,38 +1049,6 @@ findIn.addEventListener("keydown", (e) => {
 });
 document.getElementById("rj-find-x").addEventListener("click", () => { hideFind(); address.focus(); });
 
-// -- speed dial on the landing --
-function renderDial() {
-	const dial = document.getElementById("rj-dial");
-	dial.innerHTML = "";
-	const seen = new Set();
-	const picks = [];
-	for (const h of history) {
-		let host;
-		try { host = new URL(h.url).hostname; } catch (err) { continue; }
-		if (seen.has(host)) continue;
-		seen.add(host);
-		picks.push({ host, url: h.url });
-		if (picks.length >= 6) break;
-	}
-	for (const b of bookmarks) {
-		let host;
-		try { host = new URL(b.url).hostname; } catch (err) { continue; }
-		if (seen.has(host)) continue;
-		seen.add(host);
-		picks.push({ host, url: b.url });
-		if (picks.length >= 6) break;
-	}
-	for (const p of picks) {
-		const chip = document.createElement("button");
-		chip.type = "button";
-		chip.className = "rj-chip";
-		chip.textContent = p.host;
-		chip.title = p.url;
-		chip.addEventListener("click", () => { address.value = p.url; form.requestSubmit(); });
-		dial.appendChild(chip);
-	}
-}
 
 // -- zero-knowledge sync + account --------------------------------------------
 let syncTimer = null;
@@ -1301,7 +1268,6 @@ async function hydrateFromServer() {
 			syncSettingsUI();
 			renderBookmarks();
 			renderHistory();
-			renderDial();
 			syncStar();
 			markSync("synced");
 		} else {
@@ -1459,7 +1425,6 @@ applyTheme();
 applyCloak();
 syncSettingsUI();
 renderBookmarks();
-renderDial();
 setStatus("", "idle");document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") scheduleStoragePush(); });
 window.addEventListener("pagehide", () => { if (storageSyncOn()) pushStorageNow(); });
 setInterval(() => { if (document.visibilityState === "visible") scheduleStoragePush(); }, 5 * 60 * 1000);

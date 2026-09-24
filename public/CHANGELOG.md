@@ -1,5 +1,8 @@
 # ramjet changelog
 
+## 0.7.1
+- removed the auto history-suggestion chip on the new-tab page (it had a style conflict on phones) - a proper pinned speed dial lands in v0.8
+
 ## 0.7.0
 - new engine: scramjet 2 - more sites just work
 - phone layout: real bottom bar, card-grid tabs, pill address field
