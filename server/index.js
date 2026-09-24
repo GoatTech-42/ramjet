@@ -9,8 +9,9 @@ import { hostname } from "node:os";
 import { randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
 import { server as wisp, logging } from "@mercuryworkshop/wisp-js/server";
 import { scramjetPath } from "@mercuryworkshop/scramjet/path";
-import { baremuxPath } from "@mercuryworkshop/bare-mux/node";
-import { libcurlPath } from "@mercuryworkshop/libcurl-transport";
+import { fileURLToPath as _furl } from "node:url";
+const libcurlPath = join(fileURLToPath(new URL(".", import.meta.url)), "..", "node_modules", "@mercuryworkshop", "libcurl-transport", "dist");
+const controllerPath = join(fileURLToPath(new URL(".", import.meta.url)), "..", "node_modules", "@mercuryworkshop", "scramjet-controller", "dist");
 
 const PORT = Number(process.env.RAMJET_PORT || 4204);
 const HOST = process.env.RAMJET_HOST || "0.0.0.0";
@@ -224,8 +225,8 @@ const MIME = {
 };
 
 const mounts = [
-	{ prefix: "/scram/", root: scramjetPath },
-	{ prefix: "/baremux/", root: baremuxPath },
+	{ prefix: "/scramjet/", root: scramjetPath },
+	{ prefix: "/controller/", root: controllerPath },
 	{ prefix: "/libcurl/", root: libcurlPath },
 ];
 

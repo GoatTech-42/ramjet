@@ -1,18 +1,9 @@
 // Ramjet client - ignition logic + settings, bookmarks, history, cloak, panic. GoatTech, 2026. MIT.
 "use strict";
 
-const { ScramjetController } = $scramjetLoadController();
-
-const scramjet = new ScramjetController({
-	files: {
-		wasm: "/scram/scramjet.wasm.wasm",
-		all: "/scram/scramjet.all.js",
-		sync: "/scram/scramjet.sync.js",
-	},
-});
-scramjet.init();
-
-const connection = new BareMux.BareMuxConnection("/baremux/worker.js");
+// Scramjet v2: controller + transport are created in ensureReady() once the
+// routing service worker controls the page.
+let scramjet = null; // { createFrame } shim over the v2 Controller
 
 const form = document.getElementById("rj-form");
 const address = document.getElementById("rj-address");
@@ -316,17 +307,36 @@ async function ensureReady() {
 	if (!swReady) {
 		setStatus("spooling up...", "busy");
 		swReady = (async () => {
-			await navigator.serviceWorker.register("/sw.js");
+			const registration = await navigator.serviceWorker.register("/sw.js");
+			if (!navigator.serviceWorker.controller) {
+				await new Promise((resolve) => {
+					navigator.serviceWorker.addEventListener("controllerchange", () => resolve(), { once: true });
+					setTimeout(resolve, 10000);
+				});
+			}
+			await navigator.serviceWorker.ready;
+			const readySw = navigator.serviceWorker.controller || registration.active;
+			if (!readySw) throw new Error("service worker not ready");
 			const wispUrl =
 				(location.protocol === "https:" ? "wss" : "ws") +
 				"://" +
 				location.host +
 				"/wisp/";
-			if ((await connection.getTransport()) !== "/libcurl/index.mjs") {
-				await connection.setTransport("/libcurl/index.mjs", [
-					{ websocket: wispUrl },
-				]);
-			}
+			const { default: LibcurlClient } = await import("/libcurl/index.mjs");
+			const transport = new LibcurlClient({ wisp: wispUrl });
+			const controller = new $scramjetController.Controller({
+				serviceworker: readySw,
+				transport,
+				scramjetConfig: $scramjet.defaultConfig,
+			});
+			window.__rjController = controller;
+			await controller.wait();
+			scramjet = {
+				createFrame() {
+					const fr = controller.createFrame();
+					return { go: (u) => fr.go(u), frame: fr.element, _raw: fr };
+				},
+			};
 		})();
 	}
 	return swReady;
@@ -363,14 +373,19 @@ function ignite(url) {
 }
 
 function peelProxied(href) {
-	// undo any number of proxy wrappings (redirect chains can nest them)
-	const prefix = location.origin + "/scramjet/";
+	// v2 URL shape: /~/sj/<scramtag>/<codec>/<encodeURIComponent(realUrl)>
+	const prefix = location.origin + "/~/sj/";
 	let out = href;
-	let guard = 0;
-	while (out.startsWith(prefix) && guard++ < 10) {
-		try { out = decodeURIComponent(out.slice(prefix.length)); }
-		catch (err) { return href; }
+	if (href.startsWith(prefix)) {
+		try {
+			const seg = href.slice(prefix.length).split("/").filter(Boolean).pop();
+			const dec = decodeURIComponent(seg || "");
+			if (/^(https?|about|data|blob):/.test(dec)) out = dec;
+		} catch (err) { return href; }
 	}
+	// v2 appends its own $-prefixed tracking params to proxied URLs; hide them
+	out = out.replace(/([?&])\$[^&#]*(&|$)/g, (m, p1, p2) => (p2 === "&" ? p1 : ""));
+	out = out.replace(/\?$/, "");
 	return out;
 }
 
@@ -382,7 +397,7 @@ function syncBar() {
 		if (href === "about:blank") return;
 		// show the real destination, not our encoded proxy path
 		const real = peelProxied(href);
-		if (real === href && href.includes("/scramjet/")) return; // still mid-redirect
+		if (real === href && href.includes("/~/sj/")) return; // still mid-redirect
 		address.value = real;
 		if (activeTab) activeTab.url = real;
 		syncStar();
