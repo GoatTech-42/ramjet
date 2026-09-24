@@ -15,6 +15,8 @@
 </head>
 <body>
 
+<div id="rj-tabs"><div id="rj-tablist"></div></div>
+
 <header id="rj-chrome">
 	<img src="/assets/ramjet.svg" alt="" class="mark">
 	<span class="byline">goattech</span>
@@ -38,16 +40,26 @@
 		<button id="rj-cloak" type="button" title="Toggle tab cloak" aria-label="Cloak">
 			<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M2 8s2.5-4 6-4 6 4 6 4-2.5 4-6 4-6-4-6-4z"/><circle cx="8" cy="8" r="1.6"/><path d="M2.5 13.5 13.5 2.5"/></svg>
 		</button>
+		<button id="rj-gear2" type="button" title="Settings" aria-label="Settings">
+			<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="2.2"/><path d="M8 1.8v1.7M8 12.5v1.7M1.8 8h1.7M12.5 8h1.7M3.6 3.6l1.2 1.2M11.2 11.2l1.2 1.2M12.4 3.6l-1.2 1.2M4.8 11.2l-1.2 1.2"/></svg>
+		</button>
+		<button id="rj-fs" type="button" title="Hide the bar" aria-label="Hide the bar">
+			<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 6V2h4M10 2h4v4M14 10v4h-4M6 14H2v-4"/></svg>
+		</button>
 		<a id="rj-logout" href="/auth/logout" title="Lock" aria-label="Lock"><svg viewBox="0 0 14 16" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="1.5" y="7" width="11" height="8" rx="1.5"/><path d="M4 7V4.5a3 3 0 0 1 6 0V7"/></svg></a>
 	</div>
 	<span class="prefix">//</span>
 	<input id="rj-address" type="text" inputmode="url" placeholder="type a url or search" aria-label="Address or search">
 	<button type="submit" class="ignite">ignite&nbsp;&#8594;</button>
+	<div id="rj-suggest" hidden></div>
 </form>
 
 <p id="rj-hint">no accounts, no install. the whole web, one bar. <span class="kbd">/</span> focuses it.</p>
 
+<div id="rj-peek" title="Show the bar"></div>
 <div id="rj-framehost" hidden></div>
+
+<div id="rj-menu" hidden></div>
 
 <div id="rj-panel" hidden>
 	<div id="rj-panel-card" role="dialog" aria-label="Settings">
@@ -58,6 +70,7 @@
 
 		<section>
 			<h3>Appearance</h3>
+			<label class="rj-check"><input id="rj-darkpages" type="checkbox"> Darken pages <span class="rj-beta">beta</span></label>
 			<div id="rj-themes">
 				<button type="button" data-theme="amber" style="--sw:#ffa028">amber</button>
 				<button type="button" data-theme="mint" style="--sw:#34d399">mint</button>
@@ -79,7 +92,8 @@
 
 		<section>
 			<h3>Tab cloak</h3>
-			<select id="rj-cloak-sel">
+			<button id="rj-popout" type="button" class="rj-action">pop out to about:blank</button>
+			<select id="rj-cloak-sel" style="margin-top:8px">
 				<option value="off">Off</option>
 				<option value="docs">Google Docs</option>
 				<option value="classroom">Google Classroom</option>
@@ -106,6 +120,11 @@
 		</section>
 
 		<section>
+			<h3>History <button id="rj-history-clear" type="button" class="rj-mini">clear</button></h3>
+			<ul id="rj-history"></ul>
+		</section>
+
+		<section>
 			<h3>Shortcuts</h3>
 			<ul class="rj-keys">
 				<li><span class="kbd">/</span> or <span class="kbd">ctrl k</span> focus the bar</li>
@@ -114,13 +133,13 @@
 				<li><span class="kbd">enter</span> ignite</li>
 			</ul>
 		</section>
-			<p class="rj-ver">ramjet v0.2.0</p>
+			<p class="rj-ver">ramjet v0.3.0</p>
 	</div>
 </div>
 
 <footer id="rj-foot">
 	<span id="rj-status" data-mode="idle"></span>
-	<span class="ver">v0.2.0</span>
+	<span class="ver">v0.3.0</span>
 </footer>
 
 </body>
