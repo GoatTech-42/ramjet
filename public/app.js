@@ -330,9 +330,22 @@ const CLOAKS = {
 };
 
 function applyTheme() {
-	const [amber, deep] = THEMES[settings.theme] || THEMES.amber;
+	let amber, deep;
+	if (settings.theme === "custom") {
+		amber = settings.customAccent || "#ffa028";
+		deep = shadeHex(amber, -0.35);
+	} else {
+		[amber, deep] = THEMES[settings.theme] || THEMES.amber;
+	}
 	document.documentElement.style.setProperty("--amber", amber);
 	document.documentElement.style.setProperty("--amber-deep", deep);
+	const customBtn = document.getElementById("rj-theme-custom");
+	if (customBtn) customBtn.style.setProperty("--sw", amber);
+}
+function shadeHex(hex, amt) {
+	const n = parseInt(hex.slice(1), 16);
+	const ch = (v) => Math.max(0, Math.min(255, Math.round(v * (1 + amt))));
+	return "#" + [ch(n >> 16), ch((n >> 8) & 255), ch(n & 255)].map((v) => v.toString(16).padStart(2, "0")).join("");
 }
 
 function applyZoom() {
@@ -567,11 +580,20 @@ document.getElementById("rj-panel-close").addEventListener("click", closeSetting
 for (const btn of document.querySelectorAll("#rj-themes button")) {
 	btn.addEventListener("click", () => {
 		settings.theme = btn.dataset.theme;
+		if (settings.theme === "custom" && !settings.customAccent) settings.customAccent = "#ffa028";
 		saveSettings();
 		applyTheme();
 		syncSettingsUI();
 	});
 }
+const customAccentIn = document.getElementById("rj-custom-accent");
+customAccentIn.addEventListener("input", () => {
+	settings.theme = "custom";
+	settings.customAccent = customAccentIn.value;
+	saveSettings();
+	applyTheme();
+	syncSettingsUI();
+});
 // engine select
 const engineSel = document.getElementById("rj-engine");
 engineSel.addEventListener("change", () => {
@@ -614,6 +636,8 @@ function syncSettingsUI() {
 	panicUrlIn.value = settings.panicUrl;
 	cloakBtn.classList.toggle("cloaked", settings.cloak !== "off");
 	zoomSel.value = settings.zoom;
+	document.getElementById("rj-custom-row").hidden = settings.theme !== "custom";
+	if (settings.customAccent) customAccentIn.value = settings.customAccent;
 	clearHistToggle.checked = !!settings.clearOnExit;
 }
 

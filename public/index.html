@@ -8,12 +8,12 @@
 <link rel="icon" href="/assets/ramjet.svg" type="image/svg+xml">
 <link rel="manifest" href="/site.webmanifest">
 <meta name="theme-color" content="#0b0c0e">
-<link rel="stylesheet" href="/style.css?v=15">
+<link rel="stylesheet" href="/style.css?v=16">
 <script>window.RJ_VERSION="0.7.0-alpha";</script>
 <script src="/scramjet/scramjet_bundled.js"></script>
 <script src="/controller/controller.api.js"></script>
 <script src="/rjcrypto.js"></script>
-<script src="/app.js?v=10" defer></script>
+<script src="/app.js?v=11" defer></script>
 </head>
 <body>
 
@@ -112,7 +112,9 @@
 				<button type="button" data-theme="sky" style="--sw:#38bdf8">sky</button>
 				<button type="button" data-theme="violet" style="--sw:#a78bfa">violet</button>
 				<button type="button" data-theme="ember" style="--sw:#f87171">ember</button>
+				<button type="button" data-theme="custom" id="rj-theme-custom" style="--sw:#ffa028">custom</button>
 			</div>
+			<label id="rj-custom-row" class="rj-check" hidden>Accent color <input id="rj-custom-accent" type="color" value="#ffa028"></label>
 		</section>
 
 		<section>

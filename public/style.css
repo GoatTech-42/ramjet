@@ -1121,3 +1121,18 @@ body.in-flight.bmbar #rj-framehost { inset: 75px 0 30px 0; }
 	body.in-flight.has-tabs #rj-framehost,
 	body.in-flight #rj-framehost { inset: 0 0 calc(62px + env(safe-area-inset-bottom, 0px)) 0; }
 }
+
+/* phone polish: pill address field, calmer bar rhythm */
+@media (max-width: 640px) {
+	#rj-form { border-radius: 999px; }
+	body.in-flight #rj-form { border-radius: 0; }
+	body.in-flight #rj-address {
+		border-radius: 999px;
+		background: #1b1e24;
+		padding: 11px 16px;
+	}
+	body.in-flight .rj-nav { gap: 2px; }
+	#rj-switcher-grid { padding-bottom: calc(20px + env(safe-area-inset-bottom, 0px)); }
+	.rj-card { min-height: 132px; }
+	.rj-card-body { min-height: 132px; font-size: 13.5px; }
+}
