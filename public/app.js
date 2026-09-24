@@ -1,4 +1,4 @@
-// Ramjet client - ignition logic. GoatTech, 2026. AGPL-3.0.
+// Ramjet client - ignition logic. GoatTech, 2026. MIT.
 "use strict";
 
 const { ScramjetController } = $scramjetLoadController();
