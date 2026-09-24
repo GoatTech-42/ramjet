@@ -566,6 +566,7 @@ function renderBookmarks() {
 
 // -- settings panel ----------------------------------------------------------
 function openSettings() {
+	loadChangelog();
 	newPageTab("settings");
 	return;
 }
@@ -639,6 +640,42 @@ function syncSettingsUI() {
 	document.getElementById("rj-custom-row").hidden = settings.theme !== "custom";
 	if (settings.customAccent) customAccentIn.value = settings.customAccent;
 	clearHistToggle.checked = !!settings.clearOnExit;
+}
+
+
+// -- changelog ----------------------------------------------------------------
+let changelogLoaded = false;
+async function loadChangelog() {
+	if (changelogLoaded) return;
+	const box = document.getElementById("rj-changelog");
+	try {
+		const res = await fetch("/CHANGELOG.md", { cache: "no-store" });
+		if (!res.ok) throw new Error("no changelog");
+		const md = await res.text();
+		box.innerHTML = renderChangelog(md);
+		changelogLoaded = true;
+	} catch (err) {
+		box.innerHTML = '<p class="rj-muted">no changelog yet</p>';
+	}
+}
+function renderChangelog(md) {
+	const esc = (t) => t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+	let html = "", inList = false;
+	for (const raw of md.split("\n")) {
+		const line = raw.trim();
+		if (line.startsWith("## ")) {
+			if (inList) { html += "</ul>"; inList = false; }
+			html += "<h4>" + esc(line.slice(3)) + "</h4>";
+		} else if (line.startsWith("- ")) {
+			if (!inList) { html += "<ul>"; inList = true; }
+			html += "<li>" + esc(line.slice(2)) + "</li>";
+		} else if (line && !line.startsWith("# ")) {
+			if (inList) { html += "</ul>"; inList = false; }
+			html += "<p>" + esc(line) + "</p>";
+		}
+	}
+	if (inList) html += "</ul>";
+	return html || '<p class="rj-muted">no changelog yet</p>';
 }
 
 // -- shortcuts + panic --------------------------------------------------------

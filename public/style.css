@@ -1136,3 +1136,10 @@ body.in-flight.bmbar #rj-framehost { inset: 75px 0 30px 0; }
 	.rj-card { min-height: 132px; }
 	.rj-card-body { min-height: 132px; font-size: 13.5px; }
 }
+
+/* settings changelog */
+#rj-changelog h4 { font-size: 13px; color: var(--amber); margin: 12px 0 4px; font-family: var(--mono); }
+#rj-changelog h4:first-child { margin-top: 2px; }
+#rj-changelog ul { margin: 0 0 8px; padding-left: 18px; font-size: 13px; }
+#rj-changelog li { margin: 2px 0; }
+#rj-changelog p { font-size: 13px; margin: 4px 0; opacity: 0.75; }
