@@ -97,7 +97,56 @@ function renderTabs() {
 	add.textContent = "+";
 	add.addEventListener("click", () => newTab());
 	tablist.appendChild(add);
+	const badge = document.getElementById("rj-tabcount");
+	if (badge) badge.textContent = String(tabs.length);
 }
+
+// -- mobile tab switcher (card grid) --
+function openSwitcher() {
+	const sw = document.getElementById("rj-switcher");
+	const grid = document.getElementById("rj-switcher-grid");
+	grid.textContent = "";
+	for (const tab of tabs) {
+		const card = document.createElement("div");
+		card.className = "rj-card" + (tab === activeTab ? " active" : "");
+		const body = document.createElement("button");
+		body.type = "button";
+		body.className = "rj-card-body";
+		if (tab.icon) {
+			const icon = document.createElement("img");
+			icon.src = tab.icon;
+			icon.alt = "";
+			body.appendChild(icon);
+		}
+		const label = document.createElement("span");
+		label.textContent = tab.page || tab.title || "new tab";
+		body.appendChild(label);
+		body.addEventListener("click", () => { activateTab(tab); closeSwitcher(); });
+		const close = document.createElement("button");
+		close.type = "button";
+		close.className = "rj-card-close";
+		close.textContent = "\u00d7";
+		close.title = "Close tab";
+		close.addEventListener("click", (e) => { e.stopPropagation(); closeTab(tab); if (!tabs.length) closeSwitcher(); else openSwitcher(); });
+		card.append(body, close);
+		grid.appendChild(card);
+	}
+	const addCard = document.createElement("button");
+	addCard.type = "button";
+	addCard.className = "rj-card rj-card-add";
+	addCard.textContent = "+ new tab";
+	addCard.addEventListener("click", () => { newTab(); closeSwitcher(); });
+	grid.appendChild(addCard);
+	sw.hidden = false;
+}
+function closeSwitcher() {
+	document.getElementById("rj-switcher").hidden = true;
+}
+document.getElementById("rj-tabsbtn").addEventListener("click", () => {
+	const sw = document.getElementById("rj-switcher");
+	sw.hidden ? openSwitcher() : closeSwitcher();
+});
+document.getElementById("rj-switcher-close").addEventListener("click", closeSwitcher);
 
 function activateTab(tab) {
 	activeTab = tab;

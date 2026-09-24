@@ -241,12 +241,91 @@ body.in-flight #rj-framehost { display: block; }
 	#rj-form { margin-left: 12px; margin-right: 12px; }
 	#rj-address { font-size: 16px; } /* >=16px stops iOS focus zoom */
 	#rj-address::placeholder { font-size: 13px; }
-	body.in-flight #rj-address { font-size: 13.5px; }
-	.rj-nav button, .rj-nav a { width: 32px; height: 40px; font-size: 15px; }
-	#rj-fwd { display: none !important; }
-	body.in-flight .ignite { display: none; } /* enter key ignites; space goes to the url */
-	body.in-flight #rj-form { margin: 0; border-left: 0; border-right: 0; border-radius: 0; }
 	#rj-hint { font-size: 12px; }
+
+	/* --- phone browser shell: bottom bar, big touch targets, safe areas --- */
+	body.in-flight { padding-bottom: calc(96px + env(safe-area-inset-bottom, 0px)); }
+	body.in-flight #rj-tabs { display: none; } /* strip lives in the card switcher */
+	body.in-flight #rj-form {
+		position: fixed;
+		left: 0; right: 0; bottom: 0;
+		margin: 0;
+		padding: 8px 10px calc(8px + env(safe-area-inset-bottom, 0px));
+		background: var(--panel);
+		border-top: 1px solid var(--edge);
+		border-left: 0; border-right: 0; border-radius: 0;
+		z-index: 40;
+	}
+	body.in-flight #rj-address { font-size: 13.5px; }
+	body.in-flight .ignite { display: none; } /* enter key ignites; space goes to the url */
+	body.in-flight .rj-nav button, body.in-flight .rj-nav a {
+		width: 44px; height: 44px; font-size: 17px;
+		display: inline-flex; align-items: center; justify-content: center;
+	}
+	body.in-flight #rj-fwd,
+	body.in-flight #rj-home,
+	body.in-flight #rj-cloak,
+	body.in-flight #rj-fs { display: none !important; }
+	body.in-flight #rj-tabsbtn { display: inline-flex !important; }
+	#rj-tabsbtn {
+		display: none;
+		border: 1px solid var(--edge);
+		border-radius: 8px;
+		background: none;
+		color: var(--text);
+		font: 600 14px/1 var(--mono);
+	}
+	#rj-tabcount { pointer-events: none; }
+
+	/* tab switcher: full-screen card grid */
+	#rj-switcher {
+		position: fixed; inset: 0; z-index: 60;
+		background: var(--bg);
+		display: flex; flex-direction: column;
+		padding: env(safe-area-inset-top, 0px) 0 env(safe-area-inset-bottom, 0px);
+	}
+	#rj-switcher > header {
+		display: flex; align-items: center; justify-content: space-between;
+		padding: 14px 18px;
+		border-bottom: 1px solid var(--edge);
+	}
+	#rj-switcher > header h2 { margin: 0; font-size: 17px; font-weight: 600; }
+	#rj-switcher-close {
+		background: none; border: 0; color: var(--text);
+		font-size: 26px; width: 44px; height: 44px;
+	}
+	#rj-switcher-grid {
+		flex: 1; overflow-y: auto;
+		display: grid; grid-template-columns: 1fr 1fr; gap: 12px;
+		padding: 16px;
+		align-content: start;
+	}
+	.rj-card {
+		position: relative;
+		background: var(--panel);
+		border: 1px solid var(--edge);
+		border-radius: 12px;
+		min-height: 120px;
+	}
+	.rj-card.active { border-color: var(--amber); }
+	.rj-card-body {
+		display: flex; flex-direction: column; align-items: center; justify-content: center;
+		gap: 8px; width: 100%; min-height: 120px;
+		background: none; border: 0; color: var(--text);
+		font-size: 13px; padding: 12px; text-align: center;
+	}
+	.rj-card-body img { width: 22px; height: 22px; }
+	.rj-card-body span { overflow-wrap: anywhere; }
+	.rj-card-close {
+		position: absolute; top: 4px; right: 4px;
+		width: 32px; height: 32px;
+		background: none; border: 0; color: var(--muted); font-size: 18px;
+	}
+	.rj-card-add {
+		display: flex; align-items: center; justify-content: center;
+		color: var(--muted); font-size: 14px;
+		border-style: dashed;
+	}
 }
 /* Ramjet UI - GoatTech. hand-tuned, no framework. */
 
