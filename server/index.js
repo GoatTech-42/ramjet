@@ -127,7 +127,7 @@ async function killSession(req, res) {
 	res.setHeader("Set-Cookie", "rj_session=; Secure; HttpOnly; SameSite=Lax; Path=/; Max-Age=0");
 }
 
-const PUBLIC_PREFIXES = ["/login", "/auth/login", "/auth/signup", "/auth/logout", "/auth/me", "/healthz", "/assets/", "/style.css", "/favicon"];
+const PUBLIC_PREFIXES = ["/login", "/auth/login", "/auth/signup", "/auth/logout", "/auth/me", "/rjcrypto.js", "/healthz", "/assets/", "/style.css", "/favicon"];
 function isPublic(pathname) {
 	return PUBLIC_PREFIXES.some((p) => pathname === p || pathname.startsWith(p.endsWith("/") ? p : p + "?"));
 }
