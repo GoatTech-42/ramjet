@@ -202,7 +202,7 @@ async function inactivitySweep() {
 inactivitySweep().catch(() => {});
 setInterval(() => inactivitySweep().catch(() => {}), 24 * 3600 * 1000).unref();
 
-const PUBLIC_PREFIXES = ["/login", "/auth/login", "/auth/signup", "/auth/logout", "/auth/me", "/rjcrypto.js", "/healthz", "/assets/", "/style.css", "/favicon"];
+const PUBLIC_PREFIXES = ["/login", "/auth/login", "/auth/signup", "/auth/logout", "/auth/me", "/rjcrypto.js", "/healthz", "/assets/", "/style.css", "/favicon", "/sw.js"];
 function isPublic(pathname) {
 	return PUBLIC_PREFIXES.some((p) => pathname === p || pathname.startsWith(p.endsWith("/") ? p : p + "?"));
 }
@@ -507,7 +507,7 @@ const server = createServer(async (req, res) => {
 			return;
 		}
 		const type = MIME[extname(file).toLowerCase()] || "application/octet-stream";
-		const headers = { "content-type": type, "content-length": st.size, "cache-control": "no-cache" };
+		const headers = { "content-type": type, "content-length": st.size, "cache-control": type.startsWith("text/html") ? "no-cache, must-revalidate" : "no-cache" };
 		if (file.endsWith("sw.js")) headers["service-worker-allowed"] = "/";
 		res.writeHead(200, headers);
 		res.end(await readFile(file));

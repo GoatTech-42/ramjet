@@ -9,7 +9,7 @@
 <link rel="icon" href="/assets/ramjet.svg" type="image/svg+xml">
 <link rel="manifest" href="/site.webmanifest">
 <meta name="theme-color" content="#0b0c0e">
-<link rel="stylesheet" href="/style.css">
+<link rel="stylesheet" href="/style.css?v=6">
 <style>
 	#rj-err { color: var(--err); font-size: 13px; text-align: center; margin: 14px 22px 0; min-height: 1.4em; }
 	#rj-user {
@@ -25,7 +25,13 @@
 		border-right: 1px solid var(--edge);
 	}
 	#rj-user::placeholder { color: #5b616b; }
-	@media (max-width: 640px) { #rj-user { font-size: 16px; } }
+	@media (max-width: 640px) {
+		#rj-form { flex-direction: column; align-items: stretch; gap: 8px; padding: 12px; width: min(420px, calc(100vw - 48px)); border-radius: 18px; }
+		#rj-form .prefix { display: none; }
+		#rj-user { flex: none; font-size: 16px; }
+		#rj-form input { border-right: 0 !important; border: 1px solid var(--edge) !important; border-radius: 10px; padding: 13px 14px; font-size: 16px; background: rgba(255,255,255,0.03); width: 100%; box-sizing: border-box; }
+		#rj-form button { padding: 13px; border-radius: 10px; font-size: 15px; width: 100%; }
+	}
 	#rj-swap { margin-top: 18px; font-size: 13px; color: #7d838d; text-align: center; }
 	#rj-swap a { color: #ffa028; text-decoration: none; cursor: pointer; }
 	#rj-swap a:hover { text-decoration: underline; }
@@ -55,7 +61,7 @@
 
 <footer id="rj-foot">
 	<span id="rj-status" data-mode="idle">gate armed</span>
-	<span class="ver">v0.4.0</span>
+	<span class="ver">v0.6.1</span>
 </footer>
 
 <script src="/rjcrypto.js"></script>
