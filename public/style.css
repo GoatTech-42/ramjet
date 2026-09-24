@@ -245,3 +245,18 @@ body.in-flight #rj-framehost { display: block; }
 #rj-status[data-mode="ok"] { color: var(--ok); }
 
 #rj-foot .ver { color: #4b5058; }
+
+/* ------- mobile ------- */
+@media (max-width: 640px) {
+	#rj-chrome { padding: 14px 16px; }
+	.wordmark-big { font-size: clamp(52px, 17vw, 84px) !important; }
+	#rj-form { margin-left: 12px; margin-right: 12px; }
+	#rj-address { font-size: 16px; } /* >=16px stops iOS focus zoom */
+	#rj-address::placeholder { font-size: 13px; }
+	body.in-flight #rj-address { font-size: 13.5px; }
+	.rj-nav button, .rj-nav a { width: 32px; height: 40px; font-size: 15px; }
+	#rj-fwd { display: none !important; }
+	body.in-flight .ignite { display: none; } /* enter key ignites; space goes to the url */
+	body.in-flight #rj-form { margin: 0; border-left: 0; border-right: 0; border-radius: 0; }
+	#rj-hint { font-size: 12px; }
+}
