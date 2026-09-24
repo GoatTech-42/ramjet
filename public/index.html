@@ -18,6 +18,9 @@
 <header id="rj-chrome">
 	<img src="/assets/ramjet.svg" alt="" class="mark">
 	<span class="byline">goattech</span>
+	<button id="rj-gear" type="button" title="Settings" aria-label="Settings">
+		<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="2.2"/><path d="M8 1.8v1.7M8 12.5v1.7M1.8 8h1.7M12.5 8h1.7M3.6 3.6l1.2 1.2M11.2 11.2l1.2 1.2M12.4 3.6l-1.2 1.2M4.8 11.2l-1.2 1.2"/></svg>
+	</button>
 </header>
 
 <main id="rj-landing">
@@ -31,6 +34,10 @@
 		<button id="rj-fwd" type="button" title="Forward" aria-label="Forward">&rarr;</button>
 		<button id="rj-reload" type="button" title="Reload" aria-label="Reload">&#8635;</button>
 		<button id="rj-home" type="button" title="Home" aria-label="Home"><img src="/assets/ramjet.svg" alt=""></button>
+		<button id="rj-star" type="button" title="Bookmark this page" aria-label="Bookmark">&#9734;</button>
+		<button id="rj-cloak" type="button" title="Toggle tab cloak" aria-label="Cloak">
+			<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M2 8s2.5-4 6-4 6 4 6 4-2.5 4-6 4-6-4-6-4z"/><circle cx="8" cy="8" r="1.6"/><path d="M2.5 13.5 13.5 2.5"/></svg>
+		</button>
 		<a id="rj-logout" href="/auth/logout" title="Lock" aria-label="Lock"><svg viewBox="0 0 14 16" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="1.5" y="7" width="11" height="8" rx="1.5"/><path d="M4 7V4.5a3 3 0 0 1 6 0V7"/></svg></a>
 	</div>
 	<span class="prefix">//</span>
@@ -38,13 +45,83 @@
 	<button type="submit" class="ignite">ignite&nbsp;&#8594;</button>
 </form>
 
-<p id="rj-hint">no accounts, no install. the whole web, one bar.</p>
+<p id="rj-hint">no accounts, no install. the whole web, one bar. <span class="kbd">/</span> focuses it.</p>
 
 <div id="rj-framehost" hidden></div>
 
+<div id="rj-panel" hidden>
+	<div id="rj-panel-card" role="dialog" aria-label="Settings">
+		<header>
+			<h2>settings</h2>
+			<button id="rj-panel-close" type="button" aria-label="Close">&times;</button>
+		</header>
+
+		<section>
+			<h3>theme</h3>
+			<div id="rj-themes">
+				<button type="button" data-theme="amber" style="--sw:#ffa028">amber</button>
+				<button type="button" data-theme="mint" style="--sw:#34d399">mint</button>
+				<button type="button" data-theme="sky" style="--sw:#38bdf8">sky</button>
+				<button type="button" data-theme="violet" style="--sw:#a78bfa">violet</button>
+				<button type="button" data-theme="ember" style="--sw:#f87171">ember</button>
+			</div>
+		</section>
+
+		<section>
+			<h3>search engine</h3>
+			<select id="rj-engine">
+				<option value="ddg">DuckDuckGo</option>
+				<option value="google">Google</option>
+				<option value="bing">Bing</option>
+				<option value="brave">Brave</option>
+			</select>
+		</section>
+
+		<section>
+			<h3>tab cloak</h3>
+			<select id="rj-cloak-sel">
+				<option value="off">off</option>
+				<option value="docs">Google Docs</option>
+				<option value="classroom">Google Classroom</option>
+				<option value="gmail">Gmail</option>
+				<option value="wiki">Wikipedia</option>
+			</select>
+			<p class="rj-note">renames the tab + swaps the icon. the eye button in the bar toggles Docs cloak fast.</p>
+		</section>
+
+		<section>
+			<h3>panic key</h3>
+			<div class="rj-row">
+				<select id="rj-panic-key">
+					<option value="`">` (backtick)</option>
+					<option value="F9">F9</option>
+					<option value="Pause">Pause</option>
+				</select>
+				<input id="rj-panic-url" type="text" inputmode="url" spellcheck="false" aria-label="Panic destination">
+			</div>
+			<p class="rj-note">hit it and ramjet vanishes to that page, instantly.</p>
+		</section>
+
+		<section>
+			<h3>bookmarks</h3>
+			<ul id="rj-bookmarks"></ul>
+		</section>
+
+		<section>
+			<h3>shortcuts</h3>
+			<ul class="rj-keys">
+				<li><span class="kbd">/</span> or <span class="kbd">ctrl k</span> focus the bar</li>
+				<li><span class="kbd">`</span> panic (your key)</li>
+				<li><span class="kbd">esc</span> close this panel</li>
+				<li><span class="kbd">enter</span> ignite (works mid-flight too)</li>
+			</ul>
+		</section>
+	</div>
+</div>
+
 <footer id="rj-foot">
 	<span id="rj-status" data-mode="idle"></span>
-	<span class="ver">v0.1.1</span>
+	<span class="ver">v0.2.0</span>
 </footer>
 
 </body>
