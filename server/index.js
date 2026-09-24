@@ -266,7 +266,7 @@ async function handleLogin(req, res) {
 	const g = guard[ip] || { fails: 0, locked_until: 0 };
 	const now = Date.now();
 	if (g.locked_until && now < g.locked_until) {
-		res.writeHead(303, { location: "/login?fresh=v070&locked=1" });
+		res.writeHead(303, { location: "/login?locked=1" });
 		res.end();
 		return;
 	}
@@ -311,7 +311,7 @@ async function handleLogin(req, res) {
 	if (g.fails >= MAX_LOGIN_FAILS) { g.locked_until = Date.now() + LOGIN_LOCKOUT_MS; g.fails = 0; }
 	guard[ip] = g;
 	await writeJson(GUARD_FILE, guard);
-	res.writeHead(303, { location: "/login?fresh=v070&bad=1" });
+	res.writeHead(303, { location: "/login?bad=1" });
 	res.end();
 }
 
@@ -462,7 +462,6 @@ const server = createServer(async (req, res) => {
 	try {
 		const url = new URL(req.url, "http://x");
 		const pathname = url.pathname;
-		if (pathname === "/login" && !url.searchParams.has("fresh")) { res.writeHead(302, { location: "/login?fresh=v070" }); res.end(); return; }
 		if (pathname === "/healthz") {
 			res.writeHead(200, { "content-type": "application/json" });
 			res.end(JSON.stringify({ ok: true, engine: "scramjet", transport: "wisp", uptime: Math.round(process.uptime()) }));
@@ -481,13 +480,13 @@ const server = createServer(async (req, res) => {
 		if (pathname.startsWith("/auth/admin/")) return await handleAdmin(req, res, pathname.slice("/auth/admin/".length));
 		if (pathname === "/auth/logout") {
 			await killSession(req, res);
-			res.writeHead(303, { location: "/login?fresh=v070" });
+			res.writeHead(303, { location: "/login" });
 			res.end();
 			return;
 		}
 		if (!isPublic(pathname) && !sessionFrom(req)) {
 			if (req.method === "GET" || req.method === "HEAD") {
-				res.writeHead(303, { location: "/login?fresh=v070" });
+				res.writeHead(303, { location: "/login" });
 				res.end();
 			} else {
 				res.writeHead(401, { "content-type": "text/plain; charset=utf-8" });
@@ -509,7 +508,7 @@ const server = createServer(async (req, res) => {
 			return;
 		}
 		const type = MIME[extname(file).toLowerCase()] || "application/octet-stream";
-		const headers = { "content-type": type, "content-length": st.size, "cache-control": type.startsWith("text/html") ? "no-store" : "no-cache" };
+		const headers = { "content-type": type, "content-length": st.size, "cache-control": type.startsWith("text/html") ? "no-cache, must-revalidate" : "no-cache" };
 		if (file.endsWith("sw.js")) headers["service-worker-allowed"] = "/";
 		res.writeHead(200, headers);
 		res.end(await readFile(file));
