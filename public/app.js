@@ -216,6 +216,8 @@ function closeTab(tab) {
 		if (next) activateTab(next);
 		else {
 			document.body.classList.remove("in-flight");
+			document.body.classList.remove("page-view");
+			document.getElementById("rj-pagehost").hidden = true;
 			address.value = "";
 			renderTabs();
 		}
