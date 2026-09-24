@@ -371,10 +371,14 @@ async function handleLoginAccount(req, res, pw, username) {
 }
 
 
-async function handleSync(req, res) {
+async function handleSync(req, res, storage) {
 	const sr = sessionRecord(req);
 	if (!sr || !sr.user) return json(res, 401, { error: "no session" });
-	const file = userDataFile(sr.user);
+	if (storage) {
+		const acct = readAccounts()[sr.user];
+		if (!acct || acct.role !== "admin") return json(res, 403, { error: "admin only" });
+	}
+	const file = storage ? userDataFile(sr.user).replace(".blob.json", ".storage.json") : userDataFile(sr.user);
 	if (req.method === "GET") {
 		return json(res, 200, { ok: true, blob: readJson(file, null) });
 	}
@@ -471,6 +475,7 @@ const server = createServer(async (req, res) => {
 		if (pathname === "/auth/signup" && req.method === "POST") return await handleSignup(req, res);
 		if (pathname === "/auth/passwd" && req.method === "POST") return await handlePasswd(req, res);
 		if (pathname === "/auth/sync" && (req.method === "GET" || req.method === "PUT" || req.method === "POST")) return await handleSync(req, res);
+		if (pathname === "/auth/sync-storage" && (req.method === "GET" || req.method === "PUT" || req.method === "POST")) return await handleSync(req, res, true);
 		if (pathname === "/auth/me") {
 			const sr = sessionRecord(req);
 			if (!sr || !sr.user) return json(res, 401, { error: "no session" });

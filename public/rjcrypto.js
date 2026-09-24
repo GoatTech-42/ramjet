@@ -114,6 +114,35 @@ const RJCrypto = (() => {
 		return true;
 	}
 
+	async function pullStorage() {
+		if (!dataKey) {
+			if (!(await tryRestore())) return null;
+		}
+		const res = await fetch("/auth/sync-storage");
+		if (!res.ok) return null;
+		const { blob } = await res.json();
+		if (!blob || !blob.ct) return null;
+		try { return await decryptPayload(dataKey, blob.ct); } catch { return null; }
+	}
+
+	async function pushStorage(data) {
+		if (!dataKey) return false;
+		const res = await fetch("/auth/sync-storage");
+		const { blob } = res.ok ? await res.json() : {};
+		const body = {
+			v: 1,
+			salt: blobSalt || (blob && blob.salt),
+			wk: blob && blob.wk ? blob.wk : await wrapDataKey(await idbGet("kek"), dataKey),
+			ct: await encryptPayload(dataKey, data),
+		};
+		const put = await fetch("/auth/sync-storage", {
+			method: "PUT",
+			headers: { "content-type": "application/x-www-form-urlencoded" },
+			body: "blob=" + encodeURIComponent(JSON.stringify(body)),
+		});
+		return put.ok;
+	}
+
 	async function pull() {
 		if (!dataKey) {
 			if (!(await tryRestore())) return null;
@@ -177,5 +206,5 @@ const RJCrypto = (() => {
 		await idbDel("kek");
 	}
 	const unlocked = () => !!dataKey;
-	return { unlockWithPassword, tryRestore, pull, push, changePassword, lock, unlocked };
+	return { unlockWithPassword, tryRestore, pull, push, pullStorage, pushStorage, changePassword, lock, unlocked };
 })();
