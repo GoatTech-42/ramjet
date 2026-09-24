@@ -1,6 +1,6 @@
 # ramjet changelog
 
-## 0.7.0-alpha - in progress
+## 0.7.0
 - new engine: scramjet 2 - more sites just work
 - phone layout: real bottom bar, card-grid tabs, pill address field
 - mobile login: form stacks properly on phones
