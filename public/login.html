@@ -12,7 +12,20 @@
 <link rel="stylesheet" href="/style.css">
 <style>
 	#rj-err { color: var(--err); font-size: 13px; text-align: center; margin: 14px 22px 0; min-height: 1.4em; }
-	#rj-user { margin-bottom: 10px; }
+	#rj-user {
+		flex: 0 0 34%;
+		min-width: 0;
+		border: 0;
+		outline: 0;
+		background: transparent;
+		color: var(--text);
+		font-family: var(--mono);
+		font-size: 15px;
+		padding: 15px 12px;
+		border-right: 1px solid var(--edge);
+	}
+	#rj-user::placeholder { color: #5b616b; }
+	@media (max-width: 640px) { #rj-user { font-size: 16px; } }
 	#rj-swap { margin-top: 18px; font-size: 13px; color: #7d838d; text-align: center; }
 	#rj-swap a { color: #ffa028; text-decoration: none; cursor: pointer; }
 	#rj-swap a:hover { text-decoration: underline; }
