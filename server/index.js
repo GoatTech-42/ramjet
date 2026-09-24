@@ -22,10 +22,17 @@ const GUARD_FILE = join(DATA_DIR, "login-guard.json");
 const SESSION_TTL_MS = 30 * 24 * 3600 * 1000;
 const MAX_LOGIN_FAILS = 5;
 const LOGIN_LOCKOUT_MS = 15 * 60 * 1000;
+const BLOB_MAX_BYTES = 256 * 1024;            // v0.4: hard cap per-user sync blob
+const INACTIVITY_WIPE_MS = 7 * 24 * 3600 * 1000; // v0.4: wipe users idle 7+ days
+const LASTSEEN_TOUCH_MS = 5 * 60 * 1000;      // throttle lastSeen writes
+const SIGNUP_MAX_PER_HOUR = 5;                // v0.4: per-IP signup throttle
+const BLOCKLIST_FILE = join(DATA_DIR, "blocklist.txt");
 
 logging.set_level(logging.NONE);
 Object.assign(wisp.options, {
 	allow_udp_streams: false,
+	allow_loopback_ips: false,   // explicit: the proxy must never reach box-local services
+	allow_private_ips: false,    // explicit: no RFC1918 destinations through wisp
 	dns_servers: ["1.1.1.3", "1.0.0.3"],
 });
 
@@ -63,9 +70,35 @@ const USERDATA_DIR = join(DATA_DIR, "userdata");
 
 function loadConfig() {
 	const c = readJson(CONFIG_FILE, null);
-	if (c && typeof c === "object") return { requireApproval: c.requireApproval !== false };
-	return { requireApproval: true };
+	if (c && typeof c === "object") return { requireApproval: c.requireApproval !== false, adblock: c.adblock !== false };
+	return { requireApproval: true, adblock: true };
 }
+
+// -- v0.4: server-side ad/tracker blocklist ----------------------------------
+// One domain per line in blocklist.txt ("#" comments ok). A line matches the
+// exact host or any subdomain. Applied as wisp's native hostname_blacklist so
+// blocked connections never leave the box. Global toggle: config.adblock.
+// NOTE (ZK): per-user adblock prefs live in the encrypted user blob, which the
+// server cannot read by design - so this filter is global, not per-user.
+let blocklistRegexes = [];
+function loadBlocklist() {
+	try {
+		const lines = readFileSync(BLOCKLIST_FILE, "utf8").split("\n");
+		blocklistRegexes = lines
+			.map((l) => l.trim().toLowerCase())
+			.filter((l) => l && !l.startsWith("#"))
+			.map((d) => new RegExp("(^|\\.)" + d.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "$", "i"));
+		console.log("ramjet: blocklist loaded (" + blocklistRegexes.length + " entries)");
+	} catch {
+		blocklistRegexes = [];
+		console.log("ramjet: no blocklist at " + BLOCKLIST_FILE + " (adblock inert)");
+	}
+}
+function applyBlocklist() {
+	wisp.options.hostname_blacklist = loadConfig().adblock && blocklistRegexes.length ? blocklistRegexes : null;
+}
+loadBlocklist();
+applyBlocklist();
 function readAccounts() { return readJson(ACCOUNTS_FILE, {}); }
 async function writeAccounts(a) { await writeJson(ACCOUNTS_FILE, a); }
 
@@ -97,6 +130,7 @@ function sessionRecord(req) {
 	if (!rec) return null;
 	if (typeof rec === "number") rec = { exp: rec, user: "luke" }; // legacy gate sessions belong to luke
 	if (Date.now() > rec.exp) { delete sessions[m[1]]; writeJson(SESSIONS_FILE, sessions); return null; }
+	if (rec.user) touchLastSeen(rec.user);
 	return { token: m[1], user: rec.user || null };
 }
 function sessionFrom(req) {
@@ -126,6 +160,47 @@ async function killSession(req, res) {
 	}
 	res.setHeader("Set-Cookie", "rj_session=; Secure; HttpOnly; SameSite=Lax; Path=/; Max-Age=0");
 }
+
+// -- v0.4: lastSeen + 7-day inactivity wipe ----------------------------------
+// Every authed request touch-refreshes the user's lastSeen (writes throttled
+// to 5 min). A sweep at boot and every 24h wipes accounts idle 7+ days:
+// account record, encrypted blob, and live sessions all go. Admins are exempt.
+const LASTSEEN_FILE = join(DATA_DIR, "lastseen.json");
+function touchLastSeen(user) {
+	const seen = readJson(LASTSEEN_FILE, {});
+	const now = Date.now();
+	if (seen[user] && now - seen[user] < LASTSEEN_TOUCH_MS) return;
+	seen[user] = now;
+	writeJson(LASTSEEN_FILE, seen); // fire-and-forget; non-critical
+}
+async function wipeUser(username) {
+	const accounts = readAccounts();
+	delete accounts[username];
+	await writeAccounts(accounts);
+	const sessions = readJson(SESSIONS_FILE, {});
+	let changed = false;
+	for (const [tok, r] of Object.entries(sessions)) {
+		if (r && typeof r === "object" && r.user === username) { delete sessions[tok]; changed = true; }
+	}
+	if (changed) await writeJson(SESSIONS_FILE, sessions);
+	const seen = readJson(LASTSEEN_FILE, {});
+	delete seen[username];
+	await writeJson(LASTSEEN_FILE, seen);
+	const { rm } = await import("node:fs/promises");
+	await rm(userDataFile(username), { force: true }).catch(() => {});
+	console.log("ramjet: wiped inactive user '" + username + "' (7d inactivity)");
+}
+async function inactivitySweep() {
+	const now = Date.now();
+	const seen = readJson(LASTSEEN_FILE, {});
+	for (const [name, acct] of Object.entries(readAccounts())) {
+		if (acct.role === "admin") continue;
+		const ref = seen[name] || acct.created || 0;
+		if (now - ref > INACTIVITY_WIPE_MS) await wipeUser(name);
+	}
+}
+inactivitySweep().catch(() => {});
+setInterval(() => inactivitySweep().catch(() => {}), 24 * 3600 * 1000).unref();
 
 const PUBLIC_PREFIXES = ["/login", "/auth/login", "/auth/signup", "/auth/logout", "/auth/me", "/rjcrypto.js", "/healthz", "/assets/", "/style.css", "/favicon"];
 function isPublic(pathname) {
@@ -250,6 +325,19 @@ async function bodyParams(req, limit) {
 }
 
 async function handleSignup(req, res) {
+	const ip = clientIp(req);
+	const guard = readJson(GUARD_FILE, {});
+	const g = guard[ip] || { fails: 0, locked_until: 0 };
+	const now = Date.now();
+	g.signups = (g.signups || []).filter((t) => now - t < 3600 * 1000);
+	if (g.signups.length >= SIGNUP_MAX_PER_HOUR) {
+		guard[ip] = g;
+		await writeJson(GUARD_FILE, guard);
+		return json(res, 429, { error: "too many signups from this network, try later" });
+	}
+	g.signups.push(now);
+	guard[ip] = g;
+	await writeJson(GUARD_FILE, guard);
 	const p = await bodyParams(req);
 	const username = (p && p.get("username") || "").toLowerCase();
 	const pw = p && p.get("password") || "";
@@ -293,6 +381,7 @@ async function handleSync(req, res) {
 	if (!p) return json(res, 400, { error: "bad body" });
 	const blob = p.get("blob");
 	if (blob === null) return json(res, 400, { error: "missing blob" });
+	if (blob.length > BLOB_MAX_BYTES) return json(res, 413, { error: "blob too large (256KB max)" });
 	let parsed;
 	try { parsed = JSON.parse(blob); } catch { return json(res, 400, { error: "blob must be JSON" }); }
 	await mkdir(USERDATA_DIR, { recursive: true }).catch(() => {});
@@ -329,16 +418,25 @@ async function handleAdmin(req, res, action) {
 	if (!sr) return;
 	const accounts = readAccounts();
 	if (action === "users") {
+		const seen = readJson(LASTSEEN_FILE, {});
 		const list = Object.entries(accounts).map(([name, a]) => ({
-			username: name, role: a.role, status: a.status, created: a.created,
+			username: name, role: a.role, status: a.status, created: a.created, lastSeen: seen[name] || null,
 		}));
-		return json(res, 200, { ok: true, users: list, requireApproval: loadConfig().requireApproval });
+		return json(res, 200, { ok: true, users: list, requireApproval: loadConfig().requireApproval, adblock: loadConfig().adblock });
 	}
 	const p = await bodyParams(req);
 	if (action === "config") {
-		const cfg = { requireApproval: (p && p.get("requireApproval")) === "1" };
+		const cfg = loadConfig(); // preserve fields the client did not send
+		if (p && p.get("requireApproval") !== null) cfg.requireApproval = p.get("requireApproval") === "1";
+		if (p && p.get("adblock") !== null) cfg.adblock = p.get("adblock") === "1";
 		await writeJson(CONFIG_FILE, cfg);
-		return json(res, 200, { ok: true, requireApproval: cfg.requireApproval });
+		applyBlocklist();
+		return json(res, 200, { ok: true, requireApproval: cfg.requireApproval, adblock: cfg.adblock });
+	}
+	if (action === "blocklist-reload") {
+		loadBlocklist();
+		applyBlocklist();
+		return json(res, 200, { ok: true, entries: blocklistRegexes.length });
 	}
 	const username = (p && p.get("username") || "").toLowerCase();
 	if (!accounts[username]) return json(res, 404, { error: "no such user" });
@@ -357,6 +455,9 @@ async function handleAdmin(req, res, action) {
 const server = createServer(async (req, res) => {
 	res.setHeader("Cross-Origin-Opener-Policy", "same-origin");
 	res.setHeader("Cross-Origin-Embedder-Policy", "require-corp");
+	res.setHeader("X-Content-Type-Options", "nosniff");
+	res.setHeader("Referrer-Policy", "no-referrer");
+	res.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
 	try {
 		const url = new URL(req.url, "http://x");
 		const pathname = url.pathname;
