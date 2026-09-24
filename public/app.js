@@ -567,6 +567,7 @@ function renderBookmarks() {
 // -- settings panel ----------------------------------------------------------
 function openSettings() {
 	loadChangelog();
+	renderSiteStorage();
 	newPageTab("settings");
 	return;
 }
@@ -576,6 +577,15 @@ function closeSettings() {
 document.getElementById("rj-gear").addEventListener("click", openSettings);
 document.getElementById("rj-gear2").addEventListener("click", openSettings);
 document.getElementById("rj-panel-close").addEventListener("click", closeSettings);
+document.getElementById("rj-storage-clearall").addEventListener("click", async () => {
+	if (!confirm("clear ALL site storage? this logs you out of every site")) return;
+	await storeWrite("{}");
+	for (const [host, entries] of Object.entries(collectSiteStorage())) {
+		for (const k of Object.keys(entries)) localStorage.removeItem(host + "@" + k);
+	}
+	scheduleStoragePush();
+	renderSiteStorage();
+});
 
 // theme buttons
 for (const btn of document.querySelectorAll("#rj-themes button")) {
@@ -1135,6 +1145,104 @@ async function pushStorageNow() {
 		if (ok) { localStorage.setItem("rj-store-ts", String(Date.now())); markSync("synced"); }
 	} catch (err) {}
 }
+// -- site storage manager (feature 5): per-site cookies + site data ----------
+async function jarMutate(fn) {
+	const state = await storeRead();
+	let jar = {};
+	try { jar = state && state.cookies ? JSON.parse(state.cookies) : {}; } catch (err) {}
+	fn(jar);
+	await storeWrite(JSON.stringify(jar));
+	scheduleStoragePush();
+}
+async function renderSiteStorage() {
+	const box = document.getElementById("rj-storage");
+	if (!box) return;
+	const state = await storeRead();
+	let jar = {};
+	try { jar = state && state.cookies ? JSON.parse(state.cookies) : {}; } catch (err) {}
+	const bySite = {};
+	for (const [id, c] of Object.entries(jar)) {
+		if (!c || typeof c !== "object") continue;
+		const dom = (c.domain || "").replace(/^\./, "") || "(unknown)";
+		(bySite[dom] = bySite[dom] || { cookies: [], storage: {} }).cookies.push({ id, ...c });
+	}
+	for (const [host, entries] of Object.entries(collectSiteStorage())) {
+		(bySite[host] = bySite[host] || { cookies: [], storage: {} }).storage = entries;
+	}
+	const hosts = Object.keys(bySite).sort();
+	if (!hosts.length) { box.innerHTML = '<p class="rj-muted">nothing stored yet</p>'; return; }
+	box.innerHTML = "";
+	for (const host of hosts) {
+		const info = bySite[host];
+		const lsBytes = Object.entries(info.storage).reduce((n, [k, v]) => n + k.length + String(v).length, 0);
+		const cBytes = info.cookies.reduce((n, c) => n + (c.name || "").length + (c.value || "").length, 0);
+		const wrap = document.createElement("div");
+		wrap.className = "rj-store-site";
+		const head = document.createElement("div");
+		head.className = "rj-store-head";
+		head.innerHTML = '<span class="rj-store-host"></span><span class="rj-muted rj-store-meta"></span><button type="button" class="rj-mini" data-act="view">view</button><button type="button" class="rj-mini" data-act="clear">clear</button>';
+		head.querySelector(".rj-store-host").textContent = host;
+		head.querySelector(".rj-store-meta").textContent = info.cookies.length + " cookies \u00b7 " + ((lsBytes + cBytes) / 1024).toFixed(1) + " KB";
+		const detail = document.createElement("div");
+		detail.className = "rj-store-detail";
+		detail.hidden = true;
+		head.querySelector('[data-act="view"]').addEventListener("click", () => {
+			detail.hidden = !detail.hidden;
+			head.querySelector('[data-act="view"]').textContent = detail.hidden ? "view" : "hide";
+		});
+		head.querySelector('[data-act="clear"]').addEventListener("click", async () => {
+			await jarMutate((j) => { for (const [id, c] of Object.entries(j)) { if (((c.domain || "").replace(/^\./, "")) === host) delete j[id]; } });
+			for (const k of Object.keys(info.storage)) localStorage.removeItem(host + "@" + k);
+			scheduleStoragePush();
+			renderSiteStorage();
+		});
+		if (info.cookies.length) {
+			const h = document.createElement("p");
+			h.className = "rj-muted rj-store-sub";
+			h.textContent = "cookies";
+			detail.appendChild(h);
+			for (const c of info.cookies.sort((a, b) => (a.name || "").localeCompare(b.name || ""))) {
+				const r = document.createElement("div");
+				r.className = "rj-store-line";
+				r.innerHTML = '<span class="rj-store-k"></span><input class="rj-store-v" type="text" spellcheck="false"><button type="button" class="rj-mini">del</button>';
+				r.querySelector(".rj-store-k").textContent = c.name;
+				const inp = r.querySelector(".rj-store-v");
+				inp.value = c.value || "";
+				inp.addEventListener("change", async () => {
+					const v = inp.value;
+					await jarMutate((j) => { if (j[c.id]) j[c.id].value = v; });
+				});
+				r.querySelector(".rj-mini").addEventListener("click", async () => {
+					await jarMutate((j) => { delete j[c.id]; });
+					renderSiteStorage();
+				});
+				detail.appendChild(r);
+			}
+		}
+		const siteKeys = Object.keys(info.storage).sort();
+		if (siteKeys.length) {
+			const h = document.createElement("p");
+			h.className = "rj-muted rj-store-sub";
+			h.textContent = "site data";
+			detail.appendChild(h);
+			for (const k of siteKeys) {
+				const r = document.createElement("div");
+				r.className = "rj-store-line";
+				r.innerHTML = '<span class="rj-store-k"></span><input class="rj-store-v" type="text" spellcheck="false"><button type="button" class="rj-mini">del</button>';
+				r.querySelector(".rj-store-k").textContent = k;
+				const inp = r.querySelector(".rj-store-v");
+				inp.value = info.storage[k];
+				inp.addEventListener("change", () => { localStorage.setItem(host + "@" + k, inp.value); scheduleStoragePush(); });
+				r.querySelector(".rj-mini").addEventListener("click", () => { localStorage.removeItem(host + "@" + k); scheduleStoragePush(); renderSiteStorage(); });
+				detail.appendChild(r);
+			}
+		}
+		wrap.appendChild(head);
+		wrap.appendChild(detail);
+		box.appendChild(wrap);
+	}
+}
+
 async function hydrateStorage() {
 	if (!meInfo || meInfo.role !== "admin" || typeof RJCrypto === "undefined" || !RJCrypto.unlocked()) return;
 	try {
