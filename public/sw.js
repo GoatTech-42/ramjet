@@ -1,5 +1,5 @@
-// Ramjet service worker - scramjet engine entry.
-// Derived from the Scramjet-App reference (AGPL-3.0, Mercury Workshop).
+// Ramjet service worker - standard Scramjet engine integration
+// (ScramjetServiceWorker API, @mercuryworkshop/scramjet, MIT).
 importScripts("/scram/scramjet.all.js");
 
 const { ScramjetServiceWorker } = $scramjetLoadWorker();
