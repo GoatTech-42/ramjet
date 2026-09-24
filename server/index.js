@@ -6,7 +6,7 @@ import { readFileSync } from "node:fs";
 import { join, normalize, extname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { hostname } from "node:os";
-import { randomBytes, scryptSync, timingSafeEqual, createCipheriv, createDecipheriv } from "node:crypto";
+import { randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
 import { server as wisp, logging } from "@mercuryworkshop/wisp-js/server";
 import { scramjetPath } from "@mercuryworkshop/scramjet/path";
 import { baremuxPath } from "@mercuryworkshop/bare-mux/node";
@@ -60,7 +60,6 @@ const PASSWORD_HASH = loadPasswordHash();
 const ACCOUNTS_FILE = join(DATA_DIR, "accounts.json");
 const CONFIG_FILE = join(DATA_DIR, "config.json");
 const USERDATA_DIR = join(DATA_DIR, "userdata");
-const keyRing = new Map(); // token -> Buffer (32B data key), memory only
 
 function loadConfig() {
 	const c = readJson(CONFIG_FILE, null);
@@ -74,56 +73,7 @@ function hashPassword(pw) {
 	const salt = randomBytes(16).toString("hex");
 	return salt + "$" + scryptSync(pw, salt, 32).toString("hex");
 }
-function wrapDataKey(key, pw) {
-	const keySalt = randomBytes(16).toString("hex");
-	const kek = scryptSync(pw, keySalt, 32);
-	const iv = randomBytes(12);
-	const c = createCipheriv("aes-256-gcm", kek, iv);
-	const ct = Buffer.concat([c.update(key), c.final()]);
-	return {
-		keySalt,
-		wrappedKey: iv.toString("hex") + "$" + c.getAuthTag().toString("hex") + "$" + ct.toString("hex"),
-	};
-}
-function makeWrappedKey(pw) {
-	const key = randomBytes(32);
-	return { ...wrapDataKey(key, pw), key };
-}
-function unwrapKey(account, pw) {
-	if (!account.wrappedKey || !account.keySalt) return null;
-	const parts = account.wrappedKey.split("$");
-	if (parts.length !== 3) return null;
-	try {
-		const kek = scryptSync(pw, account.keySalt, 32);
-		const d = createDecipheriv("aes-256-gcm", kek, Buffer.from(parts[0], "hex"));
-		d.setAuthTag(Buffer.from(parts[1], "hex"));
-		return Buffer.concat([d.update(Buffer.from(parts[2], "hex")), d.final()]);
-	} catch { return null; }
-}
-function cryptData(key, obj) {
-	const iv = randomBytes(12);
-	const c = createCipheriv("aes-256-gcm", key, iv);
-	const ct = Buffer.concat([c.update(JSON.stringify(obj), "utf8"), c.final()]);
-	return { iv: iv.toString("hex"), tag: c.getAuthTag().toString("hex"), ct: ct.toString("hex") };
-}
-function decryptData(key, blob) {
-	try {
-		const d = createDecipheriv("aes-256-gcm", key, Buffer.from(blob.iv, "hex"));
-		d.setAuthTag(Buffer.from(blob.tag, "hex"));
-		return JSON.parse(Buffer.concat([d.update(Buffer.from(blob.ct, "hex")), d.final()]).toString("utf8"));
-	} catch { return null; }
-}
-const EMPTY_DATA = { history: [], bookmarks: [], settings: {} };
-function userDataFile(user) { return join(USERDATA_DIR, user.replace(/[^a-z0-9._-]/gi, "_") + ".enc.json"); }
-function readUserData(key, user) {
-	const blob = readJson(userDataFile(user), null);
-	if (!blob) return { ...EMPTY_DATA };
-	return decryptData(key, blob) || { ...EMPTY_DATA };
-}
-async function writeUserData(key, user, data) {
-	await mkdir(USERDATA_DIR, { recursive: true }).catch(() => {});
-	await writeJson(userDataFile(user), cryptData(key, data));
-}
+function userDataFile(user) { return join(USERDATA_DIR, user.replace(/[^a-z0-9._-]/gi, "_") + ".blob.json"); }
 
 // seed the admin account from the existing gate hash on first run; the data
 // key gets wrapped lazily on luke's next successful password login.
@@ -131,10 +81,7 @@ async function writeUserData(key, user, data) {
 	const accounts = readAccounts();
 	if (Object.keys(accounts).length || !PASSWORD_HASH) return;
 	const [salt, hash] = PASSWORD_HASH.split("$");
-	accounts.luke = {
-		salt, hash, role: "admin", status: "active", created: Date.now(),
-		keySalt: null, wrappedKey: null,
-	};
+	accounts.luke = { salt, hash, role: "admin", status: "active", created: Date.now() };
 	writeJson(ACCOUNTS_FILE, accounts);
 	console.log("ramjet: seeded admin account 'luke' from gate password");
 })();
@@ -176,7 +123,6 @@ async function killSession(req, res) {
 		const s = readJson(SESSIONS_FILE, {});
 		delete s[token];
 		await writeJson(SESSIONS_FILE, s);
-		keyRing.delete(token);
 	}
 	res.setHeader("Set-Cookie", "rj_session=; Secure; HttpOnly; SameSite=Lax; Path=/; Max-Age=0");
 }
@@ -268,9 +214,7 @@ async function handleLogin(req, res) {
 			const accounts = readAccounts();
 			const acct = accounts.luke;
 			if (acct) {
-				const key = await loginKey(accounts, acct, pw);
-				const token = await newSession(res, "luke");
-				keyRing.set(token, key);
+				await newSession(res, "luke");
 				guard[ip] = { fails: 0, locked_until: 0 };
 				await writeJson(GUARD_FILE, guard);
 				res.writeHead(303, { location: "/" });
@@ -313,12 +257,10 @@ async function handleSignup(req, res) {
 	const accounts = readAccounts();
 	if (accounts[username]) return json(res, 409, { error: "that name is taken" });
 	const [salt, hash] = hashPassword(pw).split("$");
-	const { keySalt, wrappedKey } = makeWrappedKey(pw);
 	const needApproval = loadConfig().requireApproval;
 	accounts[username] = {
 		salt, hash, role: "user", created: Date.now(),
 		status: needApproval ? "pending" : "active",
-		keySalt, wrappedKey,
 	};
 	await writeAccounts(accounts);
 	if (needApproval) return json(res, 200, { ok: true, pending: true });
@@ -326,17 +268,6 @@ async function handleSignup(req, res) {
 	json(res, 200, { ok: true, pending: false });
 }
 
-async function loginKey(accounts, acct, pw) {
-	let key = acct.wrappedKey ? unwrapKey(acct, pw) : null;
-	if (!key) {
-		const w = makeWrappedKey(pw);
-		acct.keySalt = w.keySalt;
-		acct.wrappedKey = w.wrappedKey;
-		await writeAccounts(accounts);
-		key = w.key;
-	}
-	return key;
-}
 async function handleLoginAccount(req, res, pw, username) {
 	// returns true if handled as an account login
 	const accounts = readAccounts();
@@ -345,53 +276,27 @@ async function handleLoginAccount(req, res, pw, username) {
 	if (!verifyPassword(pw, acct.salt + "$" + acct.hash)) return false;
 	if (acct.status === "pending") { json(res, 403, { error: "account pending approval" }); return true; }
 	if (acct.status !== "active") { json(res, 403, { error: "account disabled" }); return true; }
-	const key = await loginKey(accounts, acct, pw);
-	const token = await newSession(res, username);
-	keyRing.set(token, key);
+	await newSession(res, username);
 	json(res, 200, { ok: true, redirect: "/" });
 	return true;
 }
 
-async function handleUnlock(req, res) {
-	const sr = sessionRecord(req);
-	if (!sr || !sr.user) return json(res, 401, { error: "no session" });
-	const p = await bodyParams(req);
-	const pw = p && p.get("password") || "";
-	const accounts = readAccounts();
-	const acct = accounts[sr.user];
-	if (!acct || !verifyPassword(pw, acct.salt + "$" + acct.hash)) return json(res, 403, { error: "wrong password" });
-	let key = acct.wrappedKey ? unwrapKey(acct, pw) : null;
-	if (!key) {
-		const w = makeWrappedKey(pw);
-		acct.keySalt = w.keySalt;
-		acct.wrappedKey = w.wrappedKey;
-		await writeAccounts(accounts);
-		key = w.key;
-	}
-	keyRing.set(sr.token, key);
-	json(res, 200, { ok: true });
-}
 
 async function handleSync(req, res) {
 	const sr = sessionRecord(req);
 	if (!sr || !sr.user) return json(res, 401, { error: "no session" });
-	const key = keyRing.get(sr.token);
-	if (!key) return json(res, 401, { error: "reauth" });
+	const file = userDataFile(sr.user);
 	if (req.method === "GET") {
-		return json(res, 200, { ok: true, data: readUserData(key, sr.user) });
+		return json(res, 200, { ok: true, blob: readJson(file, null) });
 	}
 	const p = await bodyParams(req, 512 * 1024);
 	if (!p) return json(res, 400, { error: "bad body" });
-	const data = readUserData(key, sr.user);
-	for (const field of ["history", "bookmarks"]) {
-		const raw = p.get(field);
-		if (raw !== null) {
-			try { data[field] = JSON.parse(raw).slice(0, field === "history" ? 200 : 100); } catch {}
-		}
-	}
-	const sraw = p.get("settings");
-	if (sraw !== null) { try { data.settings = JSON.parse(sraw); } catch {} }
-	await writeUserData(key, sr.user, data);
+	const blob = p.get("blob");
+	if (blob === null) return json(res, 400, { error: "missing blob" });
+	let parsed;
+	try { parsed = JSON.parse(blob); } catch { return json(res, 400, { error: "blob must be JSON" }); }
+	await mkdir(USERDATA_DIR, { recursive: true }).catch(() => {});
+	await writeJson(file, parsed);
 	json(res, 200, { ok: true });
 }
 
@@ -406,15 +311,9 @@ async function handlePasswd(req, res) {
 	const acct = accounts[sr.user];
 	if (!acct || !verifyPassword(oldPw, acct.salt + "$" + acct.hash)) return json(res, 403, { error: "current password wrong" });
 	const [salt, hash] = hashPassword(newPw).split("$");
-	let key = keyRing.get(sr.token) || unwrapKey(acct, oldPw);
-	if (!key) key = randomBytes(32); // no prior key existed on disk
-	const w = wrapDataKey(key, newPw);
 	acct.salt = salt;
 	acct.hash = hash;
-	acct.keySalt = w.keySalt;
-	acct.wrappedKey = w.wrappedKey;
 	await writeAccounts(accounts);
-	keyRing.set(sr.token, key);
 	json(res, 200, { ok: true });
 }
 
@@ -468,14 +367,13 @@ const server = createServer(async (req, res) => {
 		}
 		if (pathname === "/auth/login" && req.method === "POST") return await handleLogin(req, res);
 		if (pathname === "/auth/signup" && req.method === "POST") return await handleSignup(req, res);
-		if (pathname === "/auth/unlock" && req.method === "POST") return await handleUnlock(req, res);
 		if (pathname === "/auth/passwd" && req.method === "POST") return await handlePasswd(req, res);
 		if (pathname === "/auth/sync" && (req.method === "GET" || req.method === "PUT" || req.method === "POST")) return await handleSync(req, res);
 		if (pathname === "/auth/me") {
 			const sr = sessionRecord(req);
 			if (!sr || !sr.user) return json(res, 401, { error: "no session" });
 			const acct = readAccounts()[sr.user];
-			return json(res, 200, { ok: true, user: sr.user, role: acct ? acct.role : "user", unlocked: keyRing.has(sr.token) });
+			return json(res, 200, { ok: true, user: sr.user, role: acct ? acct.role : "user" });
 		}
 		if (pathname.startsWith("/auth/admin/")) return await handleAdmin(req, res, pathname.slice("/auth/admin/".length));
 		if (pathname === "/auth/logout") {
