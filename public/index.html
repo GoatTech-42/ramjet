@@ -44,6 +44,7 @@
 		<button id="rj-gear2" type="button" title="Settings" aria-label="Settings">
 			<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="2.2"/><path d="M8 1.8v1.7M8 12.5v1.7M1.8 8h1.7M12.5 8h1.7M3.6 3.6l1.2 1.2M11.2 11.2l1.2 1.2M12.4 3.6l-1.2 1.2M4.8 11.2l-1.2 1.2"/></svg>
 		</button>
+		<button id="rj-tabsbtn" type="button" title="Tabs" aria-label="Tabs"><span id="rj-tabcount">1</span></button>
 		<button id="rj-fs" type="button" title="Hide the bar" aria-label="Hide the bar">
 			<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 6V2h4M10 2h4v4M14 10v4h-4M6 14H2v-4"/></svg>
 		</button>
@@ -66,6 +67,14 @@
 <div id="rj-framehost" hidden></div>
 
 <div id="rj-menu" hidden></div>
+
+<div id="rj-switcher" hidden>
+	<header>
+		<h2>Tabs</h2>
+		<button id="rj-switcher-close" type="button" aria-label="Close">&times;</button>
+	</header>
+	<div id="rj-switcher-grid"></div>
+</div>
 
 <div id="rj-pagehost" hidden>
 	<div id="rj-panel-card" role="dialog" aria-label="Settings">
