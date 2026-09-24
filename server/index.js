@@ -203,7 +203,7 @@ async function inactivitySweep() {
 inactivitySweep().catch(() => {});
 setInterval(() => inactivitySweep().catch(() => {}), 24 * 3600 * 1000).unref();
 
-const PUBLIC_PREFIXES = ["/login", "/auth/login", "/auth/signup", "/auth/logout", "/auth/me", "/rjcrypto.js", "/healthz", "/assets/", "/style.css", "/favicon"];
+const PUBLIC_PREFIXES = ["/login", "/auth/login", "/auth/signup", "/auth/logout", "/auth/me", "/rjcrypto.js", "/healthz", "/assets/", "/style.css", "/favicon", "/sw.js"];
 function isPublic(pathname) {
 	return PUBLIC_PREFIXES.some((p) => pathname === p || pathname.startsWith(p.endsWith("/") ? p : p + "?"));
 }
