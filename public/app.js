@@ -35,13 +35,53 @@ function renderTabs() {
 	try {
 		localStorage.setItem(TABS_KEY, JSON.stringify({
 			active: tabs.indexOf(activeTab),
-			tabs: tabs.map((t) => ({ url: t.url, title: t.title, page: t.page || null })),
+			tabs: tabs.map((t) => ({ url: t.url, title: t.title, page: t.page || null, icon: t.icon || null })),
 		}));
 	} catch (err) {}
 	for (const tab of tabs) {
 		const el = document.createElement("div");
 		el.className = "rj-tab" + (tab === activeTab ? " active" : "");
 		el.title = tab.page ? tab.page : (tab.url || "new tab");
+		if (tab.icon) {
+			const icon = document.createElement("img");
+			icon.className = "rj-tab-icon";
+			icon.src = tab.icon;
+			icon.alt = "";
+			icon.draggable = false;
+			icon.addEventListener("error", () => { if (tab.icon) { tab.icon = null; renderTabs(); } });
+			el.appendChild(icon);
+		} else {
+			const tile = document.createElement("span");
+			tile.className = "rj-tab-tile";
+			tile.textContent = ((tab.page || tab.title || "n").trim()[0] || "n").toUpperCase();
+			el.appendChild(tile);
+		}
+		el.draggable = true;
+		el.addEventListener("dragstart", (e) => {
+			e.dataTransfer.setData("text/rj-tab", String(tabs.indexOf(tab)));
+			e.dataTransfer.effectAllowed = "move";
+		});
+		el.addEventListener("dragover", (e) => {
+			if (!e.dataTransfer.types.includes("text/rj-tab")) return;
+			e.preventDefault();
+			e.dataTransfer.dropEffect = "move";
+			el.classList.add("rj-drop");
+		});
+		el.addEventListener("dragleave", () => el.classList.remove("rj-drop"));
+		el.addEventListener("drop", (e) => {
+			el.classList.remove("rj-drop");
+			const from = Number(e.dataTransfer.getData("text/rj-tab"));
+			if (!Number.isInteger(from)) return;
+			e.preventDefault();
+			const to = tabs.indexOf(tab);
+			if (from < 0 || from === to) return;
+			const [moved] = tabs.splice(from, 1);
+			tabs.splice(to, 0, moved);
+			renderTabs();
+		});
+		el.addEventListener("auxclick", (e) => {
+			if (e.button === 1) { e.preventDefault(); e.stopPropagation(); closeTab(tab); }
+		});
 		const label = document.createElement("span");
 		label.className = "rj-tab-label";
 		label.textContent = tab.page || tab.title || "new tab";
@@ -144,6 +184,17 @@ function ensureFrame(tab) {
 			const t = f.frame.contentWindow.document.title;
 			if (t) tab.title = t.length > 24 ? t.slice(0, 23) + "\u2026" : t;
 		} catch (err) {}
+		try {
+			const doc = f.frame.contentWindow.document;
+			const link = doc.querySelector("link[rel~='icon'], link[rel='shortcut icon'], link[rel='apple-touch-icon']");
+			let iconUrl = link && link.href ? link.href : null;
+			if (!iconUrl) {
+				const origin = new URL(f.frame.contentWindow.location.href).origin;
+				if (origin && origin.startsWith("http") && origin !== location.origin) iconUrl = origin + "/favicon.ico";
+			}
+			if (iconUrl && !iconUrl.startsWith(location.origin)) iconUrl = scramjet.rewriteUrl(iconUrl);
+			if (iconUrl) tab.icon = iconUrl;
+		} catch (err) {}
 		if (tab === activeTab) syncBar();
 		renderTabs();
 		wireFrameDoc(tab, f);
@@ -177,9 +228,14 @@ let bookmarks = [];
 try { bookmarks = JSON.parse(localStorage.getItem(BOOKMARKS_KEY) || "[]"); } catch (err) {}
 function saveBookmarks() { localStorage.setItem(BOOKMARKS_KEY, JSON.stringify(bookmarks)); scheduleSyncPush(); }
 
+const HISTORY_MAX_AGE_MS = 7 * 24 * 3600 * 1000; // v0.4: history auto-purges past 7 days
 let history = [];
 try { history = JSON.parse(localStorage.getItem(HISTORY_KEY) || "[]"); } catch (err) {}
-function saveHistory() { localStorage.setItem(HISTORY_KEY, JSON.stringify(history)); scheduleSyncPush(); }
+history = history.filter((h) => h && h.ts && Date.now() - h.ts < HISTORY_MAX_AGE_MS);
+function saveHistory() {
+	history = history.filter((h) => h && h.ts && Date.now() - h.ts < HISTORY_MAX_AGE_MS);
+	localStorage.setItem(HISTORY_KEY, JSON.stringify(history)); scheduleSyncPush();
+}
 function recordHistory(url) {
 	if (!url) return;
 	history = history.filter((h) => h.url !== url);
@@ -498,6 +554,16 @@ document.addEventListener("keydown", (e) => {
 	if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "f" && document.body.classList.contains("in-flight")) {
 		e.preventDefault();
 		openFind();
+		return;
+	}
+	if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "t") {
+		e.preventDefault();
+		newTab();
+		return;
+	}
+	if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "w") {
+		e.preventDefault();
+		if (activeTab) closeTab(activeTab);
 		return;
 	}
 	if (e.altKey && e.key === "ArrowLeft") {
@@ -995,6 +1061,17 @@ async function renderAdmin() {
 			body: "requireApproval=" + (tog.checked ? "1" : "0"),
 		});
 	};
+	const adt = document.getElementById("rj-adblock");
+	if (adt) {
+		adt.checked = data.adblock !== false;
+		adt.onchange = async () => {
+			await fetch("/auth/admin/config", {
+				method: "POST",
+				headers: { "content-type": "application/x-www-form-urlencoded" },
+				body: "adblock=" + (adt.checked ? "1" : "0"),
+			});
+		};
+	}
 }
 
 // warm the engine in the background once the page is idle
@@ -1006,7 +1083,7 @@ let savedTabs = { tabs: [], active: 0 };
 try { savedTabs = JSON.parse(localStorage.getItem(TABS_KEY) || '{"tabs":[],"active":0}'); } catch (err) {}
 for (const st of savedTabs.tabs || []) {
 	if (tabs.length >= 8) break;
-	tabs.push({ id: ++tabSeq, frame: null, url: st.url || null, title: st.title || "", page: st.page || null });
+	tabs.push({ id: ++tabSeq, frame: null, url: st.url || null, title: st.title || "", page: st.page || null, icon: st.icon || null });
 }
 if (tabs.length) {
 	activateTab(tabs[Math.max(0, Math.min(savedTabs.active || 0, tabs.length - 1))]);
