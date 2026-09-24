@@ -508,6 +508,9 @@ body.in-flight #rj-framehost { display: block; }
 }
 #rj-star:hover, #rj-cloak:hover { color: var(--amber); }
 #rj-star.starred { color: var(--amber); }
+#rj-star .star-f { display: none; }
+#rj-star.starred .star-f { display: block; margin: auto; }
+#rj-star.starred .star-o { display: none; }
 #rj-cloak.cloaked { color: var(--amber); }
 #rj-cloak svg { width: 16px; height: 16px; display: block; }
 
@@ -859,7 +862,7 @@ body.has-tabs #rj-landing { padding-top: 8px; }
 }
 .rj-tab.active .rj-tab-tile { color: var(--text); }
 .rj-tab.rj-drop { box-shadow: inset 2px 0 0 var(--amber); }
-.rj-nav button svg { width: 15px; height: 15px; display: block; margin: auto; }
+.rj-nav button svg { width: 17px; height: 17px; display: block; margin: auto; }
 .rj-tab-close {
 	background: none;
 	border: 0;
