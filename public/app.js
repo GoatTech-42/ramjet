@@ -343,6 +343,13 @@ function applyTheme() {
 	}
 	document.documentElement.style.setProperty("--amber", amber);
 	document.documentElement.style.setProperty("--amber-deep", deep);
+	const favicon = document.querySelector('link[rel="icon"]');
+	if (favicon) favicon.href = "data:image/svg+xml," + encodeURIComponent(
+		'<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">' +
+		'<path fill="' + amber + '" d="M11.6 39.6 L14.4 42.4 L4.7 50.7 L3.3 49.3 Z"/>' +
+		'<path fill="' + amber + '" d="M20.6 48.6 L23.4 51.4 L15.7 57.7 L14.3 56.3 Z"/>' +
+		'<path fill="' + deep + '" d="M58 6 L12 22 L30 32 Z"/>' +
+		'<path fill="' + amber + '" d="M58 6 L30 32 L40 50 Z"/></svg>');
 	const customBtn = document.getElementById("rj-theme-custom");
 	if (customBtn) customBtn.style.setProperty("--sw", amber);
 }
