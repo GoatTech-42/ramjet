@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ramjet - GoatTech</title>
+<meta name="description" content="Ramjet: a fast web proxy by GoatTech.">
+<link rel="icon" href="/assets/ramjet.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/style.css">
+<script src="/scram/scramjet.all.js"></script>
+<script src="/baremux/index.js"></script>
+<script src="/app.js" defer></script>
+</head>
+<body>
+
+<header id="rj-chrome">
+	<img src="/assets/ramjet.svg" alt="" class="mark">
+	<span class="byline">goattech</span>
+</header>
+
+<main id="rj-landing">
+	<h1 class="wordmark-big">ram<em>jet</em></h1>
+	<p class="tag">a web proxy that butts through.</p>
+</main>
+
+<form id="rj-form" autocomplete="off" spellcheck="false">
+	<div class="rj-nav">
+		<button id="rj-back" type="button" title="Back" aria-label="Back">&larr;</button>
+		<button id="rj-fwd" type="button" title="Forward" aria-label="Forward">&rarr;</button>
+		<button id="rj-reload" type="button" title="Reload" aria-label="Reload">&#8635;</button>
+		<button id="rj-home" type="button" title="Home" aria-label="Home"><img src="/assets/ramjet.svg" alt=""></button>
+	</div>
+	<span class="prefix">//</span>
+	<input id="rj-address" type="text" inputmode="url" placeholder="type a url or search" aria-label="Address or search">
+	<button type="submit" class="ignite">ignite&nbsp;&#8594;</button>
+</form>
+
+<p id="rj-hint">no accounts, no install. the whole web, one bar.</p>
+
+<div id="rj-framehost" hidden></div>
+
+<footer id="rj-foot">
+	<span id="rj-status" data-mode="idle"></span>
+	<span class="ver">v0.1.0</span>
+</footer>
+
+</body>
+</html>

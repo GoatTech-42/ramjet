@@ -1,0 +1,17 @@
+{
+  "name": "ramjet",
+  "version": "0.1.0",
+  "description": "Ramjet - a fast web proxy by GoatTech",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "start": "node server/index.js"
+  },
+  "dependencies": {
+    "@mercuryworkshop/bare-mux": "^2.1.9",
+    "@mercuryworkshop/libcurl-transport": "^1.5.2",
+    "@mercuryworkshop/scramjet": "^1.1.0",
+    "@mercuryworkshop/wisp-js": "^0.4.1",
+    "ws": "^8.18.3"
+  }
+}
