@@ -234,6 +234,19 @@ body.in-flight #rj-framehost { display: block; }
 
 #rj-foot .ver { color: #4b5058; }
 
+
+/* mobile-only tab count button (shown by the phone shell) */
+#rj-tabsbtn {
+	display: none;
+	border: 1px solid var(--edge);
+	border-radius: 8px;
+	background: none;
+	color: var(--text);
+	font: 600 14px/1 var(--mono);
+	cursor: pointer;
+}
+#rj-tabcount { pointer-events: none; }
+
 /* ------- mobile ------- */
 @media (max-width: 640px) {
 	#rj-chrome { padding: 14px 16px; }
@@ -244,8 +257,11 @@ body.in-flight #rj-framehost { display: block; }
 	#rj-hint { font-size: 12px; }
 
 	/* --- phone browser shell: bottom bar, big touch targets, safe areas --- */
-	body.in-flight { padding-bottom: calc(96px + env(safe-area-inset-bottom, 0px)); }
-	body.in-flight #rj-tabs { display: none; } /* strip lives in the card switcher */
+	body.in-flight { padding-bottom: 0; } /* frame is fixed-anchored above the bar */
+	body.has-tabs.in-flight #rj-tabs { display: none !important; } /* strip lives in the card switcher */
+	body.in-flight #rj-foot { display: none; } /* status strip crowds the phone bar */
+	body.in-flight #rj-chrome { display: none; } /* landing header off the phone shell */
+	body.in-flight #rj-framehost { inset: 0 0 calc(62px + env(safe-area-inset-bottom, 0px)) 0; } /* full height above the phone bar */
 	body.in-flight #rj-form {
 		position: fixed;
 		left: 0; right: 0; bottom: 0;
@@ -267,17 +283,9 @@ body.in-flight #rj-framehost { display: block; }
 	body.in-flight #rj-cloak,
 	body.in-flight #rj-fs { display: none !important; }
 	body.in-flight #rj-tabsbtn { display: inline-flex !important; }
-	#rj-tabsbtn {
-		display: none;
-		border: 1px solid var(--edge);
-		border-radius: 8px;
-		background: none;
-		color: var(--text);
-		font: 600 14px/1 var(--mono);
-	}
-	#rj-tabcount { pointer-events: none; }
 
 	/* tab switcher: full-screen card grid */
+	#rj-switcher[hidden] { display: none; }
 	#rj-switcher {
 		position: fixed; inset: 0; z-index: 60;
 		background: var(--bg);
@@ -1107,3 +1115,9 @@ body.in-flight.bmbar #rj-framehost { inset: 75px 0 30px 0; }
 	white-space: nowrap;
 }
 .rj-bm:hover { background: rgba(255,255,255,0.06); }
+
+/* phone shell final overrides (must beat the legacy in-flight.has-tabs anchor) */
+@media (max-width: 640px) {
+	body.in-flight.has-tabs #rj-framehost,
+	body.in-flight #rj-framehost { inset: 0 0 calc(62px + env(safe-area-inset-bottom, 0px)) 0; }
+}
