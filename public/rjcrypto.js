@@ -46,7 +46,7 @@ const RJCrypto = (() => {
 		const base = await crypto.subtle.importKey("raw", te.encode(password), "PBKDF2", false, ["deriveKey"]);
 		const kek = await crypto.subtle.deriveKey(
 			{ name: "PBKDF2", salt, iterations: 250000, hash: "SHA-256" },
-			base, { name: "AES-GCM", length: 256 }, false, ["wrapKey", "unwrapKey"]);
+			base, { name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"]);
 		return { kek, saltB64: b64(salt) };
 	}
 	async function newDataKey() {
