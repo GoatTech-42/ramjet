@@ -1,5 +1,11 @@
 # ramjet changelog
 
+## 0.7.2
+- engine fix: live server was missing engine packages - the proxy actually boots now
+- phones: text no longer auto-inflates (fixes sideways scrolling + broken settings layout)
+- no more horizontal scrollbar on mobile - everything fits the screen
+- dart logo + favicon follow your accent color
+
 ## 0.7.1
 - removed the auto history-suggestion chip on the new-tab page (it had a style conflict on phones) - a proper pinned speed dial lands in v0.8
 
