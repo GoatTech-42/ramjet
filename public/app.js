@@ -35,16 +35,16 @@ function renderTabs() {
 	try {
 		localStorage.setItem(TABS_KEY, JSON.stringify({
 			active: tabs.indexOf(activeTab),
-			tabs: tabs.map((t) => ({ url: t.url, title: t.title })),
+			tabs: tabs.map((t) => ({ url: t.url, title: t.title, page: t.page || null })),
 		}));
 	} catch (err) {}
 	for (const tab of tabs) {
 		const el = document.createElement("div");
 		el.className = "rj-tab" + (tab === activeTab ? " active" : "");
-		el.title = tab.url || "new tab";
+		el.title = tab.page ? tab.page : (tab.url || "new tab");
 		const label = document.createElement("span");
 		label.className = "rj-tab-label";
-		label.textContent = tab.title || "new tab";
+		label.textContent = tab.page || tab.title || "new tab";
 		const close = document.createElement("button");
 		close.type = "button";
 		close.className = "rj-tab-close";
@@ -74,6 +74,16 @@ function activateTab(tab) {
 		if (t.frame) t.frame.frame.style.display = t === tab ? "block" : "none";
 	}
 	hideFind();
+	const pagehost = document.getElementById("rj-pagehost");
+	if (tab.page) {
+		document.body.classList.remove("in-flight");
+		document.body.classList.add("page-view");
+		pagehost.hidden = false;
+		renderTabs();
+		return;
+	}
+	document.body.classList.remove("page-view");
+	pagehost.hidden = true;
 	if (tab.frame) {
 		document.body.classList.add("in-flight");
 		syncBar();
@@ -85,6 +95,16 @@ function activateTab(tab) {
 		address.focus();
 	}
 	renderTabs();
+}
+
+function newPageTab(page) {
+	const existing = tabs.find((t) => t.page === page);
+	if (existing) { activateTab(existing); return existing; }
+	if (tabs.length >= 8) { setStatus("8 tabs is plenty", "error"); return null; }
+	const tab = { id: ++tabSeq, frame: null, url: null, title: "", page };
+	tabs.push(tab);
+	activateTab(tab);
+	return tab;
 }
 
 function newTab(url) {
@@ -335,7 +355,29 @@ starBtn.addEventListener("click", () => {
 	syncStar();
 	renderBookmarks();
 });
+function renderBmBar() {
+	const bar = document.getElementById("rj-bmbar");
+	if (!bar) return;
+	bar.innerHTML = "";
+	for (const b of bookmarks.slice(0, 40)) {
+		const chip = document.createElement("button");
+		chip.type = "button";
+		chip.className = "rj-bm";
+		let host = b.url;
+		try { host = new URL(b.url).hostname.replace(/^www\./, ""); } catch (err) {}
+		chip.textContent = host;
+		chip.title = b.url;
+		chip.addEventListener("click", () => {
+			if (activeTab && !activeTab.page) { ignite(b.url); }
+			else { newTab(); ignite(b.url); }
+		});
+		bar.appendChild(chip);
+	}
+	document.body.classList.toggle("bmbar", bookmarks.length > 0);
+}
+
 function renderBookmarks() {
+	renderBmBar();
 	const list = document.getElementById("rj-bookmarks");
 	list.innerHTML = "";
 	if (!bookmarks.length) {
@@ -375,19 +417,16 @@ function renderBookmarks() {
 }
 
 // -- settings panel ----------------------------------------------------------
-const panel = document.getElementById("rj-panel");
 function openSettings() {
-	renderBookmarks();
-	renderHistory();
-	panel.hidden = false;
+	newPageTab("settings");
+	return;
 }
 function closeSettings() {
-	panel.hidden = true;
+	if (activeTab && activeTab.page) closeTab(activeTab);
 }
 document.getElementById("rj-gear").addEventListener("click", openSettings);
 document.getElementById("rj-gear2").addEventListener("click", openSettings);
 document.getElementById("rj-panel-close").addEventListener("click", closeSettings);
-panel.addEventListener("click", (e) => { if (e.target === panel) closeSettings(); });
 
 // theme buttons
 for (const btn of document.querySelectorAll("#rj-themes button")) {
@@ -449,7 +488,7 @@ document.addEventListener("keydown", (e) => {
 		window.location.replace(settings.panicUrl || DEFAULTS.panicUrl);
 		return;
 	}
-	if (e.key === "Escape" && !panel.hidden) { closeSettings(); return; }
+	if (e.key === "Escape" && activeTab && activeTab.page) { closeSettings(); return; }
 	if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "l") {
 		e.preventDefault();
 		address.focus();
@@ -967,7 +1006,7 @@ let savedTabs = { tabs: [], active: 0 };
 try { savedTabs = JSON.parse(localStorage.getItem(TABS_KEY) || '{"tabs":[],"active":0}'); } catch (err) {}
 for (const st of savedTabs.tabs || []) {
 	if (tabs.length >= 8) break;
-	tabs.push({ id: ++tabSeq, frame: null, url: st.url || null, title: st.title || "" });
+	tabs.push({ id: ++tabSeq, frame: null, url: st.url || null, title: st.title || "", page: st.page || null });
 }
 if (tabs.length) {
 	activateTab(tabs[Math.max(0, Math.min(savedTabs.active || 0, tabs.length - 1))]);
@@ -976,6 +1015,7 @@ if (tabs.length) {
 applyTheme();
 applyCloak();
 syncSettingsUI();
+renderBookmarks();
 renderDial();
 setStatus("engine: scramjet 1.1.0 \u00b7 transport: wisp \u00b7 ready", "idle");
 hydrateFromServer();
