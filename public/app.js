@@ -249,7 +249,7 @@ function ensureFrame(tab) {
 				}).catch(() => {});
 			}
 		} catch (err) {}
-		if (tab === activeTab) { syncBar(); setStatus("", "idle"); }
+		if (tab === activeTab) { syncBar(); setStatus("", "idle"); scheduleStoragePush(); }
 		renderTabs();
 		wireFrameDoc(tab, f);
 	});
@@ -1068,6 +1068,70 @@ function markSync(txt) {
 	const el = document.getElementById("rj-sync-state");
 	if (el) el.textContent = txt;
 }
+
+// -- storage sync (admin only): site logins follow the account across devices.
+// The scramjet controller cookie db is the local source of truth; we read and
+// write it directly so the controller picks changes up via its BroadcastChannel.
+const STORE_DB = "__scramjet_controller", STORE_STORE = "state", STORE_KEY = "cookies";
+const STORE_CHAN = "__scramjet_controller_channel";
+function storeDb() {
+	return new Promise((resolve, reject) => {
+		const req = indexedDB.open(STORE_DB, 1);
+		req.onupgradeneeded = () => { if (!req.result.objectStoreNames.contains(STORE_STORE)) req.result.createObjectStore(STORE_STORE); };
+		req.onsuccess = () => resolve(req.result);
+		req.onerror = () => reject(req.error);
+	});
+}
+async function storeRead() {
+	try {
+		const db = await storeDb();
+		return await new Promise((resolve) => {
+			const tx = db.transaction(STORE_STORE, "readonly").objectStore(STORE_STORE).get(STORE_KEY);
+			tx.onsuccess = () => resolve(tx.result || null);
+			tx.onerror = () => resolve(null);
+		});
+	} catch (err) { return null; }
+}
+async function storeWrite(cookies) {
+	const db = await storeDb();
+	const updatedAt = Date.now();
+	await new Promise((resolve, reject) => {
+		const tx = db.transaction(STORE_STORE, "readwrite");
+		tx.objectStore(STORE_STORE).put({ updatedAt, cookies }, STORE_KEY);
+		tx.oncomplete = () => resolve();
+		tx.onerror = () => reject(tx.error);
+	});
+	try { new BroadcastChannel(STORE_CHAN).postMessage({ updatedAt }); } catch (err) {}
+}
+function storageSyncOn() {
+	return typeof RJCrypto !== "undefined" && RJCrypto.unlocked() && meInfo && meInfo.role === "admin";
+}
+let storeSyncTimer = null;
+function scheduleStoragePush() {
+	if (!storageSyncOn()) return;
+	clearTimeout(storeSyncTimer);
+	storeSyncTimer = setTimeout(pushStorageNow, 4000);
+}
+async function pushStorageNow() {
+	if (!storageSyncOn()) return;
+	try {
+		const state = await storeRead();
+		if (!state || typeof state.cookies !== "string" || !state.cookies) return;
+		const ok = await RJCrypto.pushStorage({ cookies: state.cookies, syncedAt: Date.now() });
+		if (ok) { localStorage.setItem("rj-store-ts", String(Date.now())); markSync("synced"); }
+	} catch (err) {}
+}
+async function hydrateStorage() {
+	if (!meInfo || meInfo.role !== "admin" || typeof RJCrypto === "undefined" || !RJCrypto.unlocked()) return;
+	try {
+		const data = await RJCrypto.pullStorage();
+		if (!data || typeof data.cookies !== "string" || !data.cookies) return;
+		const ts = data.syncedAt || 0;
+		if (ts <= +(localStorage.getItem("rj-store-ts") || 0)) return;
+		await storeWrite(data.cookies);
+		localStorage.setItem("rj-store-ts", String(ts));
+	} catch (err) {}
+}
 async function hydrateFromServer() {
 	try {
 		const meRes = await fetch("/auth/me");
@@ -1093,6 +1157,7 @@ async function hydrateFromServer() {
 		} else {
 			markSync("locked");
 		}
+		await hydrateStorage();
 	} catch (err) {}
 	renderAccount();
 }
@@ -1243,6 +1308,7 @@ applyCloak();
 syncSettingsUI();
 renderBookmarks();
 renderDial();
-setStatus("", "idle");
-hydrateFromServer();
-address.focus();
+setStatus("", "idle");document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") scheduleStoragePush(); });
+window.addEventListener("pagehide", () => { if (storageSyncOn()) pushStorageNow(); });
+setInterval(() => { if (document.visibilityState === "visible") scheduleStoragePush(); }, 5 * 60 * 1000);
+hydrateFromServer();address.focus();
