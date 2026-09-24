@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <!-- horns -->
+  <path d="M22 20 C14 12 4 16 6 26 C7.5 33 14 35 19 32" stroke="#ffa028" stroke-width="5" stroke-linecap="round"/>
+  <path d="M42 20 C50 12 60 16 58 26 C56.5 33 50 35 45 32" stroke="#ffa028" stroke-width="5" stroke-linecap="round"/>
+  <circle cx="11" cy="25" r="3.2" fill="#ffa028"/>
+  <circle cx="53" cy="25" r="3.2" fill="#ffa028"/>
+  <!-- face -->
+  <path d="M20 22 L44 22 L41 44 L32 56 L23 44 Z" fill="#ece9e2"/>
+  <rect x="25" y="30" width="4" height="4" rx="1" fill="#0b0c0e"/>
+  <rect x="35" y="30" width="4" height="4" rx="1" fill="#0b0c0e"/>
+  <path d="M30 42 L34 42 L32 46 Z" fill="#0b0c0e"/>
+</svg>

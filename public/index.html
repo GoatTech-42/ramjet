@@ -8,12 +8,12 @@
 <link rel="icon" href="/assets/ramjet.svg" type="image/svg+xml">
 <link rel="manifest" href="/site.webmanifest">
 <meta name="theme-color" content="#0b0c0e">
-<link rel="stylesheet" href="/style.css?v=17">
+<link rel="stylesheet" href="/style.css?v=18">
 <script>window.RJ_VERSION="0.7.0-alpha";</script>
 <script src="/scramjet/scramjet_bundled.js"></script>
 <script src="/controller/controller.api.js"></script>
 <script src="/rjcrypto.js"></script>
-<script src="/app.js?v=15" defer></script>
+<script src="/app.js?v=16" defer></script>
 </head>
 <body>
 
@@ -165,6 +165,11 @@
 			<h3>History <button id="rj-history-clear" type="button" class="rj-mini">clear</button></h3>
 			<ul id="rj-history"></ul>
 			<label class="rj-check"><input id="rj-clearhist" type="checkbox"> Clear history when ramjet closes</label>
+		</section>
+
+		<section>
+			<h3>Site storage <button id="rj-storage-clearall" type="button" class="rj-mini">clear all</button></h3>
+			<div id="rj-storage"><p class="rj-muted">nothing stored yet</p></div>
 		</section>
 
 		<section>
