@@ -1112,12 +1112,26 @@ function scheduleStoragePush() {
 	clearTimeout(storeSyncTimer);
 	storeSyncTimer = setTimeout(pushStorageNow, 4000);
 }
+function collectSiteStorage() {
+	const out = {};
+	for (let i = 0; i < localStorage.length; i++) {
+		const k = localStorage.key(i);
+		const at = k.indexOf("@");
+		if (at < 1) continue;
+		const host = k.slice(0, at), key = k.slice(at + 1);
+		if (!/^[a-z0-9.-]+(:\d+)?$/i.test(host)) continue; // scramjet site keys are host@key
+		(out[host] = out[host] || {})[key] = localStorage.getItem(k);
+	}
+	return out;
+}
 async function pushStorageNow() {
 	if (!storageSyncOn()) return;
 	try {
 		const state = await storeRead();
-		if (!state || typeof state.cookies !== "string" || !state.cookies) return;
-		const ok = await RJCrypto.pushStorage({ cookies: state.cookies, syncedAt: Date.now() });
+		const sites = collectSiteStorage();
+		const cookies = state && typeof state.cookies === "string" && state.cookies ? state.cookies : null;
+		if (!cookies && !Object.keys(sites).length) return;
+		const ok = await RJCrypto.pushStorage({ cookies, sitestorage: sites, syncedAt: Date.now() });
 		if (ok) { localStorage.setItem("rj-store-ts", String(Date.now())); markSync("synced"); }
 	} catch (err) {}
 }
@@ -1125,10 +1139,16 @@ async function hydrateStorage() {
 	if (!meInfo || meInfo.role !== "admin" || typeof RJCrypto === "undefined" || !RJCrypto.unlocked()) return;
 	try {
 		const data = await RJCrypto.pullStorage();
-		if (!data || typeof data.cookies !== "string" || !data.cookies) return;
+		if (!data || (!data.cookies && !data.sitestorage)) return;
 		const ts = data.syncedAt || 0;
 		if (ts <= +(localStorage.getItem("rj-store-ts") || 0)) return;
-		await storeWrite(data.cookies);
+		if (typeof data.cookies === "string" && data.cookies) await storeWrite(data.cookies);
+		if (data.sitestorage && typeof data.sitestorage === "object") {
+			for (const [host, entries] of Object.entries(data.sitestorage)) {
+				if (!entries || typeof entries !== "object") continue;
+				for (const [k, v] of Object.entries(entries)) localStorage.setItem(host + "@" + k, v);
+			}
+		}
 		localStorage.setItem("rj-store-ts", String(ts));
 	} catch (err) {}
 }
