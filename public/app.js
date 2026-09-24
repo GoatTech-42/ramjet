@@ -82,7 +82,16 @@ function syncBar() {
 	if (!frame) return;
 	try {
 		const loc = frame.frame.contentWindow.location;
-		address.value = loc.href === "about:blank" ? "" : loc.href;
+		const href = loc.href;
+		if (href === "about:blank") {
+			address.value = "";
+			return;
+		}
+		// show the real destination, not our encoded proxy path
+		const prefix = location.origin + "/scramjet/";
+		address.value = href.startsWith(prefix)
+			? decodeURIComponent(href.slice(prefix.length))
+			: href;
 	} catch (err) {}
 }
 
