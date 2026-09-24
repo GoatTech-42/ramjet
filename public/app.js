@@ -200,7 +200,7 @@ function ensureFrame(tab) {
 				}).catch(() => {});
 			}
 		} catch (err) {}
-		if (tab === activeTab) syncBar();
+		if (tab === activeTab) { syncBar(); setStatus("", "idle"); }
 		renderTabs();
 		wireFrameDoc(tab, f);
 	});
@@ -358,7 +358,7 @@ function ignite(url) {
 	if (!tab.title) tab.title = host;
 	document.body.classList.add("in-flight");
 	f.frame.style.display = "block";
-	setStatus("", "idle");
+	setStatus("Waiting for " + host + "\u2026", "busy");
 	renderTabs();
 }
 
@@ -784,6 +784,15 @@ function wireFrameDoc(tab, f) {
 		e.stopPropagation();
 		newTab(decodeProxied(a.href));
 	}, true);
+	doc.addEventListener("mouseover", (e) => {
+		const a = linkAt(e);
+		if (!a || tab !== activeTab) return;
+		try { setStatus(decodeProxied(a.href), "idle"); } catch (err) {}
+	});
+	doc.addEventListener("mouseout", (e) => {
+		if (!linkAt(e) || tab !== activeTab) return;
+		setStatus("", "idle");
+	});
 	doc.addEventListener("contextmenu", (e) => {
 		e.preventDefault();
 		const rect = f.frame.getBoundingClientRect();
@@ -1099,6 +1108,6 @@ applyCloak();
 syncSettingsUI();
 renderBookmarks();
 renderDial();
-setStatus("engine: scramjet 1.1.0 \u00b7 transport: wisp \u00b7 ready", "idle");
+setStatus("", "idle");
 hydrateFromServer();
 address.focus();
