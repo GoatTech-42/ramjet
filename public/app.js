@@ -659,7 +659,7 @@ const THEMES = {
 };
 
 const ENGINES = {
-	rj:     ["ramjet search", "/searx/search?q="],
+	rj:     ["ramjet search", "/search?q="],
 	ddg:    ["DuckDuckGo", "https://duckduckgo.com/?q="],
 	google: ["Google", "https://www.google.com/search?q="],
 	bing:   ["Bing", "https://www.bing.com/search?q="],
@@ -988,7 +988,7 @@ function syncBar() {
 		const real = peelProxied(href);
 		if (real === href && href.includes("/~/sj/")) return; // still mid-redirect
 		let disp = real;
-		if (real.startsWith(location.origin + "/searx/search")) {
+		if (real.startsWith(location.origin + "/search") || real.startsWith(location.origin + "/searx/search")) {
 			try {
 				const q = new URL(real).searchParams.get("q");
 				if (q) disp = "ramjet search: " + q;
@@ -1349,8 +1349,9 @@ function suggestCandidates(q) {
 // history entries show the query, everything else shows the url
 function sugLabel(item) {
 	if (item.label) return item.label;
-	const px = location.origin + "/searx/search?q=";
-	if (item.url.startsWith(px)) {
+	const px = location.origin + "/search?q=";
+	const pxOld = location.origin + "/searx/search?q=";
+	if (item.url.startsWith(px) || item.url.startsWith(pxOld)) {
 		try { return new URL(item.url).searchParams.get("q") || item.url; } catch (err) {}
 	}
 	return item.url;
