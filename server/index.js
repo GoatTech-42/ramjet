@@ -78,6 +78,7 @@ function loadConfig() {
 
 // -- v0.4: server-side ad/tracker blocklist ----------------------------------
 // One domain per line in blocklist.txt ("#" comments ok). A line matches the
+import { handle as searchHandle, thumb as searchThumb } from "./searchpage.js";
 const searxHtmlCache = new Map();
 const SEARX_CACHE_TTL_MS = 10 * 60 * 1000;
 const SEARX_CACHE_MAX = 150;
@@ -504,19 +505,8 @@ const server = createServer(async (req, res) => {
 			}
 			return;
 		}
-		if (pathname === "/autocompleter") {
-			// the searxng theme JS fetches /autocompleter root-absolute, which skips
-			// the /searx prefix - forward it to the container so suggestions work.
-			const headers = { ...req.headers, host: "127.0.0.1:8888" };
-			delete headers["accept-encoding"];
-			const u = httpRequest({ host: "127.0.0.1", port: 8888, path: req.url, method: req.method, headers }, (ures) => {
-				res.writeHead(ures.statusCode || 502, ures.headers);
-				ures.pipe(res);
-			});
-			u.on("error", () => { if (!res.headersSent) res.writeHead(502); res.end(); });
-			req.pipe(u);
-			return;
-		}
+		if (pathname === "/search") return await searchHandle(req, res);
+		if (pathname === "/th") return searchThumb(req, res);
 		if (pathname === "/searx" || pathname.startsWith("/searx/")) {
 			// reverse proxy to the local searxng container - the session gate
 			// above already ran, so only signed-in users reach this. frames
