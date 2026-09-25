@@ -244,13 +244,15 @@ function ensureFrame(tab) {
 		} catch (err) {}
 		try {
 			const w = f.frame.contentWindow;
-			if (w.location.origin === location.origin && w.location.pathname.startsWith("/searx/")) {
+			if (w.location.origin === location.origin && (w.location.pathname.startsWith("/searx/") || w.location.pathname.startsWith("/search"))) {
 				tab.direct = true;
 				w.document.addEventListener("click", (ev) => {
 					const a = ev.target && ev.target.closest ? ev.target.closest("a[href]") : null;
 					if (!a) return;
 					const href = a.href;
-					if (!href || href.startsWith(location.origin + "/searx/") || href.startsWith("/searx/")) return;
+					if (!href) return;
+					const hp = href.startsWith(location.origin) ? href.slice(location.origin.length) : href;
+					if (hp.startsWith("/searx/") || hp.startsWith("/search") || hp.startsWith("/th?") || hp.startsWith("/th/")) return;
 					if (/^https?:/.test(href)) { ev.preventDefault(); ignite(href); }
 				}, true);
 			}
@@ -942,7 +944,7 @@ function ignite(url) {
 	if (!activeTab) newTab();
 	const tab = activeTab;
 	const f = ensureFrame(tab);
-	if (url.startsWith("/searx/")) {
+	if (url.startsWith("/searx/") || url.startsWith("/search")) {
 		// same-origin search: no scramjet wrap - the frame's own session cookie
 		// passes the /searx gate, and wisp never sees a loopback destination
 		tab.direct = true;

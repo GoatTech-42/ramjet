@@ -45,6 +45,10 @@ async function rjHandoff(e, res) {
 }
 
 addEventListener("fetch", (e) => {
+	// our own native search page + image proxy must never enter the proxy
+	// engine: the wisp transport would loop back to this origin and fail.
+	const rp = new URL(e.request.url);
+	if (rp.origin === location.origin && (rp.pathname === "/search" || rp.pathname === "/th")) return;
 	if (!$scramjetController.shouldRoute(e)) return;
 	if (e.request.headers.get("x-rj-dlm")) {
 		// managed download fetch: strip the marker, route without intercepting
