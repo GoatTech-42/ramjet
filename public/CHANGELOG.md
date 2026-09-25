@@ -1,3 +1,6 @@
+## v0.8.4
+- fix: "pop out to about:blank" did nothing - two bugs: clicking it from settings found no page to pop out (settings is its own tab now), and phones/home-screen apps block window.open entirely. it now pops out the last site you were on, and if the popup cant open it swaps the current tab instead, so it works everywhere
+
 ## v0.8.3
 - fix: settings restored open on boot showed every page stacked - the saved page filter now reapplies on restore
 - checkboxes are fully themed now: dark box with a proper amber check instead of the browser default white box

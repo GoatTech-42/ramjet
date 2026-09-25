@@ -1257,13 +1257,31 @@ document.getElementById("rj-peek").addEventListener("mouseenter", () => {
 
 // about:blank popout - current page, no ramjet chrome, tab says nothing
 document.getElementById("rj-popout").addEventListener("click", () => {
-	if (!activeTab || !activeTab.frame) return;
-	const src = activeTab.frame.frame.src;
+	// popout targets the most recent real tab - when settings/downloads/history
+	// is the active page-tab, activeTab has no frame and nothing would happen.
+	let target = null;
+	for (let i = tabs.length - 1; i >= 0; i--) {
+		if (tabs[i].frame && tabs[i].frame.frame && tabs[i].frame.frame.src) { target = tabs[i]; break; }
+	}
+	if (!target) { setStatus("open a site first", "error"); return; }
+	const src = target.frame.frame.src;
 	if (!src || src === "about:blank") return;
-	const w = window.open("about:blank", "_blank");
-	if (!w) { setStatus("popup blocked - allow popups for this site", "error"); return; }
-	w.document.write("<!doctype html><html><head><title></title><style>html,body{margin:0;height:100%;overflow:hidden;background:#fff}iframe{border:0;width:100%;height:100%;display:block}</style></head><body><iframe src=\"" + src.replace(/"/g, "&quot;") + "\"></iframe></body></html>");
-	w.document.close();
+	const html = "<!doctype html><html><head><title></title><style>html,body{margin:0;height:100%;overflow:hidden;background:#fff}iframe{border:0;width:100%;height:100%;display:block}</style></head><body><iframe src=\"" + src.replace(/"/g, "&quot;") + "\"></iframe></body></html>";
+	// PWAs (home-screen apps) and popup-blocked browsers refuse window.open -
+	// fall back to swapping this tab's document so the popout still works there.
+	let w = null;
+	try { w = window.open("about:blank"); } catch (err) {}
+	if (w) {
+		try {
+			w.document.open();
+			w.document.write(html);
+			w.document.close();
+			return;
+		} catch (err) {}
+		try { w.close(); } catch (err) {}
+	}
+	document.write(html);
+	document.close();
 });
 
 // zoom
