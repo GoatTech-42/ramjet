@@ -1,3 +1,6 @@
+## v0.9.9
+- deep link: /?u=<url or search> opens through the proxy like an omnibox submit (enables iOS Shortcut + share-sheet entry points)
+
 ## v0.9.8
 - fix: searching from the ramjet bar failed with "this page didn't load" - the app only bypassed the proxy engine for /searx/ paths, so /search went through the wisp transport, which looped back to our own origin and died. /search and /th now bypass the proxy in the service worker and in the app's navigation, and result links from the native page route through the proxy like the skin's did
 
