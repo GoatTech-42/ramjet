@@ -957,18 +957,38 @@ function resolveInput(raw) {
 // stamped with another ramjet origin (saved on the port-forwarded host, used
 // on the tunnel). Rewrite anything aimed at this app's own paths to the
 // origin we are actually served on, so traffic never leaves the serving host.
+// v0.10.3: only origins ramjet is actually served on may own app paths -
+// an unrestricted rewrite would hijack real sites living at /search
+// (google.com/search being the big one).
+const KNOWN_ORIGINS = [
+	"https://server.lukeevanson.com:4201",
+	"https://hy24zctweohap7bcg5bji6ylfm.srv.us",
+	"https://cpt4insmln3kexmghw73slfzoy.srv.us",
+	"http://127.0.0.1:14204", "http://localhost:14204",
+	"http://127.0.0.1:14214", "http://localhost:14214",
+];
+let recordedOrigins = [];
+try { recordedOrigins = JSON.parse(localStorage.getItem("rj.origins") || "[]"); } catch (err) {}
+if (!recordedOrigins.includes(location.origin)) {
+	recordedOrigins.push(location.origin);
+	try { localStorage.setItem("rj.origins", JSON.stringify(recordedOrigins.slice(-8))); } catch (err) {}
+}
+function isOwnOrigin(origin) {
+	return origin === location.origin || KNOWN_ORIGINS.includes(origin) || recordedOrigins.includes(origin);
+}
+
 function normalizeUrl(url) {
 	try {
 		const u = new URL(url, location.origin);
 		if (u.origin === location.origin) return url;
-		if (u.pathname.startsWith("/~/sj/")) {
+		if (u.pathname.startsWith("/~/sj/") && isOwnOrigin(u.origin)) {
 			// proxied URL stamped with another origin - recover the destination
 			const seg = u.pathname.slice("/~/sj/".length).split("/").filter(Boolean).pop();
 			const dec = decodeURIComponent(seg || "");
 			if (/^https?:/.test(dec)) return dec;
 			return url;
 		}
-		if (u.pathname === "/search" || u.pathname === "/th" || u.pathname.startsWith("/searx/") || (u.pathname === "/" && u.searchParams.has("u"))) {
+		if (isOwnOrigin(u.origin) && (u.pathname === "/search" || u.pathname === "/th" || u.pathname.startsWith("/searx/") || (u.pathname === "/" && u.searchParams.has("u")))) {
 			return location.origin + u.pathname + u.search + u.hash;
 		}
 	} catch (err) {}
@@ -1396,7 +1416,7 @@ function sugLabel(item) {
 	// v0.10.2: the same paths stamped with another ramjet origin (synced state)
 	try {
 		const su = new URL(item.url);
-		if (su.pathname === "/search" || su.pathname === "/searx/search") return su.searchParams.get("q") || item.url;
+		if (isOwnOrigin(su.origin) && (su.pathname === "/search" || su.pathname === "/searx/search")) return su.searchParams.get("q") || item.url;
 	} catch (err) {}
 	return item.url;
 }

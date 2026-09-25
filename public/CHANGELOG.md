@@ -1,3 +1,6 @@
+## v0.10.3
+- fix: the origin rewrite now only trusts addresses ramjet is actually served on - without that, real sites that live at /search (google.com/search!) would have been hijacked into ramjet search when opened from history or bookmarks
+
 ## v0.10.2
 - fix: tabs, history, bookmarks and downloads saved on one ramjet address carried that address onto the other - on the tunnel url, restored searches and pages tried to load through the port-forwarded host, which is blocked on some networks. anything aimed at ramjet's own paths is now rewritten to the address ramjet is actually served on
 
