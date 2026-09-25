@@ -1,3 +1,7 @@
+## v0.9.0
+- ramjet search: your own private search engine, built in - metasearch powered by a searxng instance running on the same box, fully skinned in the ramjet dart theme. it's the default search engine now (old default moves over automatically; if you picked another engine yourself it stays). also reachable directly at /searx for signed-in users
+- search runs in a locked-down container: 400MB memory cap, no outside network identity, zero idle cpu
+
 ## v0.8.5
 - error pages: when a site can't be reached the tab now shows a proper ramjet error page - accent dart, what happened in plain words, the address that failed, try again + go back. three covers: instant answers for clear failures (engine hook), the browser's own dead page gets swapped for ours, and sites that never answer get a 15s timeout page. the address bar keeps showing the failed address
 - fix: settings button icon was a sun - now a proper gear
