@@ -9,10 +9,10 @@
 <link rel="icon" href="/assets/ramjet.svg" type="image/svg+xml">
 <link rel="manifest" href="/site.webmanifest">
 <meta name="theme-color" content="#0b0c0e">
-<link rel="stylesheet" href="/style.css?v=28">
+<link rel="stylesheet" href="/style.css?v=29">
 <style>
-	#rj-err { color: var(--err); font-size: 13px; text-align: center; margin: 14px 22px 0; min-height: 1.4em; }
-	#rj-user {
+	#w1ea08f { color: var(--err); font-size: 13px; text-align: center; margin: 14px 22px 0; min-height: 1.4em; }
+	#wc6ce8d {
 		flex: 0 0 34%;
 		min-width: 0;
 		border: 0;
@@ -24,54 +24,54 @@
 		padding: 15px 12px;
 		border-right: 1px solid var(--edge);
 	}
-	#rj-user::placeholder { color: #5b616b; }
+	#wc6ce8d::placeholder { color: #5b616b; }
 	@media (max-width: 640px) {
-		#rj-form { flex-direction: column; align-items: stretch; gap: 8px; padding: 12px; width: min(420px, calc(100vw - 48px)); border-radius: 18px; }
-		#rj-form .prefix { display: none; }
-		#rj-user { flex: none; font-size: 16px; }
-		#rj-form input { border-right: 0 !important; border: 1px solid var(--edge) !important; border-radius: 10px; padding: 13px 14px; font-size: 16px; background: rgba(255,255,255,0.03); width: 100%; box-sizing: border-box; }
-		#rj-form button { padding: 13px; border-radius: 10px; font-size: 15px; width: 100%; }
+		#w894381 { flex-direction: column; align-items: stretch; gap: 8px; padding: 12px; width: min(420px, calc(100vw - 48px)); border-radius: 18px; }
+		#w894381 .prefix { display: none; }
+		#wc6ce8d { flex: none; font-size: 16px; }
+		#w894381 input { border-right: 0 !important; border: 1px solid var(--edge) !important; border-radius: 10px; padding: 13px 14px; font-size: 16px; background: rgba(255,255,255,0.03); width: 100%; box-sizing: border-box; }
+		#w894381 button { padding: 13px; border-radius: 10px; font-size: 15px; width: 100%; }
 	}
-	#rj-swap { margin-top: 18px; font-size: 13px; color: #7d838d; text-align: center; }
-	#rj-swap a { color: #ffa028; text-decoration: none; cursor: pointer; }
-	#rj-swap a:hover { text-decoration: underline; }
+	#wd7f640 { margin-top: 18px; font-size: 13px; color: #7d838d; text-align: center; }
+	#wd7f640 a { color: #ffa028; text-decoration: none; cursor: pointer; }
+	#wd7f640 a:hover { text-decoration: underline; }
 </style>
 </head>
 <body>
 
-<header id="rj-chrome">
+<header id="we020a1">
 	<svg class="mark" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path fill="var(--amber)" d="M11.6 39.6 L14.4 42.4 L4.7 50.7 L3.3 49.3 Z"/><path fill="var(--amber)" d="M20.6 48.6 L23.4 51.4 L15.7 57.7 L14.3 56.3 Z"/><path fill="var(--amber-deep)" d="M58 6 L12 22 L30 32 Z"/><path fill="var(--amber)" d="M58 6 L30 32 L40 50 Z"/></svg>
 	<span class="byline">goattech</span>
 </header>
 
-<main id="rj-landing">
+<main id="wd46431">
 	<h1 class="wordmark-big">ram<em>jet</em></h1>
-	<p class="tag" id="rj-mode">crew only. sign in.</p>
+	<p class="tag" id="w93d2fd">crew only. sign in.</p>
 </main>
 
-<form id="rj-form">
-	<input id="rj-user" type="text" name="username" autocomplete="username" placeholder="username" aria-label="Username" autocapitalize="none" required>
+<form id="w894381">
+	<input id="wc6ce8d" type="text" name="username" autocomplete="username" placeholder="username" aria-label="Username" autocapitalize="none" required>
 	<span class="prefix">//</span>
-	<input id="rj-address" type="password" name="password" autocomplete="current-password" placeholder="password" aria-label="Password" required>
-	<button type="submit" class="ignite" id="rj-go">unlock&nbsp;&#8594;</button>
+	<input id="w37dc41" type="password" name="password" autocomplete="current-password" placeholder="password" aria-label="Password" required>
+	<button type="submit" class="ignite" id="w1b27ac">unlock&nbsp;&#8594;</button>
 </form>
 
-<p id="rj-err" role="alert"></p>
-<p id="rj-swap"><a id="rj-swaplink">need an account? sign up</a></p>
+<p id="w1ea08f" role="alert"></p>
+<p id="wd7f640"><a id="w18fac0">need an account? sign up</a></p>
 
-<footer id="rj-foot">
-	<span id="rj-status" data-mode="idle">gate armed</span>
-	<span class="ver">v0.11</span>
+<footer id="w446de8">
+	<span id="w073edd" data-mode="idle">gate armed</span>
+	<span class="ver">v1</span>
 </footer>
 
 <script src="/rjcrypto.js"></script>
 <script>
-	const err = document.getElementById("rj-err");
-	const form = document.getElementById("rj-form");
-	const user = document.getElementById("rj-user");
-	const pass = document.getElementById("rj-address");
-	const mode = document.getElementById("rj-mode");
-	const swaplink = document.getElementById("rj-swaplink");
+	const err = document.getElementById("w1ea08f");
+	const form = document.getElementById("w894381");
+	const user = document.getElementById("wc6ce8d");
+	const pass = document.getElementById("w37dc41");
+	const mode = document.getElementById("w93d2fd");
+	const swaplink = document.getElementById("w18fac0");
 	let signingUp = false;
 
 	swaplink.addEventListener("click", () => {
@@ -79,7 +79,7 @@
 		err.textContent = "";
 		mode.textContent = signingUp ? "claim your seat." : "crew only. sign in.";
 		swaplink.textContent = signingUp ? "have an account? sign in" : "need an account? sign up";
-		document.getElementById("rj-go").innerHTML = signingUp ? "join&nbsp;&#8594;" : "unlock&nbsp;&#8594;";
+		document.getElementById("w1b27ac").innerHTML = signingUp ? "join&nbsp;&#8594;" : "unlock&nbsp;&#8594;";
 		user.focus();
 	});
 
