@@ -747,12 +747,154 @@ async function ensureReady() {
 			scramjet = {
 				createFrame() {
 					const fr = controller.createFrame();
-					return { go: (u) => fr.go(u), frame: fr.element, _raw: fr };
+					rjHookFrameErrors(fr);
+					rjWatchFrameNav(fr);
+					return { go: (u) => { try { if (fr.__rjArmNav) fr.__rjArmNav(u); } catch (e) {} return fr.go(u); }, frame: fr.element, _raw: fr };
 				},
 			};
 		})();
 	}
 	return swReady;
+}
+
+// -- error surfaces ------------------------------------------------------------
+// when the engine can't fetch a page (dead host, timeout, refused, tls) the
+// controller asks our hook for a response; we serve a ramjet-flavored error
+// page instead of the browser's dead frame.
+function rjErrorPageHtml(rawUrl, err) {
+	let real = String(rawUrl || "");
+	try {
+		const u = new URL(real);
+		real = decodeURIComponent(u.pathname.split("/").pop() || real);
+	} catch (e) {}
+	let host = real;
+	try { host = new URL(real).host; } catch (e) {}
+	const msg = String((err && (err.message || err)) || "");
+	let title = "this page didn't load";
+	let why = "something went wrong on the way to the page.";
+	if (!navigator.onLine) {
+		title = "you're offline";
+		why = "ramjet can't reach the internet right now. check your connection and try again.";
+	} else if (/resolve|dns|notfound|getaddrinfo|name or service/i.test(msg)) {
+		title = "can't find " + host;
+		why = "that address doesn't exist. check for a typo and try again.";
+	} else if (/timed?\s?out|timeout|deadline/i.test(msg)) {
+		title = host + " took too long";
+		why = "the site isn't answering. it might be busy or down - try again in a bit.";
+	} else if (/refused/i.test(msg)) {
+		title = host + " refused the connection";
+		why = "the site is reachable but wouldn't accept the connection.";
+	} else if (/ssl|tls|certificate|cert/i.test(msg)) {
+		title = "certificate problem at " + host;
+		why = "the site's security certificate couldn't be verified, so the connection was stopped.";
+	} else if (/reset|abort|closed/i.test(msg)) {
+		title = "connection dropped";
+		why = "the site dropped the connection mid-load.";
+	}
+	const [amber, deep] = accentColors();
+	const esc = (t) => String(t).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+	return "<!doctype html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">" +
+		"<title>" + esc(title) + "</title><style>" +
+		"html,body{margin:0;height:100%}body{background:#0b0c0e;color:#e8e9eb;font:14px system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;" +
+		"display:flex;align-items:center;justify-content:center;padding:24px;box-sizing:border-box}" +
+		".c{max-width:420px;text-align:center}" +
+		"svg{width:46px;height:46px;margin-bottom:18px}" +
+		"h1{font-size:19px;font-weight:600;margin:0 0 10px;word-break:break-word}" +
+		".why{color:#8a8f98;font-size:13.5px;line-height:1.5;margin:0 0 6px}" +
+		".url{color:#5c626b;font:12px ui-monospace,SFMono-Regular,Menlo,monospace;word-break:break-all;margin:10px 0 22px}" +
+		".row{display:flex;gap:10px;justify-content:center}" +
+		"button{font:13.5px system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;border-radius:7px;padding:8px 18px;cursor:pointer;border:1px solid transparent}" +
+		".go{background:" + amber + ";color:#14100a;font-weight:600;border-color:" + amber + "}" +
+		".back{background:transparent;color:#e8e9eb;border-color:#2c313a}" +
+		".back:hover{border-color:#3a404a}" +
+		"</style></head><body><div class=\"c\">" +
+		"<svg viewBox=\"0 0 64 64\"><path fill=\"" + amber + "\" d=\"M11.6 39.6 L14.4 42.4 L4.7 50.7 L3.3 49.3 Z\"/>" +
+		"<path fill=\"" + amber + "\" d=\"M20.6 48.6 L23.4 51.4 L15.7 57.7 L14.3 56.3 Z\"/>" +
+		"<path fill=\"" + deep + "\" d=\"M58 6 L12 22 L30 32 Z\"/><path fill=\"" + amber + "\" d=\"M58 6 L30 32 L40 50 Z\"/></svg>" +
+		"<h1>" + esc(title) + "</h1>" +
+		"<p class=\"why\">" + esc(why) + "</p>" +
+		(real ? "<p class=\"url\">" + esc(real) + "</p>" : "") +
+		"<div class=\"row\"><button class=\"go\" onclick=\"location.reload()\">try again</button>" +
+		"<button class=\"back\" onclick=\"history.back()\">go back</button></div>" +
+		"</div></body></html>";
+}
+
+function rjHookFrameErrors(fr) {
+	try {
+		$scramjet.Tap.tap(fr.hooks.error.request, async (ctx, props) => {
+			try {
+				const dest = ctx.rawrequest && ctx.rawrequest.destination;
+				if (dest && dest !== "document" && dest !== "iframe") return;
+				props.suppressError = true;
+				props.setResponse = {
+					body: rjErrorPageHtml(ctx.rawrequest ? ctx.rawrequest.rawUrl : "", ctx.error),
+					status: 200,
+					statusText: "OK",
+					headers: [["content-type", "text/html; charset=utf-8"]],
+				};
+			} catch (e) {}
+		});
+	} catch (e) {}
+}
+
+// page-side watchdog, two covers for the failures the engine never surfaces:
+// 1. hang cover: the fetch hook observes every navigation request start (typed,
+//    clicked, redirected); the frame's load event disarms the timer. silent-drop
+//    hosts never answer and never error - at 15s we draw the error page ourselves.
+// 2. dead-page cover: when the fetch chain dies outright the browser commits its
+//    own chrome-error page, which fires load with an inaccessible (null) document.
+//    we detect that and swap in the ramjet page.
+function rjWatchFrameNav(fr) {
+	try {
+		const el = fr.element;
+		let timer = null;
+		let pending = null;
+		const disarm = () => { if (timer) { clearTimeout(timer); timer = null; } pending = null; };
+		const draw = (realUrl, err) => {
+			try {
+				let html = rjErrorPageHtml(realUrl, err);
+				// srcdoc pages reload themselves on location.reload() - point
+				// try again at the attempted proxied address instead
+				let retry = "";
+				try { retry = el.getAttribute("src") || ""; } catch (e) {}
+				if (retry) html = html.replace('onclick="location.reload()"', 'onclick="location.replace(' + JSON.stringify(retry).replace(/"/g, "&quot;") + ')"');
+				el.srcdoc = html;
+				// keep the bar showing the failed address, not about:srcdoc
+				try {
+					const t = tabs.find((tb) => tb.frame && tb.frame.frame === el);
+					if (t && realUrl) { t.url = realUrl; if (t === activeTab) address.value = realUrl; }
+				} catch (e) {}
+			} catch (e) {}
+		};
+		el.addEventListener("load", () => {
+			disarm();
+			setTimeout(() => {
+				try {
+					if (el.srcdoc) return; // our own error page committed
+					if (el.contentDocument === null) draw(el.__rjLast || "", new Error("page failed to load"));
+				} catch (e) {}
+			}, 60);
+		});
+		const arm = (realUrl) => {
+			if (timer) clearTimeout(timer);
+			pending = realUrl || "";
+			el.__rjLast = pending;
+			timer = setTimeout(() => {
+				timer = null;
+				if (!pending) return;
+				const url = pending; pending = null;
+				draw(url, new Error("navigation timed out"));
+			}, 15000);
+		};
+		fr.__rjArmNav = arm;
+		$scramjet.Tap.tap(fr.hooks.fetch, (ctx) => {
+			try {
+				const dest = ctx && ctx.rawrequest && ctx.rawrequest.destination;
+				if (dest !== "document" && dest !== "iframe") return;
+				arm((ctx.rawrequest && ctx.rawrequest.rawUrl) || "");
+			} catch (e) {}
+		});
+	} catch (e) {}
 }
 
 // turns whatever was typed into a real url (or a search)
@@ -810,7 +952,7 @@ function syncBar() {
 	try {
 		const loc = activeTab.frame.frame.contentWindow.location;
 		const href = loc.href;
-		if (href === "about:blank") return;
+		if (href === "about:blank" || href === "about:srcdoc") return; // srcdoc = our error page, keep the failed address in the bar
 		// show the real destination, not our encoded proxy path
 		const real = peelProxied(href);
 		if (real === href && href.includes("/~/sj/")) return; // still mid-redirect
