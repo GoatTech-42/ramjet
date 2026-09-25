@@ -1,3 +1,7 @@
+## v0.8.5
+- error pages: when a site can't be reached the tab now shows a proper ramjet error page - accent dart, what happened in plain words, the address that failed, try again + go back. three covers: instant answers for clear failures (engine hook), the browser's own dead page gets swapped for ours, and sites that never answer get a 15s timeout page. the address bar keeps showing the failed address
+- fix: settings button icon was a sun - now a proper gear
+
 ## v0.8.4
 - fix: "pop out to about:blank" did nothing - two bugs: clicking it from settings found no page to pop out (settings is its own tab now), and phones/home-screen apps block window.open entirely. it now pops out the last site you were on, and if the popup cant open it swaps the current tab instead, so it works everywhere
 
