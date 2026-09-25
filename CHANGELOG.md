@@ -1,4 +1,14 @@
-## v0.10.5
+# ramjet changelog
+
+## v0.11 - 2026-09-25
+obfuscation pass: engine fingerprint surface removed end-to-end.
+- vendored engine libs under /lib/ with bland names (boot/core/api/inject/engine.sw); /scramjet/ + /controller/ mounts and /CHANGELOG.md no longer served (404)
+- globals renamed: $scramjetController/$scramjet -> $wkcore/$wkcfg, __rjController/__rjPopUrl -> __goc/__gop, indexedDB + BroadcastChannel names renamed, SCRAMJET*/Scramjet* identifiers renamed, sourcemap comments stripped, wasm binary strings renamed
+- proxied URL shape changed: /~/sj/ -> /view/<tag>/<codec>/<url>
+- retired about:blank popout button + handler (documented filter signature); full-page popout stays
+- health endpoint no longer names the engine
+
+## v0.10.6 - 2026-09-25
 - new: full-page mode (settings or "pop out full page") opens proxied pages TOP-LEVEL in their own browser tabs - no iframe anywhere, so school/office filters that block framed proxy content (X-Frame-Options injection, embed filtering) never see an embed. The ramjet tab stays open as the engine's transport owner.
 - verified on staging through a simulated web filter (port-forwarded host blackholed): omnibox and search-result navigations pop out full-page and render top-level through the tunnel; 100% of requests ride the serving origin.
 

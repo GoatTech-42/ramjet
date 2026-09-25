@@ -10,10 +10,10 @@
 <meta name="theme-color" content="#0b0c0e">
 <link rel="stylesheet" href="/style.css?v=28">
 <script>window.RJ_VERSION="0.7.0-alpha";</script>
-<script src="/scramjet/scramjet_bundled.js"></script>
-<script src="/controller/controller.api.js"></script>
+<script src="/lib/boot.js"></script>
+<script src="/lib/api.js"></script>
 <script src="/rjcrypto.js"></script>
-<script src="/app.js?v=39" defer></script>
+<script src="/app.js?v=40" defer></script>
 </head>
 <body>
 
@@ -183,9 +183,12 @@
 
 		<section data-page="cloak">
 			<h3>Tab cloak</h3>
-			<button id="rj-popout" type="button" class="rj-action">pop out to about:blank</button>
 			<button id="rj-popout-full" type="button" class="rj-action">pop out full page</button>
-			<label class="rj-check"><input id="rj-fullpage" type="checkbox"> Always open sites full-page</label>
+			<select id="rj-pagemode-sel" style="margin-top:8px">
+				<option value="embedded">Open sites in the app</option>
+				<option value="full">Open sites full-page (with bar)</option>
+				<option value="fullbare">Open sites full-page (no bar)</option>
+			</select>
 			<select id="rj-cloak-sel" style="margin-top:8px">
 				<option value="off">Off</option>
 				<option value="docs">Google Docs</option>
@@ -240,13 +243,13 @@
 				<li><span class="kbd">alt &#8592;&#8594;</span> back / forward</li>
 			</ul>
 		</section>
-			<p class="rj-ver">ramjet v0.10.5</p>
+			<p class="rj-ver">ramjet v0.11</p>
 	</div>
 </div>
 
 <footer id="rj-foot">
 	<span id="rj-status" data-mode="idle"></span>
-	<span class="ver">v0.10.5</span>
+	<span class="ver">v0.11</span>
 </footer>
 
 </body>

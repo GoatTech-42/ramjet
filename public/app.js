@@ -10,9 +10,9 @@ if (window.RJ_VERSION && window.RJ_VERSION !== APP_VERSION && !sessionStorage.ge
 	sessionStorage.removeItem("rj-reheal");
 }
 
-// Scramjet v2: controller + transport are created in ensureReady() once the
+// engine v2: controller + transport are created in ensureReady() once the
 // routing service worker controls the page.
-let scramjet = null; // { createFrame } shim over the v2 Controller
+let engine = null; // { createFrame } shim over the v2 Controller
 let currentSettingsPage = "appearance";
 
 const form = document.getElementById("rj-form");
@@ -235,7 +235,7 @@ function closeTab(tab) {
 
 function ensureFrame(tab) {
 	if (tab.frame) return tab.frame;
-	const f = scramjet.createFrame();
+	const f = engine.createFrame();
 	f.frame.className = "rj-tabframe";
 	f.frame.addEventListener("load", () => {
 		try {
@@ -614,13 +614,20 @@ const DEFAULTS = {
 	zoom: "100",
 	clearOnExit: false,
 	restoreTabs: true,
-	fullPage: false,
+	pageMode: "full",
 	customEngineName: "",
 	customEngineUrl: "",
 };
 
 let settings = { ...DEFAULTS };
 try { Object.assign(settings, JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}")); } catch (err) {}
+// v0.10.6: fullPage bool -> pageMode tri-state. Default is full-page+bar (the
+// filter-dodging mode that keeps the ramjet bar); old fullPage:true maps to it.
+if (typeof settings.fullPage !== "undefined") {
+	if (settings.fullPage) settings.pageMode = "full";
+	delete settings.fullPage;
+}
+if (!settings.pageMode) settings.pageMode = "full";
 // v0.9.0 one-time migration: the old default engine was ddg - users who never
 // picked one move to ramjet search; explicit picks (non-ddg) stay untouched.
 try {
@@ -767,14 +774,19 @@ async function ensureReady() {
 				"/wisp/";
 			const { default: LibcurlClient } = await import("/libcurl/index.mjs");
 			const transport = new LibcurlClient({ wisp: wispUrl });
-			const controller = new $scramjetController.Controller({
+			const controller = new $wkcore.Controller({
 				serviceworker: readySw,
 				transport,
-				scramjetConfig: $scramjet.defaultConfig,
+				engineConfig: $wkcfg.defaultConfig,
+				prefix: "/view/",
+				enginePath: "/lib/core.js",
+				injectPath: "/lib/inject.js",
+				wasmPath: "/lib/core.wasm",
+				virtualWasmPath: "core.wasm.js",
 			});
-			window.__rjController = controller;
+			window.__goc = controller;
 			await controller.wait();
-			scramjet = {
+			engine = {
 				createFrame() {
 					const fr = controller.createFrame();
 					rjHookFrameErrors(fr);
@@ -864,19 +876,31 @@ function rjErrorPageHtml(rawUrl, err) {
 		"<p class=\"why\">" + esc(why) + "</p>" +
 		(real ? "<p class=\"url\">" + esc(real) + "</p>" : "") +
 		"<div class=\"row\"><button class=\"go\" onclick=\"location.reload()\">try again</button>" +
-		"<button class=\"back\" onclick=\"history.back()\">go back</button></div>" +
+		"<button class=\"back\" onclick=\"history.back()\">go back</button>" +
+		(real ? "<button class=\"back\" onclick=\"parent.__gop(" + JSON.stringify(real).replace(/"/g, "&quot;") + ")\">open full-page</button>" : "") +
+		"</div>" +
 		"</div></body></html>";
 }
 
 function rjHookFrameErrors(fr) {
 	try {
-		$scramjet.Tap.tap(fr.hooks.error.request, async (ctx, props) => {
+		$wkcfg.Tap.tap(fr.hooks.error.request, async (ctx, props) => {
 			try {
 				const dest = ctx.rawrequest && ctx.rawrequest.destination;
 				if (dest && dest !== "document" && dest !== "iframe") return;
 				props.suppressError = true;
+				const rawUrl = ctx.rawrequest ? ctx.rawrequest.rawUrl : "";
+				if (rawUrl && rjAutoFallback(rawUrl, "embedded")) {
+					props.setResponse = {
+						body: "<!doctype html><html><body style=\"margin:0;background:#0b0c0e\"></body></html>",
+						status: 200,
+						statusText: "OK",
+						headers: [["content-type", "text/html; charset=utf-8"]],
+					};
+					return;
+				}
 				props.setResponse = {
-					body: rjErrorPageHtml(ctx.rawrequest ? ctx.rawrequest.rawUrl : "", ctx.error),
+					body: rjErrorPageHtml(rawUrl, ctx.error),
 					status: 200,
 					statusText: "OK",
 					headers: [["content-type", "text/html; charset=utf-8"]],
@@ -901,6 +925,8 @@ function rjWatchFrameNav(fr) {
 		const disarm = () => { if (timer) { clearTimeout(timer); timer = null; } pending = null; };
 		const draw = (realUrl, err) => {
 			try {
+				if (realUrl && rjAutoFallback(realUrl, "embedded")) return;
+				setStatus("couldn't load in any browsing mode", "error");
 				let html = rjErrorPageHtml(realUrl, err);
 				// srcdoc pages reload themselves on location.reload() - point
 				// try again at the attempted proxied address instead
@@ -921,6 +947,7 @@ function rjWatchFrameNav(fr) {
 				try {
 					if (el.srcdoc) return; // our own error page committed
 					if (el.contentDocument === null) draw(el.__rjLast || "", new Error("page failed to load"));
+					else if (el.__rjLast) rjModeTries.delete(rjRealUrl(el.__rjLast));
 				} catch (e) {}
 			}, 60);
 		});
@@ -936,7 +963,7 @@ function rjWatchFrameNav(fr) {
 			}, 15000);
 		};
 		fr.__rjArmNav = arm;
-		$scramjet.Tap.tap(fr.hooks.fetch, (ctx) => {
+		$wkcfg.Tap.tap(fr.hooks.fetch, (ctx) => {
 			try {
 				const dest = ctx && ctx.rawrequest && ctx.rawrequest.destination;
 				if (dest !== "document" && dest !== "iframe") return;
@@ -992,9 +1019,9 @@ function normalizeUrl(url) {
 	try {
 		const u = new URL(url, location.origin);
 		if (u.origin === location.origin) return url;
-		if (u.pathname.startsWith("/~/sj/") && isOwnOrigin(u.origin)) {
+		if (u.pathname.startsWith("/view/") && isOwnOrigin(u.origin)) {
 			// proxied URL stamped with another origin - recover the destination
-			const seg = u.pathname.slice("/~/sj/".length).split("/").filter(Boolean).pop();
+			const seg = u.pathname.slice("/view/".length).split("/").filter(Boolean).pop();
 			const dec = decodeURIComponent(seg || "");
 			if (/^https?:/.test(dec)) return dec;
 			return url;
@@ -1012,22 +1039,25 @@ function ignite(url) {
 	// v0.10.5: full-page mode - proxied pages open TOP-LEVEL in a new browser tab
 	// (no iframe anywhere) so filters that block framed proxy content never see an
 	// embed. The app tab must stay open: it owns the engine's transport.
-	if (settings.fullPage && !(url.startsWith("/searx/") || url.startsWith("/search"))) {
-		const scratch = scramjet.createFrame();
-		scratch.go(url);
-		const src = scratch.frame.src;
-		try { scratch.frame.remove(); } catch (err) {}
+	if (settings.pageMode !== "embedded" && !(url.startsWith("/searx/") || url.startsWith("/search"))) {
+		// v0.10.6: full-page modes open proxied pages TOP-LEVEL (no iframe for a
+		// filter to block). "full" injects the ramjet bar into the popped page.
+		const src = rjEncodeDest(url);
 		const w = window.open(src, "_blank");
-		if (!w) { setStatus("popups blocked - allow popups for full-page mode", "error"); return; }
-		recordHistory(url, null);
-		setStatus("opened full-page - keep this tab open", "idle");
-		return;
+		if (w) {
+			rjWatchPopup(w, src, url, settings.pageMode);
+			recordHistory(url, null);
+			setStatus("opened full-page - keep this tab open", "idle");
+			return;
+		}
+		// popup blocked: fall back to embedded for this navigation
+		setStatus("popups blocked - opened here instead", "busy");
 	}
 	if (!activeTab) newTab();
 	const tab = activeTab;
 	const f = ensureFrame(tab);
 	if (url.startsWith("/searx/") || url.startsWith("/search")) {
-		// same-origin search: no scramjet wrap - the frame's own session cookie
+		// same-origin search: no engine wrap - the frame's own session cookie
 		// passes the /searx gate, and wisp never sees a loopback destination
 		tab.direct = true;
 		f.frame.src = url;
@@ -1045,9 +1075,82 @@ function ignite(url) {
 	renderTabs();
 }
 
+// v0.10.6: encode a real destination into its /view/ proxied URL without
+// loading it (scratch frame, discarded immediately).
+function rjEncodeDest(url) {
+	const scratch = engine.createFrame();
+	scratch.go(url);
+	const src = scratch.frame.src;
+	try { scratch.frame.remove(); } catch (err) {}
+	return src;
+}
+// v0.10.6: auto mode fallback (Luke, 9/25): when a browsing mode fails, cycle
+// the remaining modes until one loads; the error page only shows after every
+// mode has failed for that URL.
+const RJ_MODE_ORDER = ["embedded", "full", "fullbare"];
+const rjModeTries = new Map();
+function rjRealUrl(rawUrl) {
+	let real = String(rawUrl || "");
+	try {
+		const u = new URL(real, location.origin);
+		if (u.pathname.includes("/view/")) {
+			const seg = u.pathname.split("/").filter(Boolean).pop();
+			const dec = decodeURIComponent(seg || "");
+			if (/^https?:/.test(dec)) return dec;
+		}
+	} catch (e) {}
+	return real;
+}
+function rjAutoFallback(rawUrl, failedMode) {
+	const realUrl = rjRealUrl(rawUrl);
+	if (!/^https?:/.test(realUrl)) return false;
+	if (rjModeTries.size > 200) rjModeTries.clear();
+	let rec = rjModeTries.get(realUrl);
+	if (!rec || Date.now() - rec.ts > 60000) { rec = { tried: new Set(), ts: Date.now() }; rjModeTries.set(realUrl, rec); }
+	rec.ts = Date.now();
+	rec.tried.add(failedMode);
+	const next = RJ_MODE_ORDER.find((m) => !rec.tried.has(m));
+	if (!next) return false; // entry stays: repeat failures inside the window error fast
+	rec.tried.add(next); // the escalation attempt counts as a try - this is what stops re-fires from re-opening the same mode forever
+	setStatus("that mode failed - trying " + (next === "embedded" ? "in the app" : next === "full" ? "full-page" : "full-page without the bar"), "busy");
+	if (next === "embedded") {
+		if (!activeTab) newTab();
+		const tab = activeTab;
+		const f = ensureFrame(tab);
+		tab.direct = false;
+		f.go(realUrl);
+		tab.url = realUrl;
+		if (!tab.title) { try { tab.title = new URL(realUrl).hostname; } catch (e) {} }
+		document.body.classList.add("in-flight");
+		f.frame.style.display = "block";
+		renderTabs();
+		return true;
+	}
+	try {
+		const src = rjEncodeDest(realUrl);
+		const w = window.open(src, "_blank");
+		if (w) {
+			rjWatchPopup(w, src, realUrl, next);
+			recordHistory(realUrl, null);
+			return true;
+		}
+	} catch (e) {}
+	return rjAutoFallback(realUrl, next); // popup blocked: count the mode and move on
+}
+
+// bridge for error pages (same-origin frames/popups): pop a failed URL out full-page.
+window.__gop = (url) => {
+	try {
+		const src = rjEncodeDest(url);
+		const w = window.open(src, "_blank");
+		if (!w) { setStatus("popups blocked - allow popups for full-page", "error"); return; }
+		rjWatchPopup(w, src, url, settings.pageMode === "fullbare" ? "fullbare" : "full");
+	} catch (err) {}
+};
+
 function peelProxied(href) {
-	// v2 URL shape: /~/sj/<scramtag>/<codec>/<encodeURIComponent(realUrl)>
-	const prefix = location.origin + "/~/sj/";
+	// v2 URL shape: /view/<scramtag>/<codec>/<encodeURIComponent(realUrl)>
+	const prefix = location.origin + "/view/";
 	let out = href;
 	if (href.startsWith(prefix)) {
 		try {
@@ -1070,7 +1173,7 @@ function syncBar() {
 		if (href === "about:blank" || href === "about:srcdoc") return; // srcdoc = our error page, keep the failed address in the bar
 		// show the real destination, not our encoded proxy path
 		const real = peelProxied(href);
-		if (real === href && href.includes("/~/sj/")) return; // still mid-redirect
+		if (real === href && href.includes("/view/")) return; // still mid-redirect
 		let disp = real;
 		if (real.startsWith(location.origin + "/search") || real.startsWith(location.origin + "/searx/search")) {
 			try {
@@ -1247,8 +1350,8 @@ customEngineUrl.addEventListener("change", () => { settings.customEngineUrl = cu
 // startup: reopen last session's tabs
 const restoreTabsToggle = document.getElementById("rj-restore-tabs");
 restoreTabsToggle.addEventListener("change", () => { settings.restoreTabs = restoreTabsToggle.checked; saveSettings(); });
-const fullPageToggle = document.getElementById("rj-fullpage");
-fullPageToggle.addEventListener("change", () => { settings.fullPage = fullPageToggle.checked; saveSettings(); });
+const pageModeSel = document.getElementById("rj-pagemode-sel");
+pageModeSel.addEventListener("change", () => { settings.pageMode = pageModeSel.value; saveSettings(); });
 // cloak select + quick button
 const cloakSel = document.getElementById("rj-cloak-sel");
 cloakSel.addEventListener("change", () => {
@@ -1292,7 +1395,7 @@ function syncSettingsUI() {
 	customEngineName.value = settings.customEngineName || "";
 	customEngineUrl.value = settings.customEngineUrl || "";
 	restoreTabsToggle.checked = settings.restoreTabs !== false;
-	fullPageToggle.checked = !!settings.fullPage;
+	pageModeSel.value = settings.pageMode || "full";
 }
 
 
@@ -1567,37 +1670,6 @@ document.getElementById("rj-peek").addEventListener("mouseenter", () => {
 	document.body.classList.remove("no-chrome");
 });
 
-// about:blank popout - current page, no ramjet chrome, tab says nothing
-document.getElementById("rj-popout").addEventListener("click", () => {
-	// popout targets the most recent real tab - when settings/downloads/history
-	// is the active page-tab, activeTab has no frame and nothing would happen.
-	let target = null;
-	for (let i = tabs.length - 1; i >= 0; i--) {
-		if (tabs[i].frame && tabs[i].frame.frame && tabs[i].frame.frame.src) { target = tabs[i]; break; }
-	}
-	if (!target) { setStatus("open a site first", "error"); return; }
-	const src = target.frame.frame.src;
-	if (!src || src === "about:blank") return;
-	const html = "<!doctype html><html><head><title></title><style>html,body{margin:0;height:100%;overflow:hidden;background:#fff}iframe{border:0;width:100%;height:100%;display:block}</style></head><body><iframe src=\"" + src.replace(/"/g, "&quot;") + "\"></iframe></body></html>";
-	// PWAs (home-screen apps) and popup-blocked browsers refuse window.open -
-	// fall back to swapping this tab's document so the popout still works there.
-	let w = null;
-	try { w = window.open("about:blank"); } catch (err) {}
-	if (w) {
-		try {
-			w.document.open();
-			w.document.write(html);
-			w.document.close();
-			return;
-		} catch (err) {}
-		try { w.close(); } catch (err) {}
-	}
-	document.write(html);
-	document.close();
-});
-
-// full-page popout - current page opens TOP-LEVEL in a new tab, no iframe anywhere.
-// Rides this tab's engine transport, so ramjet must stay open while it's used.
 document.getElementById("rj-popout-full").addEventListener("click", () => {
 	let target = null;
 	for (let i = tabs.length - 1; i >= 0; i--) {
@@ -1608,8 +1680,116 @@ document.getElementById("rj-popout-full").addEventListener("click", () => {
 	if (!src || src === "about:blank") return;
 	const w = window.open(src, "_blank");
 	if (!w) setStatus("popups blocked - allow popups for full-page", "error");
-	else setStatus("opened full-page - keep this tab open", "idle");
+	else {
+		rjWatchPopup(w, src, peelProxied(src), settings.pageMode === "fullbare" ? "fullbare" : "full");
+		setStatus("opened full-page - keep this tab open", "idle");
+	}
 });
+
+// -- v0.10.6: full-page bar ---------------------------------------------------
+// The popped-out page is same-origin (it rides this origin's /view/ path), so
+// the app tab can inject the ramjet bar straight into its document - no iframe
+// anywhere, filters see only a plain top-level page. The watcher re-injects on
+// every navigation and records history from the popup's real URLs.
+const POPUPS = new Set();
+function rjWatchPopup(w, initialHref, realUrl, mode) {
+	POPUPS.add({ win: w, href: initialHref, realUrl: realUrl || peelProxied(initialHref), mode: mode || "full", openedAt: Date.now(), dark: 0 });
+}
+setInterval(() => {
+	for (const rec of POPUPS) {
+		const w = rec.win;
+		if (!w || w.closed) { POPUPS.delete(rec); continue; }
+		let href = null, doc = null;
+		try { href = w.location.href; doc = w.document; } catch (err) { href = null; }
+		if (href === null) {
+			// chrome-error pages are cross-origin to us: sustained inaccessibility
+			// after the load should have committed means this mode failed
+			if (rec.realUrl && Date.now() - rec.openedAt > 4000 && ++rec.dark >= 4) {
+				POPUPS.delete(rec);
+				try { w.close(); } catch (e) {}
+				if (!rjAutoFallback(rec.realUrl, rec.mode)) {
+					// every mode failed - show the error in the app tab
+					try {
+						if (!activeTab) newTab();
+						const tab = activeTab;
+						const f = ensureFrame(tab);
+						tab.direct = false;
+						tab.url = rec.realUrl;
+						let html = rjErrorPageHtml(rec.realUrl, new Error("all browsing modes failed"));
+						let retry = "";
+						try { retry = f.frame.getAttribute("src") || ""; } catch (e2) {}
+						if (retry) html = html.replace('onclick="location.reload()"', 'onclick="location.replace(' + JSON.stringify(retry).replace(/"/g, "&quot;") + ')"');
+						f.frame.srcdoc = html;
+						f.frame.style.display = "block";
+						setStatus("couldn't load in any browsing mode", "error");
+						renderTabs();
+					} catch (e3) {}
+				}
+			}
+			continue;
+		}
+		if (!href || href === "about:blank" || !doc || !doc.body) continue;
+		rec.dark = 0;
+		// note: an accessible doc is NOT success here - the engine serves its own
+		// error UI with a 200, so only the 60s try-window expires failures
+		if (href !== rec.href) {
+			rec.href = href;
+			recordHistory(peelProxied(href), null);
+		}
+		const ours = href.includes("/view/") || href.startsWith(location.origin + "/search") || href.startsWith(location.origin + "/searx");
+		if (!ours) continue;
+		if (rec.mode !== "full") continue; // the bar rides full-page+bar mode only
+		if (!doc.getElementById("rj-popbar")) injectPopBar(w, href);
+		else syncPopBar(w, href);
+	}
+}, 700);
+
+function injectPopBar(w, href) {
+	const doc = w.document;
+	const [amber, deep] = accentColors();
+	const style = doc.createElement("style");
+	style.id = "rj-popbar-style";
+	style.textContent =
+		"#rj-popbar{position:fixed;top:0;left:0;right:0;height:38px;z-index:2147483647;display:flex;align-items:center;gap:6px;padding:0 8px;background:#14100b;border-bottom:1px solid #3a2c14;font:13px system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;box-sizing:border-box}" +
+		"#rj-popbar button{background:#241b0e;border:1px solid #3a2c14;color:" + amber + ";border-radius:5px;padding:3px 9px;font:13px system-ui;cursor:pointer}" +
+		"#rj-popbar input{flex:1;min-width:40px;background:#0d0a06;border:1px solid #3a2c14;border-radius:5px;color:#f5ead6;padding:4px 8px;font:13px system-ui}";
+	(doc.head || doc.documentElement).appendChild(style);
+	const bar = doc.createElement("div");
+	bar.id = "rj-popbar";
+	const mk = (label, fn) => {
+		const b = doc.createElement("button");
+		b.type = "button";
+		b.textContent = label;
+		b.addEventListener("click", (e) => { e.preventDefault(); fn(); });
+		return b;
+	};
+	bar.appendChild(mk("\u2039", () => w.history.back()));
+	bar.appendChild(mk("\u203a", () => w.history.forward()));
+	const omni = doc.createElement("input");
+	omni.id = "rj-popbar-address";
+	omni.spellcheck = false;
+	omni.value = peelProxied(href);
+	omni.addEventListener("keydown", (e) => {
+		if (e.key !== "Enter") return;
+		e.preventDefault();
+		try {
+			const dest = resolveInput(omni.value);
+			if (!dest) return;
+			if (dest.startsWith("/search") || dest.startsWith("/searx")) w.location.href = location.origin + dest;
+			else w.location.href = rjEncodeDest(dest);
+		} catch (err) {}
+	});
+	bar.appendChild(omni);
+	bar.appendChild(mk("ramjet", () => { try { window.focus(); } catch (err) {} }));
+	doc.body.appendChild(bar);
+}
+
+function syncPopBar(w, href) {
+	try {
+		const omni = w.document.getElementById("rj-popbar-address");
+		if (omni && w.document.activeElement !== omni) omni.value = peelProxied(href);
+	} catch (err) {}
+}
 
 // zoom
 const zoomSel = document.getElementById("rj-zoom");
@@ -1631,7 +1811,7 @@ window.addEventListener("beforeunload", () => {
 
 // -- in-page controls: ctrl/cmd+click and middle-click open tabs, custom right-click menu --
 function decodeProxied(href) {
-	const prefix = location.origin + "/scramjet/";
+	const prefix = location.origin + "/view/";
 	return href.startsWith(prefix) ? decodeURIComponent(href.slice(prefix.length)) : href;
 }
 function wireFrameDoc(tab, f) {
@@ -1806,10 +1986,10 @@ function markSync(txt) {
 }
 
 // -- storage sync (admin only): site logins follow the account across devices.
-// The scramjet controller cookie db is the local source of truth; we read and
+// The engine controller cookie db is the local source of truth; we read and
 // write it directly so the controller picks changes up via its BroadcastChannel.
-const STORE_DB = "__scramjet_controller", STORE_STORE = "state", STORE_KEY = "cookies";
-const STORE_CHAN = "__scramjet_controller_channel";
+const STORE_DB = "__wk_store", STORE_STORE = "state", STORE_KEY = "cookies";
+const STORE_CHAN = "__wk_channel";
 function storeDb() {
 	return new Promise((resolve, reject) => {
 		const req = indexedDB.open(STORE_DB, 1);
@@ -1855,7 +2035,7 @@ function collectSiteStorage() {
 		const at = k.indexOf("@");
 		if (at < 1) continue;
 		const host = k.slice(0, at), key = k.slice(at + 1);
-		if (!/^[a-z0-9.-]+(:\d+)?$/i.test(host)) continue; // scramjet site keys are host@key
+		if (!/^[a-z0-9.-]+(:\d+)?$/i.test(host)) continue; // engine site keys are host@key
 		(out[host] = out[host] || {})[key] = localStorage.getItem(k);
 	}
 	return out;
