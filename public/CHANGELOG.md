@@ -1,3 +1,9 @@
+## v0.8.3
+- fix: settings restored open on boot showed every page stacked - the saved page filter now reapplies on restore
+- checkboxes are fully themed now: dark box with a proper amber check instead of the browser default white box
+- panic url field has a placeholder so an empty field no longer looks like a broken box
+- downloads + history pages get the themed scrollbar too
+
 ## v0.8.2
 - settings redesign: sections are now real pages - nav rail on desktop (appearance / search / startup / cloak & panic / privacy / bookmarks / account / about), top tab strip on phones; wider card, one page visible at a time
 
