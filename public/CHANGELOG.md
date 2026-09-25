@@ -1,3 +1,7 @@
+## v0.8.1
+- history page: full page (ctrl+h or settings > history > full page) with live search, per-site grouping, per-site clear, per-entry remove, clear by range (last hour / today / all time)
+- history now remembers page titles and keeps 1000 entries (was 100)
+
 ## v0.8.0
 - downloads manager: the engine now hands attachment downloads to ramjet instead of the browser - real downloads page (toolbar arrow, landing + in-flight), live progress, pause/resume (range resume when the site supports it), cancel, save to device, open-in-tab for finished files, retry for interrupted
 - badge on the downloads button while anything is in flight

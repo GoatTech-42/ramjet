@@ -8,12 +8,12 @@
 <link rel="icon" href="/assets/ramjet.svg" type="image/svg+xml">
 <link rel="manifest" href="/site.webmanifest">
 <meta name="theme-color" content="#0b0c0e">
-<link rel="stylesheet" href="/style.css?v=23">
+<link rel="stylesheet" href="/style.css?v=24">
 <script>window.RJ_VERSION="0.7.0-alpha";</script>
 <script src="/scramjet/scramjet_bundled.js"></script>
 <script src="/controller/controller.api.js"></script>
 <script src="/rjcrypto.js"></script>
-<script src="/app.js?v=22" defer></script>
+<script src="/app.js?v=23" defer></script>
 </head>
 <body>
 
@@ -79,6 +79,25 @@
 </div>
 
 <div id="rj-pagehost" hidden>
+	<div id="rj-hist-card" role="dialog" aria-label="History" hidden>
+		<header>
+			<h2>History</h2>
+			<button id="rj-hist-close" type="button" aria-label="Close">&times;</button>
+		</header>
+		<section>
+			<div class="rj-hist-tools">
+				<input id="rj-hist-q" type="text" placeholder="search history" autocomplete="off" spellcheck="false">
+				<select id="rj-hist-range" aria-label="Clear range">
+					<option value="hour">last hour</option>
+					<option value="day">today</option>
+					<option value="all">all time</option>
+				</select>
+				<button id="rj-hist-clear" type="button" class="rj-action">clear</button>
+			</div>
+			<div id="rj-hist-list"></div>
+			<p id="rj-hist-empty" class="rj-dl-empty" hidden>nothing matches</p>
+		</section>
+	</div>
 	<div id="rj-dl-card" role="dialog" aria-label="Downloads" hidden>
 		<header>
 			<h2>Downloads</h2>
@@ -184,7 +203,7 @@
 		</section>
 
 		<section>
-			<h3>History <button id="rj-history-clear" type="button" class="rj-mini">clear</button></h3>
+			<h3>History <button id="rj-history-page" type="button" class="rj-mini">full page</button> <button id="rj-history-clear" type="button" class="rj-mini">clear</button></h3>
 			<ul id="rj-history"></ul>
 			<label class="rj-check"><input id="rj-clearhist" type="checkbox"> Clear history when ramjet closes</label>
 		</section>
@@ -206,13 +225,13 @@
 				<li><span class="kbd">alt &#8592;&#8594;</span> back / forward</li>
 			</ul>
 		</section>
-			<p class="rj-ver">ramjet v0.8.0</p>
+			<p class="rj-ver">ramjet v0.8.1</p>
 	</div>
 </div>
 
 <footer id="rj-foot">
 	<span id="rj-status" data-mode="idle"></span>
-	<span class="ver">v0.8.0</span>
+	<span class="ver">v0.8.1</span>
 </footer>
 
 </body>
