@@ -13,6 +13,7 @@ if (window.RJ_VERSION && window.RJ_VERSION !== APP_VERSION && !sessionStorage.ge
 // Scramjet v2: controller + transport are created in ensureReady() once the
 // routing service worker controls the page.
 let scramjet = null; // { createFrame } shim over the v2 Controller
+let currentSettingsPage = "appearance";
 
 const form = document.getElementById("rj-form");
 const address = document.getElementById("rj-address");
@@ -171,6 +172,7 @@ function activateTab(tab) {
 		document.getElementById("rj-panel-card").hidden = tab.page !== "settings";
 		document.getElementById("rj-dl-card").hidden = tab.page !== "downloads";
 		document.getElementById("rj-hist-card").hidden = tab.page !== "history";
+		if (tab.page === "settings") setSettingsPage(currentSettingsPage);
 		if (tab.page === "downloads") renderDownloads();
 		if (tab.page === "history") renderHistoryPage();
 		renderTabs();
@@ -908,6 +910,7 @@ function renderBookmarks() {
 
 // -- settings panel ----------------------------------------------------------
 function setSettingsPage(page) {
+	currentSettingsPage = page;
 	let first = true;
 	for (const sec of document.querySelectorAll("#rj-panel-card > section")) {
 		const show = sec.dataset.page === page;
