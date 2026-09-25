@@ -131,7 +131,7 @@ body {
 	transition: background 120ms ease;
 }
 
-.ignite:hover { background: #ffb355; }
+.ignite:hover { background: var(--amber); filter: brightness(1.12); }
 .ignite:active { background: var(--amber-deep); }
 
 .rj-nav { display: none; }
@@ -471,7 +471,7 @@ body {
 	transition: background 120ms ease;
 }
 
-.ignite:hover { background: #ffb355; }
+.ignite:hover { background: var(--amber); filter: brightness(1.12); }
 .ignite:active { background: var(--amber-deep); }
 
 .rj-nav { display: none; }
@@ -1142,3 +1142,11 @@ body.in-flight.bmbar #rj-framehost { inset: 75px 0 30px 0; }
 .rj-store-line { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
 .rj-store-k { font-size: 12px; color: var(--muted); min-width: 90px; max-width: 40%; word-break: break-all; }
 .rj-store-v { flex: 1; min-width: 0; background: rgba(255,255,255,0.03); border: 1px solid var(--edge); border-radius: 8px; color: inherit; font: 12px ui-monospace, monospace; padding: 5px 8px; }
+
+/* v0.7.3: iOS focus zoom - no text input under 16px on phones (must stay last) */
+@media (max-width: 640px) {
+	#rj-address, body.in-flight #rj-address { font-size: 16px; }
+	#rj-find-in { font-size: 16px; width: 160px; }
+	#rj-panel-card select, #rj-panel-card input[type="text"], #rj-panel-card input:not([type]) { font-size: 16px; }
+	.rj-store-v { font-size: 16px; }
+}
