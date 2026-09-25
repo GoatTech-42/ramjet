@@ -1,3 +1,9 @@
+## v0.9.2
+- tab bar decluttered: phones show just back, address, tabs and one dots menu - forward/reload/home/bookmark/downloads/cloak/settings/hide-bar/lock live in the menu now, like a real mobile browser. desktop keeps the useful row visible and tucks cloak/hide-bar/lock away
+- suggested searches removed from the address bar per Luke - it never pops up
+- ramjet search stays (reversed the removal) - complete style rebuild: image results grid fixed (broken since v0.9.0), horizontal overflow killed, preferences + about pages branded (dart logo, readable tabs), autocomplete dropdown actually works now (was clipped by the search box; also added a root /autocompleter proxy route so the theme JS reaches searxng), dropdown capped at 45vh with internal scroll
+- searxng skin custom.css v116
+
 ## v0.9.1
 - search is FAST now: repeat searches and back/forward come back instantly (built-in result cache), pages transfer ~85% smaller (gzip), slow dictionary/translation engines dropped from the default set, stragglers cut at 2.5s
 - search follows your accent color - links, buttons, tabs, logo, everything picks up your ramjet theme (amber/mint/sky/violet/ember/custom) instead of always amber

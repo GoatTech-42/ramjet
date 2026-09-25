@@ -1413,7 +1413,7 @@ function renderSuggest(q) {
 		} catch (err) {}
 	}, 150);
 }
-address.addEventListener("input", () => { suggestIndex = -1; renderSuggest(address.value); });
+address.addEventListener("input", () => { suggestIndex = -1; hideSuggest(); }); // v0.9.2: suggestions removed per Luke
 address.addEventListener("blur", () => { hideSuggest(); });
 address.addEventListener("keydown", (e) => {
 	if (suggest.hidden) return;
