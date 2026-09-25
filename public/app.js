@@ -2065,4 +2065,15 @@ renderBookmarks();
 setStatus("", "idle");document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") scheduleStoragePush(); });
 window.addEventListener("pagehide", () => { if (storageSyncOn()) pushStorageNow(); });
 setInterval(() => { if (document.visibilityState === "visible") scheduleStoragePush(); }, 5 * 60 * 1000);
-hydrateFromServer();address.focus();
+hydrateFromServer();
+// v0.9.9: deep link - /?u=<url or search> acts exactly like an omnibox submit,
+// so external shortcuts can open a target through the proxy in one tap.
+try {
+	const deepLink = new URLSearchParams(location.search).get("u");
+	if (deepLink) {
+		history.replaceState(null, "", location.pathname);
+		const target = resolveInput(deepLink);
+		if (target) ensureReady().then(() => { newTab(); ignite(target); }).catch(() => {});
+	}
+} catch (err) {}
+address.focus();
