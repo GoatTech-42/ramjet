@@ -2,9 +2,6 @@
 // (@mercuryworkshop/scramjet-controller, MIT).
 importScripts("/controller/controller.sw.js");
 
-// v0.10.1: take over immediately so a version bump never leaves a stale engine
-self.addEventListener("install", () => self.skipWaiting());
-self.addEventListener("activate", (e) => e.waitUntil(self.clients.claim()));
 
 // -- download interception ----------------------------------------------------
 // attachment responses (and unrenderable octet-stream documents) are rerouted
