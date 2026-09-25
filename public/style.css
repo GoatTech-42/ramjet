@@ -1153,3 +1153,56 @@ body.in-flight.bmbar #rj-framehost { inset: 75px 0 30px 0; }
 
 /* login form separator: span must center itself, not stretch to pill height */
 .prefix { align-self: center; color: var(--muted); padding: 0 2px 0 12px; font-size: 15px; user-select: none; }
+
+
+/* ------- v0.8.0: downloads manager ------- */
+#rj-panel-card[hidden], #rj-dl-card[hidden] { display: none; }
+#rj-dl-card {
+	width: min(720px, calc(100vw - 32px));
+	margin: 76px auto 48px;
+	background: var(--panel);
+	border: 1px solid var(--edge);
+	border-radius: 14px;
+	padding: 18px 22px 22px;
+}
+#rj-dl-card > header { display: flex; align-items: center; justify-content: space-between; padding-bottom: 14px; border-bottom: 1px solid var(--edge); }
+#rj-dl-card h2 { margin: 0; font: 600 17px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color: var(--text); }
+#rj-dl-close {
+	width: 30px; height: 30px; border-radius: 50%; border: 0; background: none;
+	color: var(--muted); cursor: pointer; font-size: 18px; line-height: 1;
+	display: inline-flex; align-items: center; justify-content: center;
+}
+#rj-dl-close:hover { background: #ffffff10; color: var(--text); }
+#rj-dlbtn, #rj-dlbtn2 {
+	background: none; border: 0; color: var(--muted); cursor: pointer;
+	display: inline-flex; align-items: center; justify-content: center;
+	position: relative; font-size: 15px;
+}
+#rj-dlbtn:hover, #rj-dlbtn2:hover { color: var(--amber); }
+#rj-dlbtn svg { width: 16px; height: 16px; display: block; }
+#rj-dlbtn2 svg { width: 18px; height: 18px; display: block; }
+.rj-dlbadge {
+	position: absolute; top: -2px; right: -5px;
+	background: var(--amber); color: #12100c;
+	font: 700 9px/1 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+	border-radius: 8px; padding: 2px 4px; min-width: 13px; text-align: center;
+}
+.rj-dlbadge[hidden] { display: none; }
+.rj-dl-row { display: flex; align-items: center; gap: 12px; padding: 11px 0; border-top: 1px solid #1d2025; }
+.rj-dl-row:first-child { border-top: 0; }
+.rj-dl-main { flex: 1; min-width: 0; }
+.rj-dl-name { font: 13px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rj-dl-meta { font: 11px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color: var(--muted); margin-top: 2px; }
+.rj-dl-bar { height: 3px; background: #23272e; border-radius: 2px; margin-top: 6px; overflow: hidden; }
+.rj-dl-bar > div { height: 100%; background: var(--amber); border-radius: 2px; transition: width 160ms linear; }
+.rj-dl-indet > div { width: 100% !important; opacity: 0.35; }
+.rj-dl-acts { display: flex; align-items: center; gap: 8px; flex: none; }
+.rj-dl-empty { color: var(--muted); font: 13px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; text-align: center; padding: 28px 0 18px; }
+#rj-dl-clear { margin-top: 12px; }
+.rj-dl-acts .rj-action { white-space: nowrap; }
+#rj-dl-clear { display: inline-block; width: auto; }
+
+@media (max-width: 640px) {
+	.rj-dl-row { flex-wrap: wrap; }
+	.rj-dl-acts { margin-left: auto; }
+}

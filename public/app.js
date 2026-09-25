@@ -168,6 +168,9 @@ function activateTab(tab) {
 		document.body.classList.remove("in-flight");
 		document.body.classList.add("page-view");
 		pagehost.hidden = false;
+		document.getElementById("rj-panel-card").hidden = tab.page !== "settings";
+		document.getElementById("rj-dl-card").hidden = tab.page !== "downloads";
+		if (tab.page === "downloads") renderDownloads();
 		renderTabs();
 		return;
 	}
@@ -259,6 +262,229 @@ function ensureFrame(tab) {
 	tab.frame = f;
 	return f;
 }
+
+// -- downloads manager ---------------------------------------------------------
+// the service worker hands attachment responses here; we fetch the bytes
+// ourselves so progress, pause/resume and in-browser open all work.
+const DLS_KEY = "rj.downloads";
+let downloads = [];
+let dlSeq = 0;
+try {
+	downloads = JSON.parse(localStorage.getItem(DLS_KEY) || "[]");
+	for (const d of downloads) {
+		d.chunks = []; d.received = 0; d.ctrl = null; d.blob = null; d.objUrl = null;
+		if (d.state === "downloading" || d.state === "paused") d.state = "interrupted";
+		dlSeq = Math.max(dlSeq, d.id || 0);
+	}
+} catch (err) { downloads = []; }
+
+function saveDlMeta() {
+	try {
+		localStorage.setItem(DLS_KEY, JSON.stringify(downloads.map((d) => ({
+			id: d.id, url: d.url, name: d.name, size: d.size, mime: d.mime,
+			state: d.state, error: d.error || null,
+			started: d.started, finished: d.finished || null,
+		}))));
+	} catch (err) {}
+}
+
+function fmtSize(n) {
+	if (!n) return "";
+	const u = ["B", "KB", "MB", "GB"];
+	let i = 0;
+	while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; }
+	return (n >= 100 ? Math.round(n) : n.toFixed(1)) + " " + u[i];
+}
+
+function dlHost(url) {
+	try { return new URL(peelProxied(url) || url).hostname; } catch (err) { return ""; }
+}
+
+navigator.serviceWorker.addEventListener("message", (ev) => {
+	const d = ev.data;
+	if (!d || d.type !== "rj:download") return;
+	let dlName = (d.name || "").replace(/[\\/]/g, "_");
+	if (!dlName || dlName.indexOf("%3A") !== -1 || dlName.indexOf("%2F") !== -1) {
+		// sw fell back to the proxied path tail - peel to the real file name
+		try {
+			const real = peelProxied(d.url);
+			const tail = real ? new URL(real).pathname.split("/").pop() : "";
+			dlName = tail || dlName;
+		} catch (err) {}
+	}
+	if (!dlName) dlName = "download";
+	const entry = {
+		id: ++dlSeq, url: d.url, name: dlName,
+		size: d.size || 0, mime: d.mime || "", state: "downloading",
+		received: 0, chunks: [], ctrl: null, blob: null, objUrl: null,
+		started: Date.now(), finished: null, error: null,
+	};
+	downloads.unshift(entry);
+	dlRun(entry, false);
+	saveDlMeta();
+	renderDlBadge();
+	setStatus("downloading " + entry.name, "idle");
+	if (activeTab && activeTab.page === "downloads") renderDownloads();
+});
+
+async function dlRun(entry, resume) {
+	const headers = { "x-rj-dlm": "1" };
+	if (resume && entry.received > 0) headers["range"] = "bytes=" + entry.received + "-";
+	entry.ctrl = new AbortController();
+	entry.state = "downloading";
+	renderDownloads(); renderDlBadge();
+	try {
+		const res = await fetch(entry.url, { headers, signal: entry.ctrl.signal });
+		if (resume && res.status === 200 && entry.received > 0) { entry.chunks = []; entry.received = 0; }
+		if (!res.ok && res.status !== 206) throw new Error("http " + res.status);
+		const len = Number(res.headers.get("content-length")) || 0;
+		if (len) entry.size = entry.received + len;
+		const reader = res.body.getReader();
+		for (;;) {
+			const r = await reader.read();
+			if (r.done) break;
+			entry.chunks.push(r.value);
+			entry.received += r.value.length;
+			dlProgressPaint(entry);
+		}
+		entry.blob = new Blob(entry.chunks, { type: entry.mime || "application/octet-stream" });
+		entry.chunks = [];
+		entry.state = "done";
+		entry.finished = Date.now();
+		setStatus(entry.name + " downloaded", "idle");
+	} catch (err) {
+		if (entry.state !== "paused") { entry.state = "error"; entry.error = String((err && err.message) || err); }
+	}
+	entry.ctrl = null;
+	saveDlMeta();
+	renderDownloads(); renderDlBadge();
+}
+
+function dlProgressPaint(entry) {
+	if (!entry._bar) return;
+	if (entry.size) entry._bar.style.width = Math.min(100, (entry.received / entry.size) * 100) + "%";
+	if (entry._meta) entry._meta.textContent = dlMetaText(entry);
+}
+
+function dlMetaText(d) {
+	const got = fmtSize(d.received);
+	if (d.state === "done") return fmtSize(d.size || d.received) + " - done";
+	if (d.state === "paused") return got + (d.size ? " of " + fmtSize(d.size) : "") + " - paused";
+	if (d.state === "error") return "failed - " + (d.error || "unknown");
+	if (d.state === "interrupted") return "interrupted - retry to restart";
+	return got + (d.size ? " of " + fmtSize(d.size) : "");
+}
+
+function dlPause(d) { d.state = "paused"; if (d.ctrl) d.ctrl.abort(); saveDlMeta(); renderDownloads(); renderDlBadge(); }
+function dlResume(d) { dlRun(d, true); }
+function dlForget(d) {
+	if (d.ctrl) d.ctrl.abort();
+	if (d.objUrl) URL.revokeObjectURL(d.objUrl);
+	downloads = downloads.filter((x) => x !== d);
+	saveDlMeta(); renderDownloads(); renderDlBadge();
+}
+function dlSave(d) {
+	if (!d.blob) return;
+	const url = d.objUrl || (d.objUrl = URL.createObjectURL(d.blob));
+	const a = document.createElement("a");
+	a.href = url;
+	a.download = d.name;
+	document.body.appendChild(a);
+	a.click();
+	a.remove();
+}
+function dlOpenTab(d) {
+	if (!d.blob) return;
+	if (tabs.length >= 8) { setStatus("8 tabs is plenty", "error"); return; }
+	const tab = { id: ++tabSeq, frame: null, url: "", title: d.name };
+	const ifr = document.createElement("iframe");
+	ifr.className = "rj-tabframe";
+	ifr.src = d.objUrl || (d.objUrl = URL.createObjectURL(d.blob));
+	tab.frame = { frame: ifr };
+	tabs.push(tab);
+	frameHost.appendChild(ifr);
+	activateTab(tab);
+}
+
+function dlAction(label, fn, cls) {
+	const b = document.createElement("button");
+	b.type = "button";
+	b.className = cls || "rj-action";
+	b.textContent = label;
+	b.addEventListener("click", (ev) => { ev.stopPropagation(); fn(); });
+	return b;
+}
+
+function renderDlBadge() {
+	const n = downloads.filter((d) => d.state === "downloading").length;
+	for (const id of ["rj-dl-badge", "rj-dl-badge2"]) {
+		const el = document.getElementById(id);
+		if (!el) continue;
+		el.hidden = n === 0;
+		el.textContent = n;
+	}
+}
+
+function renderDownloads() {
+	const list = document.getElementById("rj-dl-list");
+	if (!list) return;
+	list.textContent = "";
+	document.getElementById("rj-dl-empty").hidden = downloads.length > 0;
+	document.getElementById("rj-dl-clear").hidden = !downloads.some((d) => d.state !== "downloading");
+	for (const d of downloads) {
+		const row = document.createElement("div");
+		row.className = "rj-dl-row";
+		const main = document.createElement("div");
+		main.className = "rj-dl-main";
+		const name = document.createElement("div");
+		name.className = "rj-dl-name";
+		name.textContent = d.name;
+		name.title = d.name;
+		const meta = document.createElement("div");
+		meta.className = "rj-dl-meta";
+		meta.textContent = (dlHost(d.url) ? dlHost(d.url) + " - " : "") + dlMetaText(d);
+		const bar = document.createElement("div");
+		bar.className = "rj-dl-bar" + (d.state === "downloading" && !d.size ? " rj-dl-indet" : "");
+		const fill = document.createElement("div");
+		if (d.state === "done") fill.style.width = "100%";
+		else if (d.size) fill.style.width = Math.min(100, (d.received / d.size) * 100) + "%";
+		bar.appendChild(fill);
+		main.appendChild(name);
+		main.appendChild(meta);
+		if (d.state === "downloading" || d.state === "paused") main.appendChild(bar);
+		d._bar = d.state === "downloading" ? fill : null;
+		d._meta = d.state === "downloading" ? meta : null;
+		const acts = document.createElement("div");
+		acts.className = "rj-dl-acts";
+		if (d.state === "downloading") {
+			acts.appendChild(dlAction("pause", () => dlPause(d)));
+			acts.appendChild(dlAction("cancel", () => dlForget(d), "rj-mini"));
+		} else if (d.state === "paused") {
+			acts.appendChild(dlAction("resume", () => dlResume(d)));
+			acts.appendChild(dlAction("cancel", () => dlForget(d), "rj-mini"));
+		} else if (d.state === "done") {
+			acts.appendChild(dlAction("save", () => dlSave(d)));
+			acts.appendChild(dlAction("open in tab", () => dlOpenTab(d)));
+			acts.appendChild(dlAction("remove", () => dlForget(d), "rj-mini"));
+		} else {
+			acts.appendChild(dlAction("retry", () => { d.received = 0; d.chunks = []; d.error = null; dlRun(d, false); }));
+			acts.appendChild(dlAction("remove", () => dlForget(d), "rj-mini"));
+		}
+		row.appendChild(main);
+		row.appendChild(acts);
+		list.appendChild(row);
+	}
+}
+
+function openDownloads() { newPageTab("downloads"); }
+document.getElementById("rj-dlbtn").addEventListener("click", openDownloads);
+document.getElementById("rj-dlbtn2").addEventListener("click", openDownloads);
+document.getElementById("rj-dl-close").addEventListener("click", () => { if (activeTab && activeTab.page) closeTab(activeTab); });
+document.getElementById("rj-dl-clear").addEventListener("click", () => {
+	for (const d of [...downloads]) if (d.state !== "downloading") dlForget(d);
+	renderDownloads();
+});
+renderDlBadge();
 
 // -- persisted settings ------------------------------------------------------
 const SETTINGS_KEY = "rj.settings";
