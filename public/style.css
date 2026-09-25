@@ -1248,3 +1248,25 @@ body.in-flight.bmbar #rj-framehost { inset: 75px 0 30px 0; }
 
 .rj-hist-tools .rj-action { width: auto; flex: none; }
 #rj-hist-card .rj-hist-tools select { width: auto; flex: none; }
+
+
+/* ------- v0.8.2: settings nav pages ------- */
+#rj-panel-card { width: min(880px, calc(100vw - 32px)); display: grid; grid-template-columns: 180px 1fr; column-gap: 26px; }
+#rj-panel-card > header { grid-column: 1 / -1; }
+#rj-setnav { grid-row: 2 / span 30; display: flex; flex-direction: column; gap: 2px; align-self: start; }
+#rj-setnav button {
+	background: none; border: 0; color: var(--muted);
+	font: 13.5px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+	text-align: left; padding: 8px 12px; border-radius: 8px; cursor: pointer;
+}
+#rj-setnav button:hover { background: #ffffff0d; color: var(--text); }
+#rj-setnav button.active { background: color-mix(in srgb, var(--amber) 14%, transparent); color: var(--amber); }
+#rj-panel-card > section, #rj-panel-card > .rj-ver { grid-column: 2; min-width: 0; }
+@media (max-width: 640px) {
+	#rj-panel-card { grid-template-columns: 1fr; column-gap: 0; }
+	#rj-setnav { grid-row: auto; flex-direction: row; overflow-x: auto; gap: 4px; padding-bottom: 8px; margin-bottom: 4px; border-bottom: 1px solid var(--edge); }
+	#rj-setnav button { white-space: nowrap; flex: none; }
+	#rj-panel-card > section, #rj-panel-card > .rj-ver { grid-column: 1; }
+}
+/* hidden attr must always win over class display in the settings card */
+#rj-panel-card [hidden] { display: none !important; }

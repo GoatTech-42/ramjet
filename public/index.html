@@ -8,12 +8,12 @@
 <link rel="icon" href="/assets/ramjet.svg" type="image/svg+xml">
 <link rel="manifest" href="/site.webmanifest">
 <meta name="theme-color" content="#0b0c0e">
-<link rel="stylesheet" href="/style.css?v=24">
+<link rel="stylesheet" href="/style.css?v=25">
 <script>window.RJ_VERSION="0.7.0-alpha";</script>
 <script src="/scramjet/scramjet_bundled.js"></script>
 <script src="/controller/controller.api.js"></script>
 <script src="/rjcrypto.js"></script>
-<script src="/app.js?v=23" defer></script>
+<script src="/app.js?v=24" defer></script>
 </head>
 <body>
 
@@ -115,19 +115,30 @@
 			<button id="rj-panel-close" type="button" aria-label="Close">&times;</button>
 		</header>
 
-		<section>
+		<nav id="rj-setnav" aria-label="Settings sections">
+			<button type="button" data-page="appearance" class="active">appearance</button>
+			<button type="button" data-page="search">search</button>
+			<button type="button" data-page="startup">startup</button>
+			<button type="button" data-page="cloak">cloak &amp; panic</button>
+			<button type="button" data-page="privacy">privacy</button>
+			<button type="button" data-page="bookmarks">bookmarks</button>
+			<button type="button" data-page="account">account</button>
+			<button type="button" data-page="about">about</button>
+		</nav>
+
+		<section data-page="account">
 			<h3>Account</h3>
 			<div id="rj-acct"></div>
 		</section>
 
-		<section id="rj-admin-sec" hidden>
+		<section id="rj-admin-sec" data-page="account" hidden>
 			<h3>Admin</h3>
 			<div id="rj-admin"></div>
 			<label class="rj-check"><input id="rj-require-approval" type="checkbox"> Require approval for new accounts</label>
 			<label class="rj-check"><input id="rj-adblock" type="checkbox"> Block ads &amp; trackers (global)</label>
 		</section>
 
-		<section>
+		<section data-page="appearance">
 			<h3>Appearance</h3>
 			<select id="rj-zoom" aria-label="Zoom" style="margin-bottom:12px">
 				<option value="80">Zoom 80%</option>
@@ -148,7 +159,7 @@
 			<label id="rj-custom-row" class="rj-check" hidden>Accent color <input id="rj-custom-accent" type="color" value="#ffa028"></label>
 		</section>
 
-		<section>
+		<section data-page="search">
 			<h3>Search engine</h3>
 			<select id="rj-engine">
 				<option value="ddg">DuckDuckGo</option>
@@ -163,12 +174,12 @@
 			</div>
 		</section>
 
-		<section>
+		<section data-page="startup">
 			<h3>Startup</h3>
 			<label class="rj-check"><input id="rj-restore-tabs" type="checkbox"> Reopen tabs from last session</label>
 		</section>
 
-		<section>
+		<section data-page="cloak">
 			<h3>Tab cloak</h3>
 			<button id="rj-popout" type="button" class="rj-action">pop out to about:blank</button>
 			<select id="rj-cloak-sel" style="margin-top:8px">
@@ -180,7 +191,7 @@
 			</select>
 		</section>
 
-		<section>
+		<section data-page="cloak">
 			<h3>Panic key</h3>
 			<div class="rj-row">
 				<select id="rj-panic-key">
@@ -192,28 +203,28 @@
 			</div>
 		</section>
 
-		<section>
+		<section data-page="bookmarks">
 			<h3>Bookmarks</h3>
 			<ul id="rj-bookmarks"></ul>
 		</section>
 
-		<section>
+		<section data-page="about">
 			<h3>What's new</h3>
 			<div id="rj-changelog"><p class="rj-muted">loading...</p></div>
 		</section>
 
-		<section>
+		<section data-page="privacy">
 			<h3>History <button id="rj-history-page" type="button" class="rj-mini">full page</button> <button id="rj-history-clear" type="button" class="rj-mini">clear</button></h3>
 			<ul id="rj-history"></ul>
 			<label class="rj-check"><input id="rj-clearhist" type="checkbox"> Clear history when ramjet closes</label>
 		</section>
 
-		<section>
+		<section data-page="privacy">
 			<h3>Site storage <button id="rj-storage-clearall" type="button" class="rj-mini">clear all</button></h3>
 			<div id="rj-storage"><p class="rj-muted">nothing stored yet</p></div>
 		</section>
 
-		<section>
+		<section data-page="about">
 			<h3>Shortcuts</h3>
 			<ul class="rj-keys">
 				<li><span class="kbd">/</span> or <span class="kbd">ctrl k</span> focus the bar</li>
@@ -225,13 +236,13 @@
 				<li><span class="kbd">alt &#8592;&#8594;</span> back / forward</li>
 			</ul>
 		</section>
-			<p class="rj-ver">ramjet v0.8.1</p>
+			<p class="rj-ver">ramjet v0.8.2</p>
 	</div>
 </div>
 
 <footer id="rj-foot">
 	<span id="rj-status" data-mode="idle"></span>
-	<span class="ver">v0.8.1</span>
+	<span class="ver">v0.8.2</span>
 </footer>
 
 </body>
