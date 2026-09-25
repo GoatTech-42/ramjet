@@ -1,5 +1,16 @@
 # ramjet changelog
 
+## v1.0 - 2026-09-25
+v1 release. Everything since v0.11, shipped as one consistent set:
+- per-account cookie sync toggle (sync cookies with settings, per account)
+- fix double-popup on boot: restored full-mode tabs stay dormant until focused
+- all DOM ids obfuscated (95 ids, scripts/idmap.json for tooling)
+- popup bar restyled to match the shell (Luke's pick)
+- speed pass: gzip statics (2.1MB -> 620KB boot payload), etag+304, 1h cache on versioned assets - closes the last v1 gate (speed 8 -> 9)
+- /login?reset=1: one-tap recovery from stale-service-worker white pages
+- mobile fixes: search results no longer overflow narrow viewports (min-width bug), accent applies before first paint (no amber flash on page switches; login keeps default orange)
+- low data mode (v0.12, mobile-only, off by default): lazy images, no autoplay, no media preload, no prefetch/preload hints on proxied pages
+
 ## v0.11 - 2026-09-25
 obfuscation pass: engine fingerprint surface removed end-to-end.
 - vendored engine libs under /lib/ with bland names (boot/core/api/inject/engine.sw); /scramjet/ + /controller/ mounts and /CHANGELOG.md no longer served (404)
@@ -132,3 +143,6 @@ obfuscation pass: engine fingerprint surface removed end-to-end.
 - encrypted per-account sync (history, bookmarks, settings)
 - tab cloak + panic key
 - zoom control
+
+## v0.11.1 - in progress
+- cookie sync per account: settings > account toggle "sync cookies + site data for this account" (off by default), admin per-user sync on/off in the accounts list; the encrypted sync pipeline now follows each account's flag instead of admin-only

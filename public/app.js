@@ -15,17 +15,17 @@ if (window.RJ_VERSION && window.RJ_VERSION !== APP_VERSION && !sessionStorage.ge
 let engine = null; // { createFrame } shim over the v2 Controller
 let currentSettingsPage = "appearance";
 
-const form = document.getElementById("rj-form");
-const address = document.getElementById("rj-address");
-const statusEl = document.getElementById("rj-status");
-const frameHost = document.getElementById("rj-framehost");
-const starBtn = document.getElementById("rj-star");
-const cloakBtn = document.getElementById("rj-cloak");
+const form = document.getElementById("w894381");
+const address = document.getElementById("w37dc41");
+const statusEl = document.getElementById("w073edd");
+const frameHost = document.getElementById("w6a4153");
+const starBtn = document.getElementById("w024de8");
+const cloakBtn = document.getElementById("w52d56d");
 
 let swReady = null;
 
 // -- tabs ---------------------------------------------------------------------
-const tablist = document.getElementById("rj-tablist");
+const tablist = document.getElementById("w43db1b");
 let tabs = [];
 let activeTab = null;
 let tabSeq = 0;
@@ -93,7 +93,7 @@ function renderTabs() {
 		close.title = "Close tab";
 		close.addEventListener("click", (e) => { e.stopPropagation(); closeTab(tab); });
 		el.append(label, close);
-		el.addEventListener("click", () => activateTab(tab));
+		el.addEventListener("click", () => activateTab(tab, true));
 		el.addEventListener("contextmenu", (e) => {
 			e.preventDefault();
 			openTabMenu(e.clientX, e.clientY, tab);
@@ -102,19 +102,19 @@ function renderTabs() {
 	}
 	const add = document.createElement("button");
 	add.type = "button";
-	add.id = "rj-newtab";
+	add.id = "we3e1a9";
 	add.title = "New tab";
 	add.textContent = "+";
 	add.addEventListener("click", () => newTab());
 	tablist.appendChild(add);
-	const badge = document.getElementById("rj-tabcount");
+	const badge = document.getElementById("w4dbd1f");
 	if (badge) badge.textContent = String(tabs.length);
 }
 
 // -- mobile tab switcher (card grid) --
 function openSwitcher() {
-	const sw = document.getElementById("rj-switcher");
-	const grid = document.getElementById("rj-switcher-grid");
+	const sw = document.getElementById("w456c21");
+	const grid = document.getElementById("wc771c0");
 	grid.textContent = "";
 	for (const tab of tabs) {
 		const card = document.createElement("div");
@@ -131,7 +131,7 @@ function openSwitcher() {
 		const label = document.createElement("span");
 		label.textContent = tab.page || tab.title || "new tab";
 		body.appendChild(label);
-		body.addEventListener("click", () => { activateTab(tab); closeSwitcher(); });
+		body.addEventListener("click", () => { activateTab(tab, true); closeSwitcher(); });
 		const close = document.createElement("button");
 		close.type = "button";
 		close.className = "rj-card-close";
@@ -150,28 +150,28 @@ function openSwitcher() {
 	sw.hidden = false;
 }
 function closeSwitcher() {
-	document.getElementById("rj-switcher").hidden = true;
+	document.getElementById("w456c21").hidden = true;
 }
-document.getElementById("rj-tabsbtn").addEventListener("click", () => {
-	const sw = document.getElementById("rj-switcher");
+document.getElementById("wf8d6bc").addEventListener("click", () => {
+	const sw = document.getElementById("w456c21");
 	sw.hidden ? openSwitcher() : closeSwitcher();
 });
-document.getElementById("rj-switcher-close").addEventListener("click", closeSwitcher);
+document.getElementById("wd12021").addEventListener("click", closeSwitcher);
 
-function activateTab(tab) {
+function activateTab(tab, reopen) {
 	activeTab = tab;
 	for (const t of tabs) {
 		if (t.frame) t.frame.frame.style.display = t === tab ? "block" : "none";
 	}
 	hideFind();
-	const pagehost = document.getElementById("rj-pagehost");
+	const pagehost = document.getElementById("w91f74c");
 	if (tab.page) {
 		document.body.classList.remove("in-flight");
 		document.body.classList.add("page-view");
 		pagehost.hidden = false;
-		document.getElementById("rj-panel-card").hidden = tab.page !== "settings";
-		document.getElementById("rj-dl-card").hidden = tab.page !== "downloads";
-		document.getElementById("rj-hist-card").hidden = tab.page !== "history";
+		document.getElementById("w4803eb").hidden = tab.page !== "settings";
+		document.getElementById("wb9e5fd").hidden = tab.page !== "downloads";
+		document.getElementById("wc63e76").hidden = tab.page !== "history";
 		if (tab.page === "settings") setSettingsPage(currentSettingsPage);
 		if (tab.page === "downloads") renderDownloads();
 		if (tab.page === "history") renderHistoryPage();
@@ -184,7 +184,17 @@ function activateTab(tab) {
 		document.body.classList.add("in-flight");
 		syncBar();
 	} else if (tab.url) {
-		ensureReady().then(() => { if (activeTab === tab && !tab.frame) ignite(tab.url); }).catch(() => {});
+		// v0.11.x: restored tabs in full-page modes must NOT auto-pop a window at
+		// boot (popup blockers eat it, and it doubled windows when the user then
+		// navigated - the "two popups" bug). Stay dormant until the user clicks
+		// the tab again or submits the omnibox.
+		if (tab.restored && settings.pageMode !== "embedded" && !reopen) {
+			address.value = tab.url;
+			setStatus("restored tab - hit enter or click to reopen", "idle");
+		} else {
+			tab.restored = false;
+			ensureReady().then(() => { if (activeTab === tab && !tab.frame) ignite(tab.url); }).catch(() => {});
+		}
 	} else {
 		document.body.classList.remove("in-flight");
 		address.value = "";
@@ -224,7 +234,7 @@ function closeTab(tab) {
 		else {
 			document.body.classList.remove("in-flight");
 			document.body.classList.remove("page-view");
-			document.getElementById("rj-pagehost").hidden = true;
+			document.getElementById("w91f74c").hidden = true;
 			address.value = "";
 			renderTabs();
 		}
@@ -257,6 +267,7 @@ function ensureFrame(tab) {
 				}, true);
 			}
 		} catch (err) {}
+		try { if (lowDataActive()) installLowData(f.frame.contentDocument); } catch (err) {}
 		try {
 			const doc = f.frame.contentWindow.document;
 			const link = doc.querySelector("link[rel~='icon'], link[rel='shortcut icon'], link[rel='apple-touch-icon']");
@@ -436,7 +447,7 @@ function dlAction(label, fn, cls) {
 
 function renderDlBadge() {
 	const n = downloads.filter((d) => d.state === "downloading").length;
-	for (const id of ["rj-dl-badge", "rj-dl-badge2"]) {
+	for (const id of ["w715fd7", "w8d5612"]) {
 		const el = document.getElementById(id);
 		if (!el) continue;
 		el.hidden = n === 0;
@@ -445,11 +456,11 @@ function renderDlBadge() {
 }
 
 function renderDownloads() {
-	const list = document.getElementById("rj-dl-list");
+	const list = document.getElementById("wb2a29d");
 	if (!list) return;
 	list.textContent = "";
-	document.getElementById("rj-dl-empty").hidden = downloads.length > 0;
-	document.getElementById("rj-dl-clear").hidden = !downloads.some((d) => d.state !== "downloading");
+	document.getElementById("wd26517").hidden = downloads.length > 0;
+	document.getElementById("w58fc1a").hidden = !downloads.some((d) => d.state !== "downloading");
 	for (const d of downloads) {
 		const row = document.createElement("div");
 		row.className = "rj-dl-row";
@@ -496,10 +507,10 @@ function renderDownloads() {
 }
 
 function openDownloads() { newPageTab("downloads"); }
-document.getElementById("rj-dlbtn").addEventListener("click", openDownloads);
-document.getElementById("rj-dlbtn2").addEventListener("click", openDownloads);
-document.getElementById("rj-dl-close").addEventListener("click", () => { if (activeTab && activeTab.page) closeTab(activeTab); });
-document.getElementById("rj-dl-clear").addEventListener("click", () => {
+document.getElementById("w1da0eb").addEventListener("click", openDownloads);
+document.getElementById("w768066").addEventListener("click", openDownloads);
+document.getElementById("w87e0c0").addEventListener("click", () => { if (activeTab && activeTab.page) closeTab(activeTab); });
+document.getElementById("w58fc1a").addEventListener("click", () => {
 	for (const d of [...downloads]) if (d.state !== "downloading") dlForget(d);
 	renderDownloads();
 });
@@ -517,12 +528,12 @@ function histTime(ts) {
 }
 
 function renderHistoryPage() {
-	const list = document.getElementById("rj-hist-list");
+	const list = document.getElementById("wc48833");
 	if (!list) return;
-	const q = (document.getElementById("rj-hist-q").value || "").trim().toLowerCase();
+	const q = (document.getElementById("wa25777").value || "").trim().toLowerCase();
 	list.textContent = "";
 	const matches = history.filter((h) => !q || h.url.toLowerCase().includes(q) || (h.title || "").toLowerCase().includes(q));
-	document.getElementById("rj-hist-empty").hidden = matches.length > 0;
+	document.getElementById("w011f4e").hidden = matches.length > 0;
 	// group by site, most recent group first
 	const groups = [];
 	const byHost = {};
@@ -584,11 +595,11 @@ function renderHistoryPage() {
 	}
 }
 
-document.getElementById("rj-hist-q").addEventListener("input", renderHistoryPage);
-document.getElementById("rj-hist-close").addEventListener("click", () => { if (activeTab && activeTab.page) closeTab(activeTab); });
-document.getElementById("rj-history-page").addEventListener("click", openHistory);
-document.getElementById("rj-hist-clear").addEventListener("click", () => {
-	const range = document.getElementById("rj-hist-range").value;
+document.getElementById("wa25777").addEventListener("input", renderHistoryPage);
+document.getElementById("wccfd66").addEventListener("click", () => { if (activeTab && activeTab.page) closeTab(activeTab); });
+document.getElementById("wc75e3c").addEventListener("click", openHistory);
+document.getElementById("we00457").addEventListener("click", () => {
+	const range = document.getElementById("w61bcac").value;
 	let cutoff = 0;
 	const now = new Date();
 	if (range === "hour") cutoff = Date.now() - 3600e3;
@@ -613,6 +624,7 @@ const DEFAULTS = {
 	panicUrl: "https://www.google.com",
 	zoom: "100",
 	clearOnExit: false,
+	lowData: false,
 	restoreTabs: true,
 	pageMode: "full",
 	customEngineName: "",
@@ -621,6 +633,7 @@ const DEFAULTS = {
 
 let settings = { ...DEFAULTS };
 try { Object.assign(settings, JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}")); } catch (err) {}
+addEventListener("DOMContentLoaded", () => applyLowDataState(), { once: true });
 // v0.10.6: fullPage bool -> pageMode tri-state. Default is full-page+bar (the
 // filter-dodging mode that keeps the ramjet bar); old fullPage:true maps to it.
 if (typeof settings.fullPage !== "undefined") {
@@ -637,6 +650,57 @@ try {
 		localStorage.setItem("rj.engine-migrated-v090", "1");
 	}
 } catch (err) {}
+// -- low data mode (mobile only) ---------------------------------------------
+// Luke 9/25: basic mode only - lazy images, no autoplay, no media preload, no
+// prefetch/preload hints. Save-Data header is impossible here: outbound fetch
+// runs client-side in the libcurl-wasm transport (server is a dumb TCP relay).
+const isMobile = () => matchMedia("(pointer: coarse)").matches || innerWidth <= 768;
+const lowDataActive = () => !!settings.lowData && isMobile();
+
+function lowDataPatchNode(root) {
+	if (!root) return;
+	const q = (sel, fn) => {
+		try {
+			if (root.matches && root.matches(sel)) fn(root);
+			if (root.querySelectorAll) root.querySelectorAll(sel).forEach(fn);
+		} catch (e) {}
+	};
+	q("img", (im) => { if (!im.getAttribute("loading")) im.setAttribute("loading", "lazy"); });
+	q("video,audio", (m) => {
+		m.setAttribute("preload", "none");
+		if (m.hasAttribute("autoplay")) { m.removeAttribute("autoplay"); try { m.pause(); } catch (e) {} }
+	});
+	q('link[rel="prefetch"],link[rel="preload"]', (l) => l.remove());
+}
+
+function installLowData(doc) {
+	if (!doc || !doc.documentElement || doc.__rjLowData) return;
+	doc.__rjLowData = true;
+	lowDataPatchNode(doc.documentElement);
+	const MO = (doc.defaultView || window).MutationObserver;
+	if (!MO) return;
+	const mo = new MO((muts) => {
+		if (!lowDataActive()) return;
+		for (const m of muts) {
+			for (const n of m.addedNodes) if (n.nodeType === 1) lowDataPatchNode(n);
+		}
+	});
+	mo.observe(doc.documentElement, { childList: true, subtree: true });
+}
+
+function applyLowDataState() {
+	const navBtn = document.getElementById("w5d2c9e");
+	if (navBtn) navBtn.hidden = !isMobile();
+	if (lowDataActive()) {
+		for (const t of tabs) {
+			if (t.frame) { try { installLowData(t.frame.frame.contentDocument); } catch (e) {} }
+		}
+		for (const rec of POPUPS) {
+			try { installLowData(rec.win.document); } catch (e) {}
+		}
+	}
+}
+
 function saveSettings() { localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); scheduleSyncPush(); }
 
 let bookmarks = [];
@@ -713,7 +777,7 @@ function applyTheme() {
 	document.documentElement.style.setProperty("--amber-deep", deep);
 	const favicon = document.querySelector('link[rel="icon"]');
 	if (favicon) favicon.href = faviconSvg(amber, deep);
-	const customBtn = document.getElementById("rj-theme-custom");
+	const customBtn = document.getElementById("w49f7b0");
 	if (customBtn) customBtn.style.setProperty("--sw", amber);
 }
 function shadeHex(hex, amt) {
@@ -1215,7 +1279,7 @@ starBtn.addEventListener("click", () => {
 	renderBookmarks();
 });
 function renderBmBar() {
-	const bar = document.getElementById("rj-bmbar");
+	const bar = document.getElementById("w9ee02e");
 	if (!bar) return;
 	bar.innerHTML = "";
 	for (const b of bookmarks.slice(0, 40)) {
@@ -1237,7 +1301,7 @@ function renderBmBar() {
 
 function renderBookmarks() {
 	renderBmBar();
-	const list = document.getElementById("rj-bookmarks");
+	const list = document.getElementById("w814694");
 	list.innerHTML = "";
 	if (!bookmarks.length) {
 		const li = document.createElement("li");
@@ -1279,7 +1343,7 @@ function renderBookmarks() {
 function setSettingsPage(page) {
 	currentSettingsPage = page;
 	let first = true;
-	for (const sec of document.querySelectorAll("#rj-panel-card > section")) {
+	for (const sec of document.querySelectorAll("#w4803eb > section")) {
 		const show = sec.dataset.page === page;
 		sec.style.display = show ? "" : "none";
 		if (show) {
@@ -1287,9 +1351,9 @@ function setSettingsPage(page) {
 			first = false;
 		}
 	}
-	for (const b of document.querySelectorAll("#rj-setnav button")) b.classList.toggle("active", b.dataset.page === page);
+	for (const b of document.querySelectorAll("#w083c26 button")) b.classList.toggle("active", b.dataset.page === page);
 }
-for (const b of document.querySelectorAll("#rj-setnav button")) {
+for (const b of document.querySelectorAll("#w083c26 button")) {
 	b.addEventListener("click", () => setSettingsPage(b.dataset.page));
 }
 
@@ -1303,10 +1367,10 @@ function openSettings() {
 function closeSettings() {
 	if (activeTab && activeTab.page) closeTab(activeTab);
 }
-document.getElementById("rj-gear").addEventListener("click", openSettings);
-document.getElementById("rj-gear2").addEventListener("click", openSettings);
-document.getElementById("rj-panel-close").addEventListener("click", closeSettings);
-document.getElementById("rj-storage-clearall").addEventListener("click", async () => {
+document.getElementById("w283e69").addEventListener("click", openSettings);
+document.getElementById("wf878c7").addEventListener("click", openSettings);
+document.getElementById("wcd52ec").addEventListener("click", closeSettings);
+document.getElementById("wc4a96f").addEventListener("click", async () => {
 	if (!confirm("clear ALL site storage? this logs you out of every site")) return;
 	await storeWrite("{}");
 	for (const [host, entries] of Object.entries(collectSiteStorage())) {
@@ -1317,7 +1381,7 @@ document.getElementById("rj-storage-clearall").addEventListener("click", async (
 });
 
 // theme buttons
-for (const btn of document.querySelectorAll("#rj-themes button")) {
+for (const btn of document.querySelectorAll("#w9b26c2 button")) {
 	btn.addEventListener("click", () => {
 		settings.theme = btn.dataset.theme;
 		if (settings.theme === "custom" && !settings.customAccent) settings.customAccent = "#ffa028";
@@ -1326,7 +1390,7 @@ for (const btn of document.querySelectorAll("#rj-themes button")) {
 		syncSettingsUI();
 	});
 }
-const customAccentIn = document.getElementById("rj-custom-accent");
+const customAccentIn = document.getElementById("w187f16");
 customAccentIn.addEventListener("input", () => {
 	settings.theme = "custom";
 	settings.customAccent = customAccentIn.value;
@@ -1335,25 +1399,27 @@ customAccentIn.addEventListener("input", () => {
 	syncSettingsUI();
 });
 // engine select
-const engineSel = document.getElementById("rj-engine");
+const engineSel = document.getElementById("wca51d9");
 engineSel.addEventListener("change", () => {
 	settings.engine = engineSel.value;
 	customEngineRow.hidden = settings.engine !== "custom";
 	saveSettings();
 });
 // custom search engine
-const customEngineRow = document.getElementById("rj-custom-engine-row");
-const customEngineName = document.getElementById("rj-custom-engine-name");
-const customEngineUrl = document.getElementById("rj-custom-engine-url");
+const customEngineRow = document.getElementById("w3a25d0");
+const customEngineName = document.getElementById("wb4f7f0");
+const customEngineUrl = document.getElementById("wa1681e");
 customEngineName.addEventListener("change", () => { settings.customEngineName = customEngineName.value.trim(); saveSettings(); });
 customEngineUrl.addEventListener("change", () => { settings.customEngineUrl = customEngineUrl.value.trim(); saveSettings(); });
 // startup: reopen last session's tabs
-const restoreTabsToggle = document.getElementById("rj-restore-tabs");
+const restoreTabsToggle = document.getElementById("we8ff88");
 restoreTabsToggle.addEventListener("change", () => { settings.restoreTabs = restoreTabsToggle.checked; saveSettings(); });
-const pageModeSel = document.getElementById("rj-pagemode-sel");
+const lowDataToggle = document.getElementById("w8c4e7d");
+lowDataToggle.addEventListener("change", () => { settings.lowData = lowDataToggle.checked; saveSettings(); applyLowDataState(); });
+const pageModeSel = document.getElementById("wad5a50");
 pageModeSel.addEventListener("change", () => { settings.pageMode = pageModeSel.value; saveSettings(); });
 // cloak select + quick button
-const cloakSel = document.getElementById("rj-cloak-sel");
+const cloakSel = document.getElementById("w570f7f");
 cloakSel.addEventListener("change", () => {
 	settings.cloak = cloakSel.value;
 	saveSettings();
@@ -1367,8 +1433,8 @@ cloakBtn.addEventListener("click", () => {
 	syncSettingsUI();
 });
 // panic config
-const panicKeySel = document.getElementById("rj-panic-key");
-const panicUrlIn = document.getElementById("rj-panic-url");
+const panicKeySel = document.getElementById("webc290");
+const panicUrlIn = document.getElementById("wc15d64");
 panicKeySel.addEventListener("change", () => {
 	settings.panicKey = panicKeySel.value;
 	saveSettings();
@@ -1379,7 +1445,7 @@ panicUrlIn.addEventListener("change", () => {
 	saveSettings();
 });
 function syncSettingsUI() {
-	for (const btn of document.querySelectorAll("#rj-themes button")) {
+	for (const btn of document.querySelectorAll("#w9b26c2 button")) {
 		btn.classList.toggle("active", btn.dataset.theme === settings.theme);
 	}
 	engineSel.value = settings.engine;
@@ -1388,13 +1454,15 @@ function syncSettingsUI() {
 	panicUrlIn.value = settings.panicUrl;
 	cloakBtn.classList.toggle("cloaked", settings.cloak !== "off");
 	zoomSel.value = settings.zoom;
-	document.getElementById("rj-custom-row").hidden = settings.theme !== "custom";
+	document.getElementById("w4b08f2").hidden = settings.theme !== "custom";
 	if (settings.customAccent) customAccentIn.value = settings.customAccent;
 	clearHistToggle.checked = !!settings.clearOnExit;
 	customEngineRow.hidden = settings.engine !== "custom";
 	customEngineName.value = settings.customEngineName || "";
 	customEngineUrl.value = settings.customEngineUrl || "";
 	restoreTabsToggle.checked = settings.restoreTabs !== false;
+	lowDataToggle.checked = !!settings.lowData;
+	applyLowDataState();
 	pageModeSel.value = settings.pageMode || "full";
 }
 
@@ -1403,7 +1471,7 @@ function syncSettingsUI() {
 let changelogLoaded = false;
 async function loadChangelog() {
 	if (changelogLoaded) return;
-	const box = document.getElementById("rj-changelog");
+	const box = document.getElementById("w941899");
 	try {
 		const res = await fetch("/CHANGELOG.md", { cache: "no-store" });
 		if (!res.ok) throw new Error("no changelog");
@@ -1497,23 +1565,23 @@ form.addEventListener("submit", async (event) => {
 	ignite(url);
 });
 
-document.getElementById("rj-back").addEventListener("click", () => {
+document.getElementById("wdb833e").addEventListener("click", () => {
 	if (activeTab && activeTab.frame) activeTab.frame.frame.contentWindow.history.back();
 });
-document.getElementById("rj-fwd").addEventListener("click", () => {
+document.getElementById("w1d2ac4").addEventListener("click", () => {
 	if (activeTab && activeTab.frame) activeTab.frame.frame.contentWindow.history.forward();
 });
-document.getElementById("rj-reload").addEventListener("click", () => {
+document.getElementById("w7f3533").addEventListener("click", () => {
 	if (activeTab && activeTab.frame) activeTab.frame.frame.contentWindow.location.reload();
 });
-document.getElementById("rj-home").addEventListener("click", () => {
+document.getElementById("w3c691f").addEventListener("click", () => {
 	if (activeTab && activeTab.frame) newTab();
 	else { address.value = ""; address.focus(); }
 });
 
 
 // -- v0.3: history panel, address autocomplete, fullscreen, about:blank popout, dark pages --
-const suggest = document.getElementById("rj-suggest");
+const suggest = document.getElementById("w2b1e92");
 let suggestItems = [];
 let suggestIndex = -1;
 
@@ -1631,7 +1699,7 @@ address.addEventListener("keydown", (e) => {
 
 // history in the panel
 function renderHistory() {
-	const list = document.getElementById("rj-history");
+	const list = document.getElementById("w6ac273");
 	if (!list) return;
 	list.innerHTML = "";
 	if (!history.length) {
@@ -1655,22 +1723,22 @@ function renderHistory() {
 		list.appendChild(li);
 	}
 }
-document.getElementById("rj-history-clear").addEventListener("click", () => {
+document.getElementById("w8d0ba5").addEventListener("click", () => {
 	history = [];
 	saveHistory();
 	renderHistory();
 });
 
 // fullscreen chrome toggle
-const fsBtn = document.getElementById("rj-fs");
+const fsBtn = document.getElementById("w44e3a7");
 fsBtn.addEventListener("click", () => {
 	document.body.classList.toggle("no-chrome");
 });
-document.getElementById("rj-peek").addEventListener("mouseenter", () => {
+document.getElementById("we78a1b").addEventListener("mouseenter", () => {
 	document.body.classList.remove("no-chrome");
 });
 
-document.getElementById("rj-popout-full").addEventListener("click", () => {
+document.getElementById("we86a37").addEventListener("click", () => {
 	let target = null;
 	for (let i = tabs.length - 1; i >= 0; i--) {
 		if (tabs[i].frame && tabs[i].frame.frame && tabs[i].frame.frame.src) { target = tabs[i]; break; }
@@ -1738,8 +1806,15 @@ setInterval(() => {
 		}
 		const ours = href.includes("/view/") || href.startsWith(location.origin + "/search") || href.startsWith(location.origin + "/searx");
 		if (!ours) continue;
+		// low data mode: patch every proxied popup doc, any browsing mode. rec.href
+		// tracks navigations; a fresh document gets a fresh install (marker expando
+		// is per-document) and its MutationObserver dies with the old doc.
+		if (lowDataActive() && rec.lowDataHref !== href) {
+			rec.lowDataHref = href;
+			try { installLowData(doc); } catch (e) {}
+		}
 		if (rec.mode !== "full") continue; // the bar rides full-page+bar mode only
-		if (!doc.getElementById("rj-popbar")) injectPopBar(w, href);
+		if (!doc.getElementById("w92f603")) injectPopBar(w, href);
 		else syncPopBar(w, href);
 	}
 }, 700);
@@ -1748,14 +1823,21 @@ function injectPopBar(w, href) {
 	const doc = w.document;
 	const [amber, deep] = accentColors();
 	const style = doc.createElement("style");
-	style.id = "rj-popbar-style";
+	style.id = "wdda035";
+	// v0.11.x (Luke, 9/25): shell-matching look - rounded omnibox, panel tones,
+	// amber accents - still fully self-contained so the proxied page's own CSS
+	// can't break it and ours can't leak into it.
 	style.textContent =
-		"#rj-popbar{position:fixed;top:0;left:0;right:0;height:38px;z-index:2147483647;display:flex;align-items:center;gap:6px;padding:0 8px;background:#14100b;border-bottom:1px solid #3a2c14;font:13px system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;box-sizing:border-box}" +
-		"#rj-popbar button{background:#241b0e;border:1px solid #3a2c14;color:" + amber + ";border-radius:5px;padding:3px 9px;font:13px system-ui;cursor:pointer}" +
-		"#rj-popbar input{flex:1;min-width:40px;background:#0d0a06;border:1px solid #3a2c14;border-radius:5px;color:#f5ead6;padding:4px 8px;font:13px system-ui}";
+		"#w92f603{position:fixed;top:0;left:0;right:0;height:44px;z-index:2147483647;display:flex;align-items:center;gap:8px;padding:0 10px;background:#171310;border-bottom:1px solid #2a2119;font:13.5px system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;box-sizing:border-box;box-shadow:0 1px 8px rgba(0,0,0,.35)}" +
+		"#w92f603 button{background:transparent;border:1px solid #2a2119;color:" + amber + ";border-radius:9px;min-width:30px;height:30px;padding:0 9px;font:14px system-ui;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;transition:background 120ms ease,border-color 120ms ease}" +
+		"#w92f603 button:hover{background:#241d14;border-color:#3a2e1e}" +
+		"#w92f603 input{flex:1;min-width:40px;height:32px;background:#0f0c09;border:1px solid #2a2119;border-radius:10px;color:#f5ead6;padding:0 12px;font:13.5px system-ui;outline:0;transition:border-color 120ms ease,box-shadow 120ms ease}" +
+		"#w92f603 input:focus{border-color:" + deep + ";box-shadow:0 0 0 3px " + amber + "21}" +
+		"#w92f603 button.wb-home{background:" + amber + ";border-color:" + amber + ";color:#14100a;font-weight:700;font-size:12.5px;letter-spacing:.02em;border-radius:10px;padding:0 13px}" +
+		"#w92f603 button.wb-home:hover{background:" + amber + ";filter:brightness(1.08)}";
 	(doc.head || doc.documentElement).appendChild(style);
 	const bar = doc.createElement("div");
-	bar.id = "rj-popbar";
+	bar.id = "w92f603";
 	const mk = (label, fn) => {
 		const b = doc.createElement("button");
 		b.type = "button";
@@ -1766,7 +1848,7 @@ function injectPopBar(w, href) {
 	bar.appendChild(mk("\u2039", () => w.history.back()));
 	bar.appendChild(mk("\u203a", () => w.history.forward()));
 	const omni = doc.createElement("input");
-	omni.id = "rj-popbar-address";
+	omni.id = "w38c00e";
 	omni.spellcheck = false;
 	omni.value = peelProxied(href);
 	omni.addEventListener("keydown", (e) => {
@@ -1780,26 +1862,28 @@ function injectPopBar(w, href) {
 		} catch (err) {}
 	});
 	bar.appendChild(omni);
-	bar.appendChild(mk("ramjet", () => { try { window.focus(); } catch (err) {} }));
+	const homeBtn = mk("ramjet", () => { try { window.focus(); } catch (err) {} });
+	homeBtn.className = "wb-home";
+	bar.appendChild(homeBtn);
 	doc.body.appendChild(bar);
 }
 
 function syncPopBar(w, href) {
 	try {
-		const omni = w.document.getElementById("rj-popbar-address");
+		const omni = w.document.getElementById("w38c00e");
 		if (omni && w.document.activeElement !== omni) omni.value = peelProxied(href);
 	} catch (err) {}
 }
 
 // zoom
-const zoomSel = document.getElementById("rj-zoom");
+const zoomSel = document.getElementById("wec773b");
 zoomSel.addEventListener("change", () => {
 	settings.zoom = zoomSel.value;
 	saveSettings();
 	applyZoom();
 });
 // clear history on exit
-const clearHistToggle = document.getElementById("rj-clearhist");
+const clearHistToggle = document.getElementById("wd98afd");
 clearHistToggle.addEventListener("change", () => {
 	settings.clearOnExit = clearHistToggle.checked;
 	saveSettings();
@@ -1852,7 +1936,7 @@ function wireFrameDoc(tab, f) {
 	}, true);
 }
 
-const menu = document.getElementById("rj-menu");
+const menu = document.getElementById("w3cebd0");
 function hideMenu() { menu.hidden = true; }
 function menuItem(label, fn) {
 	const b = document.createElement("button");
@@ -1898,17 +1982,17 @@ window.addEventListener("blur", hideMenu);
 
 // -- overflow menu: the bar shows essentials; the rest lives behind the dots --
 const MORE_ITEMS = [
-	["rj-fwd", "forward"],
-	["rj-reload", "reload"],
-	["rj-home", "home"],
-	["rj-star", "bookmark this page"],
-	["rj-dlbtn", "downloads"],
-	["rj-cloak", "tab cloak"],
-	["rj-gear2", "settings"],
-	["rj-fs", "hide the bar"],
-	["rj-logout", "lock ramjet"],
+	["w1d2ac4", "forward"],
+	["w7f3533", "reload"],
+	["w3c691f", "home"],
+	["w024de8", "bookmark this page"],
+	["w1da0eb", "downloads"],
+	["w52d56d", "tab cloak"],
+	["wf878c7", "settings"],
+	["w44e3a7", "hide the bar"],
+	["w34b262", "lock ramjet"],
 ];
-const moreBtn = document.getElementById("rj-more");
+const moreBtn = document.getElementById("w21c7c8");
 moreBtn.addEventListener("click", (e) => {
 	e.stopPropagation();
 	if (!menu.hidden) { hideMenu(); return; }
@@ -1943,8 +2027,8 @@ function openTabMenu(x, y, tab) {
 }
 
 // -- find in page --
-const findBar = document.getElementById("rj-find");
-const findIn = document.getElementById("rj-find-in");
+const findBar = document.getElementById("wdb4bcc");
+const findIn = document.getElementById("wcd0ff6");
 function openFind() {
 	if (!document.body.classList.contains("in-flight")) return;
 	findBar.hidden = false;
@@ -1964,7 +2048,7 @@ findIn.addEventListener("keydown", (e) => {
 	if (e.key === "Enter") { e.preventDefault(); doFind(e.shiftKey); }
 	if (e.key === "Escape") { hideFind(); address.focus(); e.stopPropagation(); }
 });
-document.getElementById("rj-find-x").addEventListener("click", () => { hideFind(); address.focus(); });
+document.getElementById("w8ff564").addEventListener("click", () => { hideFind(); address.focus(); });
 
 
 // -- zero-knowledge sync + account --------------------------------------------
@@ -1981,7 +2065,7 @@ function scheduleSyncPush() {
 	}, 800);
 }
 function markSync(txt) {
-	const el = document.getElementById("rj-sync-state");
+	const el = document.getElementById("w6c618e");
 	if (el) el.textContent = txt;
 }
 
@@ -2020,7 +2104,7 @@ async function storeWrite(cookies) {
 	try { new BroadcastChannel(STORE_CHAN).postMessage({ updatedAt }); } catch (err) {}
 }
 function storageSyncOn() {
-	return typeof RJCrypto !== "undefined" && RJCrypto.unlocked() && meInfo && meInfo.role === "admin";
+	return typeof RJCrypto !== "undefined" && RJCrypto.unlocked() && meInfo && !!meInfo.syncEnabled;
 }
 let storeSyncTimer = null;
 function scheduleStoragePush() {
@@ -2061,7 +2145,7 @@ async function jarMutate(fn) {
 	scheduleStoragePush();
 }
 async function renderSiteStorage() {
-	const box = document.getElementById("rj-storage");
+	const box = document.getElementById("w901a24");
 	if (!box) return;
 	const state = await storeRead();
 	let jar = {};
@@ -2150,7 +2234,7 @@ async function renderSiteStorage() {
 }
 
 async function hydrateStorage() {
-	if (!meInfo || meInfo.role !== "admin" || typeof RJCrypto === "undefined" || !RJCrypto.unlocked()) return;
+	if (!meInfo || !meInfo.syncEnabled || typeof RJCrypto === "undefined" || !RJCrypto.unlocked()) return;
 	try {
 		const data = await RJCrypto.pullStorage();
 		if (!data || (!data.cookies && !data.sitestorage)) return;
@@ -2200,7 +2284,7 @@ async function hydrateFromServer() {
 	renderAccount();
 }
 function renderAccount() {
-	const box = document.getElementById("rj-acct");
+	const box = document.getElementById("w38e87e");
 	if (!box) return;
 	box.innerHTML = "";
 	if (!meInfo || !meInfo.user) {
@@ -2213,13 +2297,33 @@ function renderAccount() {
 	const who = document.createElement("span");
 	who.textContent = meInfo.user + (meInfo.role === "admin" ? " (admin)" : "");
 	const state = document.createElement("span");
-	state.id = "rj-sync-state";
+	state.id = "w6c618e";
 	state.style.color = "#7d838d";
 	state.style.fontSize = "12px";
-	state.textContent = RJCrypto.unlocked() ? "synced" : "locked";
+	state.textContent = !meInfo.syncEnabled ? "sync off" : (RJCrypto.unlocked() ? "synced" : "locked");
 	row.appendChild(who);
 	row.appendChild(state);
 	box.appendChild(row);
+
+	const syncRow = document.createElement("label");
+	syncRow.className = "rj-check";
+	syncRow.style.marginTop = "8px";
+	const syncCb = document.createElement("input");
+	syncCb.type = "checkbox";
+	syncCb.id = "w84e044";
+	syncCb.checked = !!meInfo.syncEnabled;
+	syncRow.appendChild(syncCb);
+	syncRow.appendChild(document.createTextNode(" sync cookies + site data for this account"));
+	syncCb.addEventListener("change", async () => {
+		try {
+			const r = await fetch("/auth/sync-toggle", { method: "POST" });
+			const d = await r.json();
+			if (d && d.ok) { meInfo.syncEnabled = !!d.syncEnabled; syncCb.checked = meInfo.syncEnabled; }
+			if (meInfo.syncEnabled) await hydrateFromServer();
+		} catch (err) { syncCb.checked = !!meInfo.syncEnabled; }
+		renderAccount();
+	});
+	box.appendChild(syncRow);
 
 	const btns = document.createElement("div");
 	btns.className = "rj-row";
@@ -2257,12 +2361,12 @@ function renderAccount() {
 	box.appendChild(btns);
 
 	if (meInfo.role === "admin") {
-		document.getElementById("rj-admin-sec").hidden = false;
+		document.getElementById("wa525c6").hidden = false;
 		renderAdmin();
 	}
 }
 async function renderAdmin() {
-	const box = document.getElementById("rj-admin");
+	const box = document.getElementById("wbeba24");
 	if (!box) return;
 	let data;
 	try {
@@ -2299,12 +2403,13 @@ async function renderAdmin() {
 			if (u.status === "pending") mk("approve", "approve");
 			if (u.status === "pending") mk("deny", "deny");
 			if (u.status === "denied") mk("approve", "approve");
+			mk(u.syncEnabled ? "sync: on" : "sync: off", "sync-toggle");
 			mk("remove", "remove");
 		}
 		row.appendChild(acts);
 		box.appendChild(row);
 	}
-	const tog = document.getElementById("rj-require-approval");
+	const tog = document.getElementById("weebec6");
 	tog.checked = !!data.requireApproval;
 	tog.onchange = async () => {
 		await fetch("/auth/admin/config", {
@@ -2313,7 +2418,7 @@ async function renderAdmin() {
 			body: "requireApproval=" + (tog.checked ? "1" : "0"),
 		});
 	};
-	const adt = document.getElementById("rj-adblock");
+	const adt = document.getElementById("w2bf475");
 	if (adt) {
 		adt.checked = data.adblock !== false;
 		adt.onchange = async () => {
@@ -2336,7 +2441,7 @@ try { savedTabs = JSON.parse(localStorage.getItem(TABS_KEY) || '{"tabs":[],"acti
 if (settings.restoreTabs !== false) {
 	for (const st of savedTabs.tabs || []) {
 		if (tabs.length >= 8) break;
-		tabs.push({ id: ++tabSeq, frame: null, url: st.url || null, title: st.title || "", page: st.page || null, icon: st.icon || null });
+		tabs.push({ id: ++tabSeq, frame: null, url: st.url || null, title: st.title || "", page: st.page || null, icon: st.icon || null, restored: true });
 	}
 	if (tabs.length) {
 		activateTab(tabs[Math.max(0, Math.min(savedTabs.active || 0, tabs.length - 1))]);

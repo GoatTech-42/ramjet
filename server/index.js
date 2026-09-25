@@ -427,7 +427,7 @@ async function handleAdmin(req, res, action) {
 	if (action === "users") {
 		const seen = readJson(LASTSEEN_FILE, {});
 		const list = Object.entries(accounts).map(([name, a]) => ({
-			username: name, role: a.role, status: a.status, created: a.created, lastSeen: seen[name] || null,
+			username: name, role: a.role, status: a.status, created: a.created, lastSeen: seen[name] || null, syncEnabled: !!a.syncEnabled,
 		}));
 		return json(res, 200, { ok: true, users: list, requireApproval: loadConfig().requireApproval, adblock: loadConfig().adblock });
 	}
@@ -448,6 +448,7 @@ async function handleAdmin(req, res, action) {
 	const username = (p && p.get("username") || "").toLowerCase();
 	if (!accounts[username]) return json(res, 404, { error: "no such user" });
 	if (username === sr.user) return json(res, 400, { error: "can't change your own account here" });
+	if (action === "sync-toggle") { accounts[username].syncEnabled = !accounts[username].syncEnabled; await writeAccounts(accounts); return json(res, 200, { ok: true, syncEnabled: !!accounts[username].syncEnabled }); }
 	if (action === "approve") accounts[username].status = "active";
 	else if (action === "deny") accounts[username].status = "denied";
 	else if (action === "remove") {
@@ -482,9 +483,19 @@ const server = createServer(async (req, res) => {
 			const sr = sessionRecord(req);
 			if (!sr || !sr.user) return json(res, 401, { error: "no session" });
 			const acct = readAccounts()[sr.user];
-			return json(res, 200, { ok: true, user: sr.user, role: acct ? acct.role : "user" });
+			return json(res, 200, { ok: true, user: sr.user, role: acct ? acct.role : "user", syncEnabled: !!(acct && acct.syncEnabled) });
 		}
 		if (pathname.startsWith("/auth/admin/")) return await handleAdmin(req, res, pathname.slice("/auth/admin/".length));
+		if (pathname === "/auth/sync-toggle" && req.method === "POST") {
+			const sr = sessionRecord(req);
+			if (!sr || !sr.user) return json(res, 401, { error: "no session" });
+			const accounts = readAccounts();
+			const acct = accounts[sr.user];
+			if (!acct) return json(res, 404, { error: "no such user" });
+			acct.syncEnabled = !acct.syncEnabled;
+			await writeAccounts(accounts);
+			return json(res, 200, { ok: true, syncEnabled: !!acct.syncEnabled });
+		}
 		if (pathname === "/auth/logout") {
 			await killSession(req, res);
 			res.writeHead(303, { location: "/login" });
@@ -579,10 +590,32 @@ const server = createServer(async (req, res) => {
 			return;
 		}
 		const type = MIME[extname(file).toLowerCase()] || "application/octet-stream";
-		const headers = { "content-type": type, "content-length": st.size, "cache-control": type.startsWith("text/html") ? "no-cache, must-revalidate" : "no-cache" };
-		if (file.endsWith("sw.js")) headers["service-worker-allowed"] = "/";
-		res.writeHead(200, headers);
-		res.end(await readFile(file));
+		// v0.11.x speed pass: weak etag + 304s so repeat visits through the
+		// tunnel don't re-pull ~2MB of engine libs every boot. /lib/* is
+		// vendored per release and app.js/style.css ship versioned ?v= URLs, so
+		// an hour of reuse is safe; html + sw.js stay fresh-check-always.
+		const etag = 'W/"' + st.size + "-" + Math.floor(st.mtimeMs) + '"';
+		const isHtml = type.startsWith("text/html");
+		const isSw = file.endsWith("sw.js");
+		const cache = isHtml ? "no-cache, must-revalidate" : isSw ? "no-cache" : file.includes("/lib/") ? "public, max-age=3600" : "public, max-age=3600";
+		if (req.headers["if-none-match"] === etag) {
+			res.writeHead(304, { "cache-control": cache, etag });
+			res.end();
+			return;
+		}
+		const headers = { "content-type": type, "cache-control": cache, etag, vary: "accept-encoding" };
+		if (isSw) headers["service-worker-allowed"] = "/";
+		const compressible = /^(text\/|application\/(javascript|wasm|json|wasm))/.test(type) || type === "application/wasm";
+		const body = await readFile(file);
+		if (compressible && body.length > 1024 && String(req.headers["accept-encoding"] || "").includes("gzip")) {
+			headers["content-encoding"] = "gzip";
+			res.writeHead(200, headers);
+			res.end(gzipSync(body));
+		} else {
+			headers["content-length"] = body.length;
+			res.writeHead(200, headers);
+			res.end(body);
+		}
 	} catch (err) {
 		res.writeHead(500, { "content-type": "text/plain; charset=utf-8" });
 		res.end("500 - ramjet misfire");
