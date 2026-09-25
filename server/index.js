@@ -9,10 +9,8 @@ import { fileURLToPath } from "node:url";
 import { hostname } from "node:os";
 import { randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
 import { server as wisp, logging } from "@mercuryworkshop/wisp-js/server";
-import { scramjetPath } from "@mercuryworkshop/scramjet/path";
 import { fileURLToPath as _furl } from "node:url";
 const libcurlPath = join(fileURLToPath(new URL(".", import.meta.url)), "..", "node_modules", "@mercuryworkshop", "libcurl-transport", "dist");
-const controllerPath = join(fileURLToPath(new URL(".", import.meta.url)), "..", "node_modules", "@mercuryworkshop", "scramjet-controller", "dist");
 
 const PORT = Number(process.env.RAMJET_PORT || 4204);
 const HOST = process.env.RAMJET_HOST || "0.0.0.0";
@@ -231,8 +229,6 @@ const MIME = {
 };
 
 const mounts = [
-	{ prefix: "/scramjet/", root: scramjetPath },
-	{ prefix: "/controller/", root: controllerPath },
 	{ prefix: "/libcurl/", root: libcurlPath },
 ];
 
@@ -474,7 +470,7 @@ const server = createServer(async (req, res) => {
 		const pathname = url.pathname;
 		if (pathname === "/healthz") {
 			res.writeHead(200, { "content-type": "application/json" });
-			res.end(JSON.stringify({ ok: true, engine: "scramjet", transport: "wisp", uptime: Math.round(process.uptime()) }));
+			res.end(JSON.stringify({ ok: true, engine: "wk", transport: "wisp", uptime: Math.round(process.uptime()) }));
 			return;
 		}
 		if (pathname === "/auth/login" && req.method === "POST") return await handleLogin(req, res);

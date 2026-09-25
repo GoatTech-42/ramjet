@@ -1,6 +1,5 @@
-// Ramjet service worker - Scramjet v2 engine integration
-// (@mercuryworkshop/scramjet-controller, MIT).
-importScripts("/controller/controller.sw.js");
+// Ramjet service worker - engine integration
+importScripts("/lib/engine.sw.js");
 
 
 // -- download interception ----------------------------------------------------
@@ -50,17 +49,17 @@ addEventListener("fetch", (e) => {
 	// engine: the wisp transport would loop back to this origin and fail.
 	const rp = new URL(e.request.url);
 	if (rp.origin === location.origin && (rp.pathname === "/search" || rp.pathname === "/th")) return;
-	if (!$scramjetController.shouldRoute(e)) return;
+	if (!$wkcore.shouldRoute(e)) return;
 	if (e.request.headers.get("x-rj-dlm")) {
 		// managed download fetch: strip the marker, route without intercepting
 		const h = new Headers(e.request.headers);
 		h.delete("x-rj-dlm");
 		const req = new Request(e.request, { headers: h });
-		e.respondWith($scramjetController.route({ request: req, clientId: e.clientId, resultingClientId: e.resultingClientId }));
+		e.respondWith($wkcore.route({ request: req, clientId: e.clientId, resultingClientId: e.resultingClientId }));
 		return;
 	}
 	e.respondWith((async () => {
-		const res = await $scramjetController.route(e);
+		const res = await $wkcore.route(e);
 		if (e.request.method === "GET" && rjIsDownload(res, e.request.destination, e.request.mode)) return rjHandoff(e, res);
 		return res;
 	})());
