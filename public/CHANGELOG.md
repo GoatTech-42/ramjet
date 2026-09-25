@@ -1,3 +1,7 @@
+## v0.10.0
+- image lightbox: blurred backdrop, loading spinner with fade-in, position counter (n / total)
+- hovering an image tile preloads the full-size image so the lightbox opens instantly
+
 ## v0.9.9
 - deep link: /?u=<url or search> opens through the proxy like an omnibox submit (enables iOS Shortcut + share-sheet entry points)
 
