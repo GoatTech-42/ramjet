@@ -661,7 +661,9 @@ const lowDataActive = () => !!settings.lowData && isMobile();
 
 
 
-const effectivePageMode = () => settings.pageModeExplicit ? (settings.pageMode || "full") : (isMobile() ? "embedded" : "full");
+
+
+const effectivePageMode = () => settings.pageModeExplicit ? (settings.pageMode || "full") : "embedded";
 
 function lowDataPatchNode(root) {
 	if (!root) return;
