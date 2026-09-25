@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html class="no-js theme-{{ preferences.get_value('simple_style') or 'auto' }} center-alignment-{{ preferences.get_value('center_alignment') and 'yes' or 'no' }}" lang="{{ locale_rfc5646 }}" {% if rtl %} dir="rtl"{% endif %}>
+<head>
+  <meta charset="UTF-8">
+  <meta name="endpoint" content="{{ endpoint }}">
+  <meta name="description" content="SearXNG — a privacy-respecting, open metasearch engine">
+  <meta name="keywords" content="SearXNG, search, search engine, metasearch, meta search">
+  <meta name="generator" content="searxng/{{ searxng_version }}">
+  <meta name="referrer" content="no-referrer">
+  <meta name="robots" content="noarchive">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}{% endblock %}{{ instance_name }}</title>
+  <script type="module" src="{{ url_for('static', filename='sxng-core.min.js') }}" client_settings="{{ client_settings }}"></script>
+  {% block meta %}{% endblock %}
+  {% if rtl %}
+  <link rel="stylesheet" href="{{ url_for('static', filename='sxng-rtl.min.css') }}" type="text/css" media="screen">
+  {% else %}
+  <link rel="stylesheet" href="{{ url_for('static', filename='sxng-ltr.min.css') }}" type="text/css" media="screen">
+  {% endif %}
+  <noscript>
+    <link rel="stylesheet" href="{{ url_for('static', filename='sxng-noscript.min.css') }}" type="text/css">
+  </noscript>
+  <link rel="stylesheet" href="{{ url_for('static', filename='themes/simple/custom.css') }}?v=107" type="text/css" media="screen">
+  <script>
+  (function () {
+    try {
+      var s = JSON.parse(localStorage.getItem("rj.settings") || "{}");
+      var T = {amber:["#ffa028","#c96f04"],mint:["#34d399","#059669"],sky:["#38bdf8","#0369a1"],violet:["#a78bfa","#6d28d9"],ember:["#f87171","#b91c1c"]};
+      function shade(hex, f) {
+        var n = parseInt(hex.slice(1), 16), r = n >> 16 & 255, g = n >> 8 & 255, b = n & 255;
+        function c(v) { return Math.round(Math.max(0, Math.min(255, v * (1 + f)))); }
+        return "#" + ((1 << 24) + (c(r) << 16) + (c(g) << 8) + c(b)).toString(16).slice(1);
+      }
+      var acc, deep;
+      if (s.theme === "custom" && s.customAccent) { acc = s.customAccent; deep = shade(acc, -0.35); }
+      else { var t = T[s.theme] || T.amber; acc = t[0]; deep = t[1]; }
+      var r = document.documentElement;
+      r.style.setProperty("--rj-accent", acc);
+      r.style.setProperty("--rj-accent-deep", deep);
+      var svg = "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'>"
+        + "<path fill='" + acc + "' d='M11.6 39.6 L14.4 42.4 L4.7 50.7 L3.3 49.3 Z'/>"
+        + "<path fill='" + acc + "' d='M20.6 48.6 L23.4 51.4 L15.7 57.7 L14.3 56.3 Z'/>"
+        + "<path fill='" + deep + "' d='M58 6 L12 22 L30 32 Z'/>"
+        + "<path fill='" + acc + "' d='M58 6 L30 32 L40 50 Z'/></svg>";
+      r.style.setProperty("--rj-dart", "url(\"data:image/svg+xml," + svg.replace(/#/g, "%23").replace(/</g, "%3C").replace(/>/g, "%3E") + "\")");
+    } catch (e) {}
+  })();
+  </script>
+  {% if get_setting('server.limiter') or get_setting('server.public_instance') %}
+  <link rel="stylesheet" href="{{ url_for('client_token', token=link_token) }}" type="text/css">
+  {% endif %}
+  {% block head %}
+  <link title="{{ instance_name }}" type="application/opensearchdescription+xml" rel="search" href="{{ opensearch_url }}">
+  {% endblock %}
+  <link rel="icon" href="{{ url_for('static', filename='img/favicon.png') }}" sizes="any">
+  <link rel="icon" href="{{ url_for('static', filename='themes/simple/img/rj-dart.svg') }}" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="{{ url_for('static', filename='img/favicon.png') }}">
+  <link rel="manifest" href="{{ url_for('manifest') }}" />
+</head>
+<body class="{{ endpoint }}_endpoint" >
+  <main id="main_{{  self._TemplateReference__context.name|replace("simple/", "")|replace(".html", "") }}" class="{{body_class}}">
+    {% if errors %}
+        <div class="dialog-error" role="alert">
+            <a href="#" class="close" aria-label="close" title="close">×</a>
+            <ul>
+            {% for message in errors %}
+                <li>{{ message }}</li>
+            {% endfor %}
+            </ul>
+        </div>
+    {% endif %}
+
+    <nav id="links_on_top">
+      {%- from 'simple/icons.html' import icon_big -%}
+      {%- block linkto_about -%}
+        <a href="{{ url_for('info', pagename='about') }}" class="link_on_top_about">{{ icon_big('information-circle') }}<span>{{ _('About') }}</span></a>
+      {%- endblock -%}
+      {%- block linkto_donate -%}
+        {%- if donation_url -%}
+        <a href="{{ donation_url }}" class="link_on_top_donate">{{ icon_big('heart') }}<span>{{ _('Donate') }}</span></a>
+        {%- endif -%}
+      {%- endblock -%}
+      {%- block linkto_preferences -%}
+        {%- if request.args.get('preferences') -%}
+          <a href="{{ url_for('preferences') }}?preferences={{ request.args.get('preferences') }}&preferences_preview_only=true" class="link_on_top_preferences">{{ icon_big('settings') }}<span>{{ _('Preferences') }}</span></a>
+        {%- else -%}
+          <a href="{{ url_for('preferences') }}" class="link_on_top_preferences">{{ icon_big('settings') }}<span>{{ _('Preferences') }}</span></a>
+        {%- endif -%}
+      {%- endblock -%}
+    </nav>
+    {% block header %}
+    {% endblock %}
+    {% block content %}
+    {% endblock %}
+  </main>
+  <footer>
+    <p>
+    {{ _('Powered by') }} <a href="{{ url_for('info', pagename='about') }}">SearXNG</a> - {{ searxng_version }} — {{ _('a privacy-respecting, open metasearch engine') }}<br>
+        <a href="{{ searxng_git_url }}">{{ _('Source code') }}</a>
+        | <a href="{{ get_setting('brand.issue_url') }}">{{ _('Issue tracker') }}</a>
+        {% if enable_metrics %}| <a href="{{ url_for('stats') }}">{{ _('Engine stats') }}</a>{% endif %}
+        {% if get_setting('brand.public_instances') %}
+        | <a href="{{ get_setting('brand.public_instances') }}">{{ _('Public instances') }}</a>
+        {% endif %}
+        {% if get_setting('general.privacypolicy_url') %}
+        | <a href="{{ get_setting('general.privacypolicy_url') }}">{{ _('Privacy policy') }}</a>
+        {% endif %}
+        {% if get_setting('general.contact_url') %}
+        | <a href="{{ get_setting('general.contact_url') }}">{{ _('Contact instance maintainer') }}</a>
+        {% endif %}
+        {% for title, link in get_setting('brand.custom.links').items() %}
+        | <a href="{{ link }}">{{ _(title) }}</a>
+        {% endfor %}
+    </p>
+  </footer>
+</body>
+</html>

@@ -1,0 +1,52 @@
+use_default_settings: true
+
+general:
+  instance_name: "ramjet search"
+  debug: false
+  enable_metrics: false
+
+server:
+  base_url: false  # root-based: ramjet frames load /searx/* same-origin; proxy rewrites prefix for direct visits
+  port: 8080
+  bind_address: "0.0.0.0"
+  secret_key: "REGENERATE-ON-REVIVE"
+  limiter: false
+  public_instance: false
+  image_proxy: true
+  method: "GET"
+  default_http_headers:
+    X-Content-Type-Options: nosniff
+    X-Download-Options: noopen
+    X-Robots-Tag: noindex, nofollow
+    Referrer-Policy: no-referrer
+
+search:
+  safe_search: 1
+  autocomplete: "duckduckgo"
+  formats:
+    - html
+
+ui:
+  default_theme: simple
+  query_in_title: true
+  infinite_scroll: false
+  center_alignment: true
+  theme_args:
+    simple_style: black
+
+outgoing:
+  request_timeout: 2.5
+  pool_maxsize: 30
+  pool_connections: 10
+
+engines:
+  - name: bing
+    disabled: false
+  - name: currency
+    disabled: true
+  - name: lingva
+    disabled: true
+  - name: mymemory translated
+    disabled: true
+  - name: dictzone
+    disabled: true
