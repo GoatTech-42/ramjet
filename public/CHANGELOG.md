@@ -1,3 +1,7 @@
+## v0.7.4
+- fix: orange ghost on the wordmark j/t on iOS - WebKit left a stale paint pass on glyph overhang (descender / italic edge) during the accent-color transition; the wordmark accent no longer transitions, color applies atomically
+- fix: desktop login "//" separator sat at the top of the bar - it was an unstretched flex item; now centers itself
+
 # ramjet changelog
 
 ## 0.7.3

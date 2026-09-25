@@ -805,7 +805,7 @@ body.in-flight #rj-address { font-family: system-ui, -apple-system, "Segoe UI", 
 #rj-gear:hover { background: #ffffff0d; color: var(--text); }
 body.in-flight #rj-form { align-items: center; }
 body.in-flight .rj-nav button, body.in-flight .rj-nav a { width: 34px; height: 32px; }
-.prefix, .wordmark-big em, .ignite, #rj-status { transition: color 180ms ease, background-color 180ms ease; }
+.prefix, .ignite, #rj-status { transition: color 180ms ease, background-color 180ms ease; }
 .rj-ver { margin-top: 22px; }
 
 /* panic row: the 40% rule loses specificity to the base select rule - pin both controls by id */
@@ -1150,3 +1150,6 @@ body.in-flight.bmbar #rj-framehost { inset: 75px 0 30px 0; }
 	#rj-panel-card select, #rj-panel-card input[type="text"], #rj-panel-card input:not([type]) { font-size: 16px; }
 	.rj-store-v { font-size: 16px; }
 }
+
+/* login form separator: span must center itself, not stretch to pill height */
+.prefix { align-self: center; color: var(--muted); padding: 0 2px 0 12px; font-size: 15px; user-select: none; }
