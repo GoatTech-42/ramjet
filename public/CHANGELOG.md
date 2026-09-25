@@ -1,3 +1,6 @@
+## v0.10.2
+- fix: tabs, history, bookmarks and downloads saved on one ramjet address carried that address onto the other - on the tunnel url, restored searches and pages tried to load through the port-forwarded host, which is blocked on some networks. anything aimed at ramjet's own paths is now rewritten to the address ramjet is actually served on
+
 ## v0.10.1
 - fix: the search box now opens urls through the proxy instead of searching for the string - "wikipedia.org" goes to the site, "wikipedia" still searches
 - fix: a stale service worker could hang the engine boot forever (every proxied page stuck) - boot now times out, drops the dead worker and reloads once; new workers take over immediately and the worker script is pinned to the shipped version
