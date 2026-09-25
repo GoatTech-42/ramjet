@@ -170,7 +170,9 @@ function activateTab(tab) {
 		pagehost.hidden = false;
 		document.getElementById("rj-panel-card").hidden = tab.page !== "settings";
 		document.getElementById("rj-dl-card").hidden = tab.page !== "downloads";
+		document.getElementById("rj-hist-card").hidden = tab.page !== "history";
 		if (tab.page === "downloads") renderDownloads();
+		if (tab.page === "history") renderHistoryPage();
 		renderTabs();
 		return;
 	}
@@ -486,6 +488,100 @@ document.getElementById("rj-dl-clear").addEventListener("click", () => {
 });
 renderDlBadge();
 
+// -- history page --------------------------------------------------------------
+function openHistory() { newPageTab("history"); }
+
+function histTime(ts) {
+	const d = new Date(ts);
+	const today = new Date();
+	const sameDay = d.toDateString() === today.toDateString();
+	if (sameDay) return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+	return d.toLocaleDateString([], { month: "short", day: "numeric" });
+}
+
+function renderHistoryPage() {
+	const list = document.getElementById("rj-hist-list");
+	if (!list) return;
+	const q = (document.getElementById("rj-hist-q").value || "").trim().toLowerCase();
+	list.textContent = "";
+	const matches = history.filter((h) => !q || h.url.toLowerCase().includes(q) || (h.title || "").toLowerCase().includes(q));
+	document.getElementById("rj-hist-empty").hidden = matches.length > 0;
+	// group by site, most recent group first
+	const groups = [];
+	const byHost = {};
+	for (const h of matches) {
+		let host = h.url;
+		try { host = new URL(h.url).hostname; } catch (err) {}
+		if (!byHost[host]) { byHost[host] = { host, entries: [], latest: 0 }; groups.push(byHost[host]); }
+		byHost[host].entries.push(h);
+		if (h.ts > byHost[host].latest) byHost[host].latest = h.ts;
+	}
+	groups.sort((a, b) => b.latest - a.latest);
+	for (const g of groups) {
+		const wrap = document.createElement("div");
+		wrap.className = "rj-hist-group";
+		const head = document.createElement("div");
+		head.className = "rj-hist-site";
+		const label = document.createElement("span");
+		label.textContent = g.host + " (" + g.entries.length + ")";
+		const siteClear = document.createElement("button");
+		siteClear.type = "button";
+		siteClear.className = "rj-mini";
+		siteClear.textContent = "clear site";
+		siteClear.addEventListener("click", () => {
+			history = history.filter((h) => { try { return new URL(h.url).hostname !== g.host; } catch (err) { return true; } });
+			saveHistory();
+			renderHistoryPage();
+		});
+		head.appendChild(label);
+		head.appendChild(siteClear);
+		wrap.appendChild(head);
+		for (const h of g.entries) {
+			const row = document.createElement("div");
+			row.className = "rj-hist-entry";
+			const link = document.createElement("button");
+			link.type = "button";
+			link.className = "rj-hist-link";
+			link.textContent = h.title || h.url;
+			link.title = h.url;
+			link.addEventListener("click", () => { newTab(); ignite(h.url); });
+			const time = document.createElement("span");
+			time.className = "rj-hist-time";
+			time.textContent = histTime(h.ts);
+			const rm = document.createElement("button");
+			rm.type = "button";
+			rm.className = "rj-mini";
+			rm.textContent = "\u00d7";
+			rm.setAttribute("aria-label", "Remove");
+			rm.addEventListener("click", () => {
+				history = history.filter((x) => x !== h);
+				saveHistory();
+				renderHistoryPage();
+			});
+			row.appendChild(link);
+			row.appendChild(time);
+			row.appendChild(rm);
+			wrap.appendChild(row);
+		}
+		list.appendChild(wrap);
+	}
+}
+
+document.getElementById("rj-hist-q").addEventListener("input", renderHistoryPage);
+document.getElementById("rj-hist-close").addEventListener("click", () => { if (activeTab && activeTab.page) closeTab(activeTab); });
+document.getElementById("rj-history-page").addEventListener("click", openHistory);
+document.getElementById("rj-hist-clear").addEventListener("click", () => {
+	const range = document.getElementById("rj-hist-range").value;
+	let cutoff = 0;
+	const now = new Date();
+	if (range === "hour") cutoff = Date.now() - 3600e3;
+	else if (range === "day") cutoff = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+	else { history = []; saveHistory(); renderHistoryPage(); return; }
+	history = history.filter((h) => h.ts < cutoff);
+	saveHistory();
+	renderHistoryPage();
+});
+
 // -- persisted settings ------------------------------------------------------
 const SETTINGS_KEY = "rj.settings";
 const BOOKMARKS_KEY = "rj.bookmarks";
@@ -521,11 +617,12 @@ function saveHistory() {
 	history = history.filter((h) => h && h.ts && Date.now() - h.ts < HISTORY_MAX_AGE_MS);
 	localStorage.setItem(HISTORY_KEY, JSON.stringify(history)); scheduleSyncPush();
 }
-function recordHistory(url) {
+function recordHistory(url, title) {
 	if (!url) return;
+	const prev = history.find((h) => h.url === url);
 	history = history.filter((h) => h.url !== url);
-	history.unshift({ url, ts: Date.now() });
-	history = history.slice(0, 100);
+	history.unshift({ url, ts: Date.now(), title: title || (prev && prev.title) || "" });
+	history = history.slice(0, 1000);
 	saveHistory();
 }
 
@@ -718,7 +815,7 @@ function syncBar() {
 		address.value = real;
 		if (activeTab) activeTab.url = real;
 		syncStar();
-		recordHistory(real);
+		recordHistory(real, activeTab.title);
 	} catch (err) {}
 }
 
@@ -963,6 +1060,11 @@ document.addEventListener("keydown", (e) => {
 	if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "f" && document.body.classList.contains("in-flight")) {
 		e.preventDefault();
 		openFind();
+		return;
+	}
+	if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "h") {
+		e.preventDefault();
+		openHistory();
 		return;
 	}
 	if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "t") {
