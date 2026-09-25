@@ -657,11 +657,13 @@ try {
 // runs client-side in the libcurl-wasm transport (server is a dumb TCP relay).
 const isMobile = () => matchMedia("(pointer: coarse)").matches || innerWidth <= 768;
 const lowDataActive = () => !!settings.lowData && isMobile();
-// Luke 9/25: "default to the most convenient and best choice, then fall back".
-// Best is per-device: phones get same-tab embedded (no full-screen popup
-// browser), desktops get full-page+bar (filter evasion). An explicit choice in
-// settings always wins; failures escalate through the existing fallback chain.
-const effectivePageMode = () => settings.pageModeExplicit ? (settings.pageMode || "full") : (isMobile() ? "embedded" : "full");
+// Luke 9/25: "only do the popup if u have to" - same-tab embedded is the
+// default EVERYWHERE. Popups (full / fullbare) fire only through the fallback
+// chain when embedded actually fails, or when he explicitly picks a mode in
+// settings. Tradeoff he accepted: framed proxy content is the thing school
+// filters can block, so on a filtered network the first navigation may take
+// one failed embedded attempt before the popup fallback kicks in.
+const effectivePageMode = () => settings.pageModeExplicit ? (settings.pageMode || "full") : "embedded";
 
 function lowDataPatchNode(root) {
 	if (!root) return;

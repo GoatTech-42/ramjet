@@ -1,5 +1,8 @@
 # ramjet changelog
 
+## v1.0.2 - 2026-09-25
+- browsing mode default is same-tab embedded on ALL devices (Luke: popup only if it has to); popup modes fire only via the failure fallback chain or an explicit settings choice
+
 ## v1.0.1 - 2026-09-25
 - per-device default browsing mode: phones default to same-tab embedded flow (no full-screen popup browser), desktops keep full-page+bar; explicit settings choice always wins; failures fall back through the existing chain (Luke steer)
 
