@@ -744,7 +744,7 @@ async function ensureReady() {
 	if (!swReady) {
 		setStatus("spooling up...", "busy");
 		swReady = (async () => {
-			const registration = await navigator.serviceWorker.register("/sw.js", { updateViaCache: "none" });
+			const registration = await navigator.serviceWorker.register("/sw.js?v=35", { updateViaCache: "none" });
 			registration.update();
 			if (!navigator.serviceWorker.controller) {
 				await new Promise((resolve) => {
@@ -779,7 +779,20 @@ async function ensureReady() {
 			};
 		})();
 	}
-	return swReady;
+	try {
+		return await Promise.race([swReady, new Promise((_, rej) => setTimeout(() => rej(new Error("engine boot timeout")), 12000))]);
+	} catch (err) {
+		// v0.10.1: a stale service worker can hold a dead engine handshake -
+		// drop it and reload once; the fresh worker boots clean.
+		if (!sessionStorage.getItem("rjSwReset")) {
+			sessionStorage.setItem("rjSwReset", "1");
+			try { const regs = await navigator.serviceWorker.getRegistrations(); await Promise.all(regs.map((r) => r.unregister())); } catch (e2) {}
+			location.reload();
+			await new Promise(() => {});
+		}
+		swReady = null;
+		throw err;
+	}
 }
 
 // -- error surfaces ------------------------------------------------------------
