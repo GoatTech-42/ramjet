@@ -1,3 +1,7 @@
+## v0.8.0
+- downloads manager: the engine now hands attachment downloads to ramjet instead of the browser - real downloads page (toolbar arrow, landing + in-flight), live progress, pause/resume (range resume when the site supports it), cancel, save to device, open-in-tab for finished files, retry for interrupted
+- badge on the downloads button while anything is in flight
+
 ## v0.7.5
 - fix: favicon did not follow the accent - the cloak pass ran after the theme pass and reset the icon to the static amber file every boot. cloak "off" now renders the themed dart; active cloaks unchanged
 
