@@ -907,9 +907,26 @@ function renderBookmarks() {
 }
 
 // -- settings panel ----------------------------------------------------------
+function setSettingsPage(page) {
+	let first = true;
+	for (const sec of document.querySelectorAll("#rj-panel-card > section")) {
+		const show = sec.dataset.page === page;
+		sec.style.display = show ? "" : "none";
+		if (show) {
+			sec.style.borderTop = first ? "0" : "";
+			first = false;
+		}
+	}
+	for (const b of document.querySelectorAll("#rj-setnav button")) b.classList.toggle("active", b.dataset.page === page);
+}
+for (const b of document.querySelectorAll("#rj-setnav button")) {
+	b.addEventListener("click", () => setSettingsPage(b.dataset.page));
+}
+
 function openSettings() {
 	loadChangelog();
 	renderSiteStorage();
+	setSettingsPage("appearance");
 	newPageTab("settings");
 	return;
 }
