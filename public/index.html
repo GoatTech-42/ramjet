@@ -8,6 +8,18 @@
 <link rel="icon" href="/assets/ramjet.svg" type="image/svg+xml">
 <link rel="manifest" href="/site.webmanifest">
 <meta name="theme-color" content="#0b0c0e">
+<script>
+// apply the saved accent before first paint - kills the amber flash on page switches.
+// (login page intentionally keeps the default orange.)
+(function(){try{
+var s=JSON.parse(localStorage.getItem("rj.settings")||"{}");
+var T={amber:["#ffa028","#c96f04"],mint:["#34d399","#059669"],sky:["#38bdf8","#0369a1"],violet:["#a78bfa","#6d28d9"],ember:["#f87171","#b91c1c"]};
+var t=T[s.theme];
+if(s.theme==="custom"&&s.customAccent){var n=parseInt(s.customAccent.slice(1),16);var ch=function(v){return Math.max(0,Math.min(255,Math.round(v*0.65)))};t=[s.customAccent,"#"+[ch(n>>16),ch((n>>8)&255),ch(n&255)].map(function(v){return v.toString(16).padStart(2,"0")}).join("")];}
+if(!t)return;
+var r=document.documentElement.style;r.setProperty("--amber",t[0]);r.setProperty("--amber-deep",t[1]);
+}catch(e){}})();
+</script>
 <link rel="stylesheet" href="/style.css?v=28">
 <script>window.RJ_VERSION="0.7.0-alpha";</script>
 <script src="/lib/boot.js"></script>

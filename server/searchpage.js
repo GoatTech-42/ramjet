@@ -192,8 +192,9 @@ function page(o) {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${esc(q)} - ramjet search</title>
 <style>${CSS}</style>
+<script>${PREP}</script>
 </head><body>
-<div id="rj-load" hidden><div class="track"><div class="bar"></div></div></div>
+<div id="w15a525" hidden><div class="track"><div class="bar"></div></div></div>
 <form class="bar" action="/search" method="get" id="sf">
 	<input id="q" name="q" type="text" value="${esc(q)}" placeholder="search" autocomplete="off" spellcheck="false">
 	${category !== "general" ? `<input type="hidden" name="categories" value="${esc(category)}">` : ""}
@@ -287,9 +288,9 @@ a.pg:hover{color:var(--txt);border-color:var(--line);background:var(--card)}
 .meta{color:#5c626b;font-size:12px;text-align:center;margin-top:18px}
 .empty{text-align:center;padding:60px 0;color:var(--dim)}
 .ebig{font-size:20px;color:var(--txt);margin-bottom:6px}
-#rj-load{position:fixed;top:0;left:0;right:0;z-index:99;pointer-events:none}
-#rj-load .track{height:3px;background:color-mix(in srgb,var(--acc) 12%,transparent);overflow:hidden}
-#rj-load .bar{height:100%;width:34%;background:var(--acc);border-radius:0 3px 3px 0;box-shadow:0 0 10px color-mix(in srgb,var(--acc) 55%,transparent);animation:slide 1.05s ease-in-out infinite}
+#w15a525{position:fixed;top:0;left:0;right:0;z-index:99;pointer-events:none}
+#w15a525 .track{height:3px;background:color-mix(in srgb,var(--acc) 12%,transparent);overflow:hidden}
+#w15a525 .bar{height:100%;width:34%;background:var(--acc);border-radius:0 3px 3px 0;box-shadow:0 0 10px color-mix(in srgb,var(--acc) 55%,transparent);animation:slide 1.05s ease-in-out infinite}
 @keyframes slide{0%{transform:translateX(-110%)}55%{transform:translateX(180%)}100%{transform:translateX(340%)}}
 body.busy #wrap,body.busy .bar,body.busy .tabs{opacity:.55;transition:opacity .15s}
 .lbox{position:fixed;inset:0;z-index:100;background:rgba(6,7,9,.78);backdrop-filter:blur(10px) saturate(1.1);-webkit-backdrop-filter:blur(10px) saturate(1.1);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:24px;animation:fadein .18s ease}
@@ -304,16 +305,23 @@ body.busy #wrap,body.busy .bar,body.busy .tabs{opacity:.55;transition:opacity .1
 #lcount{color:#5c626b;font-variant-numeric:tabular-nums}
 .lclose{position:absolute;top:16px;right:20px;background:none;border:0;color:var(--dim);font-size:34px;cursor:pointer;line-height:1;transition:color .12s}
 .lclose:hover{color:#fff}
+/* narrow-viewport hardening (9/25): grid/flex children had min-width:auto, so the nowrap crumbs line pushed the whole results column past the viewport on phones */
+.main,.ibox{min-width:0}.rbody{min-width:0}.rtitle,.rsnip,.ibcontent,.ibattr{overflow-wrap:anywhere}
 @media(max-width:560px){body{padding:12px 10px 40px}.vthumb{display:none}.filters{margin-bottom:14px}}
 `;
 
-const JS = `
+const PREP = `
 (function(){
 try{var s=JSON.parse(localStorage.getItem("rj.settings")||"{}");
 var T={amber:["#ffa028","#c96f04"],mint:["#34d399","#059669"],sky:["#38bdf8","#0369a1"],violet:["#a78bfa","#6d28d9"],ember:["#f87171","#b91c1c"]};
 var t=T[s.theme]||T.amber;if(s.theme==="custom"&&s.customAccent)t=[s.customAccent,s.customAccent];
 var r=document.documentElement.style;r.setProperty("--acc",t[0]);r.setProperty("--acc2",t[1]);}catch(e){}
-var load=document.getElementById("rj-load");
+})();
+`;
+
+const JS = `
+(function(){
+var load=document.getElementById("w15a525");
 function busy(){load.hidden=false;document.body.classList.add("busy")}
 window.addEventListener("pageshow",function(){load.hidden=true;document.body.classList.remove("busy")});
 function urlDest(raw){raw=(raw||"").trim();
