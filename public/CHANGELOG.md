@@ -1,3 +1,10 @@
+## v0.9.1
+- search is FAST now: repeat searches and back/forward come back instantly (built-in result cache), pages transfer ~85% smaller (gzip), slow dictionary/translation engines dropped from the default set, stragglers cut at 2.5s
+- search follows your accent color - links, buttons, tabs, logo, everything picks up your ramjet theme (amber/mint/sky/violet/ember/custom) instead of always amber
+- omnibox suggestions now come from ramjet search itself as you type, with past visits trimmed to 3 and dimmed so real suggestions lead
+- results page decluttered: about link gone, settings shrinks to a quiet gear, filter row hidden on phones; wider results on big screens, sticky search bar, tighter type and hover states
+- search history rows show as "ramjet search: your query" instead of a raw url
+
 ## v0.9.0
 - ramjet search: your own private search engine, built in - metasearch powered by a searxng instance running on the same box, fully skinned in the ramjet dart theme. it's the default search engine now (old default moves over automatically; if you picked another engine yourself it stays). also reachable directly at /searx for signed-in users
 - search runs in a locked-down container: 400MB memory cap, no outside network identity, zero idle cpu

@@ -1285,3 +1285,12 @@ body.in-flight.bmbar #rj-framehost { inset: 75px 0 30px 0; }
 }
 /* hidden attr must always win over class display in the settings card */
 #rj-panel-card [hidden] { display: none !important; }
+
+
+/* v0.9.1 - lighter suggestion bar, engine suggestions integrated */
+#rj-suggest { padding: 3px; }
+.rj-sug-row { padding: 6px 10px; font-size: 13px; gap: 8px; }
+.rj-sug-row[data-kind="hist"], .rj-sug-row[data-kind="star"] { opacity: .7; }
+.rj-sug-row[data-kind="search"] .rj-sug-icon { color: var(--amber); opacity: .85; }
+.rj-sug-row[data-kind="search"] .rj-sug-label { color: var(--text); }
+.rj-sug-row .rj-sug-label { color: var(--muted); }
