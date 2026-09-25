@@ -1,3 +1,6 @@
+## v0.8.2
+- settings redesign: sections are now real pages - nav rail on desktop (appearance / search / startup / cloak & panic / privacy / bookmarks / account / about), top tab strip on phones; wider card, one page visible at a time
+
 ## v0.8.1
 - history page: full page (ctrl+h or settings > history > full page) with live search, per-site grouping, per-site clear, per-entry remove, clear by range (last hour / today / all time)
 - history now remembers page titles and keeps 1000 entries (was 100)
