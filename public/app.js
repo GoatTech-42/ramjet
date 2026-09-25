@@ -353,7 +353,7 @@ async function dlRun(entry, resume) {
 	entry.state = "downloading";
 	renderDownloads(); renderDlBadge();
 	try {
-		const res = await fetch(entry.url, { headers, signal: entry.ctrl.signal });
+		const res = await fetch(normalizeUrl(entry.url), { headers, signal: entry.ctrl.signal });
 		if (resume && res.status === 200 && entry.received > 0) { entry.chunks = []; entry.received = 0; }
 		if (!res.ok && res.status !== 206) throw new Error("http " + res.status);
 		const len = Number(res.headers.get("content-length")) || 0;
@@ -953,10 +953,34 @@ function resolveInput(raw) {
 	return eng[1] + encodeURIComponent(input);
 }
 
+// v0.10.2: synced tabs/history/bookmarks/downloads can carry absolute URLs
+// stamped with another ramjet origin (saved on the port-forwarded host, used
+// on the tunnel). Rewrite anything aimed at this app's own paths to the
+// origin we are actually served on, so traffic never leaves the serving host.
+function normalizeUrl(url) {
+	try {
+		const u = new URL(url, location.origin);
+		if (u.origin === location.origin) return url;
+		if (u.pathname.startsWith("/~/sj/")) {
+			// proxied URL stamped with another origin - recover the destination
+			const seg = u.pathname.slice("/~/sj/".length).split("/").filter(Boolean).pop();
+			const dec = decodeURIComponent(seg || "");
+			if (/^https?:/.test(dec)) return dec;
+			return url;
+		}
+		if (u.pathname === "/search" || u.pathname === "/th" || u.pathname.startsWith("/searx/") || (u.pathname === "/" && u.searchParams.has("u"))) {
+			return location.origin + u.pathname + u.search + u.hash;
+		}
+	} catch (err) {}
+	return url;
+}
+
 function ignite(url) {
 	if (!activeTab) newTab();
 	const tab = activeTab;
 	const f = ensureFrame(tab);
+	url = normalizeUrl(url);
+	if (url.startsWith(location.origin + "/")) url = url.slice(location.origin.length);
 	if (url.startsWith("/searx/") || url.startsWith("/search")) {
 		// same-origin search: no scramjet wrap - the frame's own session cookie
 		// passes the /searx gate, and wisp never sees a loopback destination
@@ -1369,6 +1393,11 @@ function sugLabel(item) {
 	if (item.url.startsWith(px) || item.url.startsWith(pxOld)) {
 		try { return new URL(item.url).searchParams.get("q") || item.url; } catch (err) {}
 	}
+	// v0.10.2: the same paths stamped with another ramjet origin (synced state)
+	try {
+		const su = new URL(item.url);
+		if (su.pathname === "/search" || su.pathname === "/searx/search") return su.searchParams.get("q") || item.url;
+	} catch (err) {}
 	return item.url;
 }
 
