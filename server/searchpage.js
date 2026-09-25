@@ -331,6 +331,13 @@ f.querySelectorAll(".fopt").forEach(function(o){o.addEventListener("click",funct
 });
 document.addEventListener("click",function(){document.querySelectorAll(".fsel.open").forEach(function(o){o.classList.remove("open");o.querySelector(".fpop").hidden=true;o.querySelector(".fbtn").setAttribute("aria-expanded","false")})});
 document.addEventListener("keydown",function(e){if(e.key==="/"&&document.activeElement!==q0&&!/INPUT|TEXTAREA/.test((document.activeElement||{}).tagName||"")){e.preventDefault();q0.focus();q0.select()}});
+// perceived speed: hovering a tab warms its query into the server cache so the
+// click feels instant; page 2 prefetches at idle for the same reason.
+var warm=function(u){try{fetch(u,{credentials:"same-origin"}).then(function(r){return r.text()}).catch(function(){})}catch(e){}};
+document.querySelectorAll(".tab:not(.on)").forEach(function(a){a.addEventListener("pointerenter",function(){warm(a.href)},{once:true})});
+window.addEventListener("load",function(){var n=document.querySelector(".pg.next");if(!n)return;
+var go2=function(){warm(n.href)};
+if(window.requestIdleCallback)requestIdleCallback(go2,{timeout:2500});else setTimeout(go2,1600);});
 })();
 `;
 
