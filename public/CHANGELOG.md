@@ -1,3 +1,7 @@
+## v0.10.5
+- new: full-page mode (settings or "pop out full page") opens proxied pages TOP-LEVEL in their own browser tabs - no iframe anywhere, so school/office filters that block framed proxy content (X-Frame-Options injection, embed filtering) never see an embed. The ramjet tab stays open as the engine's transport owner.
+- verified on staging through a simulated web filter (port-forwarded host blackholed): omnibox and search-result navigations pop out full-page and render top-level through the tunnel; 100% of requests ride the serving origin.
+
 ## v0.10.4
 - fix: on a slow connection the first engine boot could hit its 12s timeout, reload, then fail anyway even though the engine came up seconds later - restored tabs sat blank until clicked. the timeout reload now only fires against a genuinely stale worker; slow first boots and post-reload boots are waited out instead of failed
 

@@ -614,6 +614,7 @@ const DEFAULTS = {
 	zoom: "100",
 	clearOnExit: false,
 	restoreTabs: true,
+	fullPage: false,
 	customEngineName: "",
 	customEngineUrl: "",
 };
@@ -1006,11 +1007,25 @@ function normalizeUrl(url) {
 }
 
 function ignite(url) {
+	url = normalizeUrl(url);
+	if (url.startsWith(location.origin + "/")) url = url.slice(location.origin.length);
+	// v0.10.5: full-page mode - proxied pages open TOP-LEVEL in a new browser tab
+	// (no iframe anywhere) so filters that block framed proxy content never see an
+	// embed. The app tab must stay open: it owns the engine's transport.
+	if (settings.fullPage && !(url.startsWith("/searx/") || url.startsWith("/search"))) {
+		const scratch = scramjet.createFrame();
+		scratch.go(url);
+		const src = scratch.frame.src;
+		try { scratch.frame.remove(); } catch (err) {}
+		const w = window.open(src, "_blank");
+		if (!w) { setStatus("popups blocked - allow popups for full-page mode", "error"); return; }
+		recordHistory(url, null);
+		setStatus("opened full-page - keep this tab open", "idle");
+		return;
+	}
 	if (!activeTab) newTab();
 	const tab = activeTab;
 	const f = ensureFrame(tab);
-	url = normalizeUrl(url);
-	if (url.startsWith(location.origin + "/")) url = url.slice(location.origin.length);
 	if (url.startsWith("/searx/") || url.startsWith("/search")) {
 		// same-origin search: no scramjet wrap - the frame's own session cookie
 		// passes the /searx gate, and wisp never sees a loopback destination
@@ -1232,6 +1247,8 @@ customEngineUrl.addEventListener("change", () => { settings.customEngineUrl = cu
 // startup: reopen last session's tabs
 const restoreTabsToggle = document.getElementById("rj-restore-tabs");
 restoreTabsToggle.addEventListener("change", () => { settings.restoreTabs = restoreTabsToggle.checked; saveSettings(); });
+const fullPageToggle = document.getElementById("rj-fullpage");
+fullPageToggle.addEventListener("change", () => { settings.fullPage = fullPageToggle.checked; saveSettings(); });
 // cloak select + quick button
 const cloakSel = document.getElementById("rj-cloak-sel");
 cloakSel.addEventListener("change", () => {
@@ -1275,6 +1292,7 @@ function syncSettingsUI() {
 	customEngineName.value = settings.customEngineName || "";
 	customEngineUrl.value = settings.customEngineUrl || "";
 	restoreTabsToggle.checked = settings.restoreTabs !== false;
+	fullPageToggle.checked = !!settings.fullPage;
 }
 
 
@@ -1576,6 +1594,21 @@ document.getElementById("rj-popout").addEventListener("click", () => {
 	}
 	document.write(html);
 	document.close();
+});
+
+// full-page popout - current page opens TOP-LEVEL in a new tab, no iframe anywhere.
+// Rides this tab's engine transport, so ramjet must stay open while it's used.
+document.getElementById("rj-popout-full").addEventListener("click", () => {
+	let target = null;
+	for (let i = tabs.length - 1; i >= 0; i--) {
+		if (tabs[i].frame && tabs[i].frame.frame && tabs[i].frame.frame.src) { target = tabs[i]; break; }
+	}
+	if (!target) { setStatus("open a site first", "error"); return; }
+	const src = target.frame.frame.src;
+	if (!src || src === "about:blank") return;
+	const w = window.open(src, "_blank");
+	if (!w) setStatus("popups blocked - allow popups for full-page", "error");
+	else setStatus("opened full-page - keep this tab open", "idle");
 });
 
 // zoom
