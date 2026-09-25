@@ -1,3 +1,6 @@
+## v0.10.4
+- fix: on a slow connection the first engine boot could hit its 12s timeout, reload, then fail anyway even though the engine came up seconds later - restored tabs sat blank until clicked. the timeout reload now only fires against a genuinely stale worker; slow first boots and post-reload boots are waited out instead of failed
+
 ## v0.10.3
 - fix: the origin rewrite now only trusts addresses ramjet is actually served on - without that, real sites that live at /search (google.com/search!) would have been hijacked into ramjet search when opened from history or bookmarks
 
