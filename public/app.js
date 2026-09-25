@@ -333,23 +333,28 @@ const CLOAKS = {
 	wiki: ["Wikipedia", CLOAK_ICON.wiki],
 };
 
-function applyTheme() {
-	let amber, deep;
+function accentColors() {
 	if (settings.theme === "custom") {
-		amber = settings.customAccent || "#ffa028";
-		deep = shadeHex(amber, -0.35);
-	} else {
-		[amber, deep] = THEMES[settings.theme] || THEMES.amber;
+		const amber = settings.customAccent || "#ffa028";
+		return [amber, shadeHex(amber, -0.35)];
 	}
-	document.documentElement.style.setProperty("--amber", amber);
-	document.documentElement.style.setProperty("--amber-deep", deep);
-	const favicon = document.querySelector('link[rel="icon"]');
-	if (favicon) favicon.href = "data:image/svg+xml," + encodeURIComponent(
+	return THEMES[settings.theme] || THEMES.amber;
+}
+function faviconSvg(amber, deep) {
+	return "data:image/svg+xml," + encodeURIComponent(
 		'<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">' +
 		'<path fill="' + amber + '" d="M11.6 39.6 L14.4 42.4 L4.7 50.7 L3.3 49.3 Z"/>' +
 		'<path fill="' + amber + '" d="M20.6 48.6 L23.4 51.4 L15.7 57.7 L14.3 56.3 Z"/>' +
 		'<path fill="' + deep + '" d="M58 6 L12 22 L30 32 Z"/>' +
 		'<path fill="' + amber + '" d="M58 6 L30 32 L40 50 Z"/></svg>');
+}
+
+function applyTheme() {
+	const [amber, deep] = accentColors();
+	document.documentElement.style.setProperty("--amber", amber);
+	document.documentElement.style.setProperty("--amber-deep", deep);
+	const favicon = document.querySelector('link[rel="icon"]');
+	if (favicon) favicon.href = faviconSvg(amber, deep);
 	const customBtn = document.getElementById("rj-theme-custom");
 	if (customBtn) customBtn.style.setProperty("--sw", amber);
 }
@@ -366,15 +371,15 @@ function applyZoom() {
 }
 
 function applyCloak() {
-	const [title, icon] = CLOAKS[settings.cloak] || CLOAKS.off;
-	document.title = title;
+	const key = CLOAKS[settings.cloak] ? settings.cloak : "off";
+	document.title = CLOAKS[key][0];
 	let link = document.querySelector('link[rel="icon"]');
 	if (!link) {
 		link = document.createElement("link");
 		link.rel = "icon";
 		document.head.appendChild(link);
 	}
-	link.href = icon;
+	link.href = key === "off" ? faviconSvg(...accentColors()) : CLOAKS[key][1];
 }
 
 function setStatus(msg, mode) {
