@@ -1,3 +1,15 @@
+## v0.9.7
+- lightbox prev/next buttons + arrow-key navigation through the image grid; image tiles get hover captions, resolution badge moves to the top corner
+
+## v0.9.6
+- perceived-speed prefetching: hovering a tab warms it in the server cache, page 2 prefetches at idle - tab switches and next page feel instant
+
+## v0.9.5
+- custom styled filter dropdowns (accent ring, animated popover), site favicons in result crumbs, results count + timing line, "/" focuses the search box
+
+## v0.9.4
+- native search results page at /search: server-rendered from the local searxng JSON api - 5 tabs, answer box, infobox, image grid with google-style lightbox preview, video durations, news dates, pagination, loading bar, animations, tooltips. image thumbnails proxy through the server (/th) so they load reliably and the phone never talks to third-party CDNs. /autocompleter route removed; default engine points at /search; the searxng skin stays as the home page
+
 ## v0.9.3
 - downloads manager stops recording background junk: google/youtube xhr responses and tracker scripts carry defensive attachment headers and were getting captured as downloads. only real navigations count as downloads now. hit clear finished once to wipe the old entries
 
