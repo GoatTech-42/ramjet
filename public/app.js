@@ -188,7 +188,7 @@ function activateTab(tab, reopen) {
 		// boot (popup blockers eat it, and it doubled windows when the user then
 		// navigated - the "two popups" bug). Stay dormant until the user clicks
 		// the tab again or submits the omnibox.
-		if (tab.restored && settings.pageMode !== "embedded" && !reopen) {
+		if (tab.restored && effectivePageMode() !== "embedded" && !reopen) {
 			address.value = tab.url;
 			setStatus("restored tab - hit enter or click to reopen", "idle");
 		} else {
@@ -627,6 +627,7 @@ const DEFAULTS = {
 	lowData: false,
 	restoreTabs: true,
 	pageMode: "full",
+	pageModeExplicit: false,
 	customEngineName: "",
 	customEngineUrl: "",
 };
@@ -656,6 +657,11 @@ try {
 // runs client-side in the libcurl-wasm transport (server is a dumb TCP relay).
 const isMobile = () => matchMedia("(pointer: coarse)").matches || innerWidth <= 768;
 const lowDataActive = () => !!settings.lowData && isMobile();
+// Luke 9/25: "default to the most convenient and best choice, then fall back".
+// Best is per-device: phones get same-tab embedded (no full-screen popup
+// browser), desktops get full-page+bar (filter evasion). An explicit choice in
+// settings always wins; failures escalate through the existing fallback chain.
+const effectivePageMode = () => settings.pageModeExplicit ? (settings.pageMode || "full") : (isMobile() ? "embedded" : "full");
 
 function lowDataPatchNode(root) {
 	if (!root) return;
@@ -1103,13 +1109,13 @@ function ignite(url) {
 	// v0.10.5: full-page mode - proxied pages open TOP-LEVEL in a new browser tab
 	// (no iframe anywhere) so filters that block framed proxy content never see an
 	// embed. The app tab must stay open: it owns the engine's transport.
-	if (settings.pageMode !== "embedded" && !(url.startsWith("/searx/") || url.startsWith("/search"))) {
+	if (effectivePageMode() !== "embedded" && !(url.startsWith("/searx/") || url.startsWith("/search"))) {
 		// v0.10.6: full-page modes open proxied pages TOP-LEVEL (no iframe for a
 		// filter to block). "full" injects the ramjet bar into the popped page.
 		const src = rjEncodeDest(url);
 		const w = window.open(src, "_blank");
 		if (w) {
-			rjWatchPopup(w, src, url, settings.pageMode);
+			rjWatchPopup(w, src, url, effectivePageMode());
 			recordHistory(url, null);
 			setStatus("opened full-page - keep this tab open", "idle");
 			return;
@@ -1208,7 +1214,7 @@ window.__gop = (url) => {
 		const src = rjEncodeDest(url);
 		const w = window.open(src, "_blank");
 		if (!w) { setStatus("popups blocked - allow popups for full-page", "error"); return; }
-		rjWatchPopup(w, src, url, settings.pageMode === "fullbare" ? "fullbare" : "full");
+		rjWatchPopup(w, src, url, effectivePageMode() === "fullbare" ? "fullbare" : "full");
 	} catch (err) {}
 };
 
@@ -1417,7 +1423,7 @@ restoreTabsToggle.addEventListener("change", () => { settings.restoreTabs = rest
 const lowDataToggle = document.getElementById("w8c4e7d");
 lowDataToggle.addEventListener("change", () => { settings.lowData = lowDataToggle.checked; saveSettings(); applyLowDataState(); });
 const pageModeSel = document.getElementById("wad5a50");
-pageModeSel.addEventListener("change", () => { settings.pageMode = pageModeSel.value; saveSettings(); });
+pageModeSel.addEventListener("change", () => { settings.pageMode = pageModeSel.value; settings.pageModeExplicit = true; saveSettings(); });
 // cloak select + quick button
 const cloakSel = document.getElementById("w570f7f");
 cloakSel.addEventListener("change", () => {
@@ -1463,7 +1469,7 @@ function syncSettingsUI() {
 	restoreTabsToggle.checked = settings.restoreTabs !== false;
 	lowDataToggle.checked = !!settings.lowData;
 	applyLowDataState();
-	pageModeSel.value = settings.pageMode || "full";
+	pageModeSel.value = effectivePageMode();
 }
 
 
@@ -1749,7 +1755,7 @@ document.getElementById("we86a37").addEventListener("click", () => {
 	const w = window.open(src, "_blank");
 	if (!w) setStatus("popups blocked - allow popups for full-page", "error");
 	else {
-		rjWatchPopup(w, src, peelProxied(src), settings.pageMode === "fullbare" ? "fullbare" : "full");
+		rjWatchPopup(w, src, peelProxied(src), effectivePageMode() === "fullbare" ? "fullbare" : "full");
 		setStatus("opened full-page - keep this tab open", "idle");
 	}
 });
