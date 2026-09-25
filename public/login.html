@@ -116,5 +116,23 @@
 	user.focus();
 </script>
 
+<script>
+// white-page recovery (9/25): an outdated service worker from an older ramjet
+// version can hold the shell blank. /login?reset=1 unregisters every worker,
+// wipes caches + heal flags, and bounces back to a clean shell.
+(async () => {
+	try {
+		const q = new URLSearchParams(location.search);
+		if (q.get("reset") !== "1") return;
+		if ("serviceWorker" in navigator) {
+			const regs = await navigator.serviceWorker.getRegistrations();
+			await Promise.all(regs.map((r) => r.unregister()));
+		}
+		if (self.caches && caches.keys) { const ks = await caches.keys(); await Promise.all(ks.map((k) => caches.delete(k))); }
+		try { sessionStorage.clear(); } catch (e) {}
+		location.replace("/?fresh=" + Date.now());
+	} catch (err) { location.replace("/"); }
+})();
+</script>
 </body>
 </html>
