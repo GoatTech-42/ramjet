@@ -5,7 +5,10 @@ importScripts("/controller/controller.sw.js");
 // -- download interception ----------------------------------------------------
 // attachment responses (and unrenderable octet-stream documents) are rerouted
 // to the app's download manager instead of the browser's native save flow.
-function rjIsDownload(res, dest) {
+function rjIsDownload(res, dest, mode) {
+	// navigations only - background XHR/fetch/script responses often carry
+	// defensive Content-Disposition: attachment headers (google f.txt etc.)
+	if (mode !== "navigate" && dest !== "document" && dest !== "iframe") return false;
 	const cd = res.headers.get("content-disposition") || "";
 	if (/^\s*attachment/i.test(cd)) return true;
 	const ct = (res.headers.get("content-type") || "").toLowerCase();
@@ -53,7 +56,7 @@ addEventListener("fetch", (e) => {
 	}
 	e.respondWith((async () => {
 		const res = await $scramjetController.route(e);
-		if (e.request.method === "GET" && rjIsDownload(res, e.request.destination)) return rjHandoff(e, res);
+		if (e.request.method === "GET" && rjIsDownload(res, e.request.destination, e.request.mode)) return rjHandoff(e, res);
 		return res;
 	})());
 });

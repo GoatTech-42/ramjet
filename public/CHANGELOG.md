@@ -1,3 +1,6 @@
+## v0.9.3
+- downloads manager stops recording background junk: google/youtube xhr responses and tracker scripts carry defensive attachment headers and were getting captured as downloads. only real navigations count as downloads now. hit clear finished once to wipe the old entries
+
 ## v0.9.2
 - tab bar decluttered: phones show just back, address, tabs and one dots menu - forward/reload/home/bookmark/downloads/cloak/settings/hide-bar/lock live in the menu now, like a real mobile browser. desktop keeps the useful row visible and tucks cloak/hide-bar/lock away
 - suggested searches removed from the address bar per Luke - it never pops up
