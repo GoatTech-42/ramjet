@@ -1,6 +1,6 @@
 // Ramjet server - static UI + wisp transport on one port, password-gated.
 // GoatTech, 2026. MIT.
-import { createServer } from "node:http";
+import { createServer, request as httpRequest } from "node:http";
 import { readFile, stat, writeFile, mkdir } from "node:fs/promises";
 import { readFileSync } from "node:fs";
 import { join, normalize, extname } from "node:path";
@@ -497,6 +497,43 @@ const server = createServer(async (req, res) => {
 				res.writeHead(401, { "content-type": "text/plain; charset=utf-8" });
 				res.end("locked");
 			}
+			return;
+		}
+		if (pathname === "/searx" || pathname.startsWith("/searx/")) {
+			// reverse proxy to the local searxng container - the session gate
+			// above already ran, so only signed-in users reach this. engine
+			// traffic from frames goes via wisp instead; this route is for
+			// direct visits, so root-absolute links get the /searx prefix.
+			const upstreamPath = req.url.slice("/searx".length) || "/";
+			const headers = { ...req.headers, host: "127.0.0.1:8888" };
+			delete headers["accept-encoding"];
+			const u = httpRequest({ host: "127.0.0.1", port: 8888, path: upstreamPath, method: req.method, headers }, (ures) => {
+				const h = { ...ures.headers };
+				if (typeof h.location === "string" && h.location.startsWith("/") && !h.location.startsWith("/searx/")) h.location = "/searx" + h.location;
+				const setCookie = h["set-cookie"];
+				if (Array.isArray(setCookie)) h["set-cookie"] = setCookie.map((c) => c.replace(/;\s*[Pp]ath=\//, "; Path=/searx"));
+				const type = String(h["content-type"] || "");
+				if (ures.statusCode === 200 && type.includes("text/html")) {
+					const chunks = [];
+					ures.on("data", (c) => chunks.push(c));
+					ures.on("end", () => {
+						let body = Buffer.concat(chunks).toString("utf8");
+						body = body.replace(/(\bhref|\bsrc|\baction)="\/(?!\/|searx\/)/g, '$1="/searx/');
+						body = body.replace(/(url=)\/(?!\/|searx\/)/g, "$1/searx/");
+						delete h["content-length"];
+						res.writeHead(200, h);
+						res.end(body);
+					});
+				} else {
+					res.writeHead(ures.statusCode || 502, h);
+					ures.pipe(res);
+				}
+			});
+			u.on("error", () => {
+				if (!res.headersSent) res.writeHead(502, { "content-type": "text/plain; charset=utf-8" });
+				res.end("search is waking up - try again in a few seconds");
+			});
+			req.pipe(u);
 			return;
 		}
 		const file = resolveFile(pathname);

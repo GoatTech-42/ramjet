@@ -243,6 +243,19 @@ function ensureFrame(tab) {
 			if (t) tab.title = t.length > 24 ? t.slice(0, 23) + "\u2026" : t;
 		} catch (err) {}
 		try {
+			const w = f.frame.contentWindow;
+			if (w.location.origin === location.origin && w.location.pathname.startsWith("/searx/")) {
+				tab.direct = true;
+				w.document.addEventListener("click", (ev) => {
+					const a = ev.target && ev.target.closest ? ev.target.closest("a[href]") : null;
+					if (!a) return;
+					const href = a.href;
+					if (!href || href.startsWith(location.origin + "/searx/") || href.startsWith("/searx/")) return;
+					if (/^https?:/.test(href)) { ev.preventDefault(); ignite(href); }
+				}, true);
+			}
+		} catch (err) {}
+		try {
 			const doc = f.frame.contentWindow.document;
 			const link = doc.querySelector("link[rel~='icon'], link[rel='shortcut icon'], link[rel='apple-touch-icon']");
 			let iconUrl = link && link.href ? link.href : null;
@@ -592,7 +605,7 @@ const TABS_KEY = "rj.tabs";
 
 const DEFAULTS = {
 	theme: "amber",
-	engine: "ddg",
+	engine: "rj",
 	cloak: "off",
 	panicKey: "`",
 	panicUrl: "https://www.google.com",
@@ -605,6 +618,15 @@ const DEFAULTS = {
 
 let settings = { ...DEFAULTS };
 try { Object.assign(settings, JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}")); } catch (err) {}
+// v0.9.0 one-time migration: the old default engine was ddg - users who never
+// picked one move to ramjet search; explicit picks (non-ddg) stay untouched.
+try {
+	if (settings.engine === "ddg" && !localStorage.getItem("rj.engine-migrated-v090")) {
+		settings.engine = "rj";
+		localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+		localStorage.setItem("rj.engine-migrated-v090", "1");
+	}
+} catch (err) {}
 function saveSettings() { localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); scheduleSyncPush(); }
 
 let bookmarks = [];
@@ -637,6 +659,7 @@ const THEMES = {
 };
 
 const ENGINES = {
+	rj:     ["ramjet search", "/searx/search?q="],
 	ddg:    ["DuckDuckGo", "https://duckduckgo.com/?q="],
 	google: ["Google", "https://www.google.com/search?q="],
 	bing:   ["Bing", "https://www.bing.com/search?q="],
@@ -919,7 +942,15 @@ function ignite(url) {
 	if (!activeTab) newTab();
 	const tab = activeTab;
 	const f = ensureFrame(tab);
-	f.go(url);
+	if (url.startsWith("/searx/")) {
+		// same-origin search: no scramjet wrap - the frame's own session cookie
+		// passes the /searx gate, and wisp never sees a loopback destination
+		tab.direct = true;
+		f.frame.src = url;
+	} else {
+		tab.direct = false;
+		f.go(url);
+	}
 	tab.url = url;
 	let host = url;
 	try { host = new URL(url).hostname; } catch (err) {}
@@ -956,7 +987,14 @@ function syncBar() {
 		// show the real destination, not our encoded proxy path
 		const real = peelProxied(href);
 		if (real === href && href.includes("/~/sj/")) return; // still mid-redirect
-		address.value = real;
+		let disp = real;
+		if (real.startsWith(location.origin + "/searx/search")) {
+			try {
+				const q = new URL(real).searchParams.get("q");
+				if (q) disp = "ramjet search: " + q;
+			} catch (err) {}
+		}
+		address.value = disp;
 		if (activeTab) activeTab.url = real;
 		syncStar();
 		recordHistory(real, activeTab.title);
@@ -1781,6 +1819,11 @@ async function hydrateFromServer() {
 			if (data.settings && typeof data.settings === "object") {
 				settings = { ...DEFAULTS, ...data.settings };
 				localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+				if (settings.engine === "ddg" && !localStorage.getItem("rj.engine-migrated-v090")) {
+					settings.engine = "rj";
+					localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+					localStorage.setItem("rj.engine-migrated-v090", "1");
+				}
 			}
 			applyTheme();
 			applyCloak();
