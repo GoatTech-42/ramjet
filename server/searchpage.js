@@ -104,6 +104,7 @@ function imageGrid(results) {
 		return `<button class="tile" data-full="${esc(th(img))}" data-title="${esc(r.title || "")}" data-src="${esc(r.url)}" data-res="${esc(r.resolution || "")}" style="animation-delay:${Math.min(i * 24, 400)}ms">
 			<img loading="lazy" src="${esc(th(thumb))}" alt="${esc(r.title || "image")}">
 			${r.resolution ? `<span class="badge">${esc(r.resolution)}</span>` : ""}
+			${r.title ? `<span class="tcap">${esc(r.title)}</span>` : ""}
 		</button>`;
 	}).join("");
 	return `<div class="grid">${tiles}</div>`;
@@ -204,6 +205,8 @@ ${filters}
 ${meta}
 <div class="lbox" id="lbox" hidden>
 	<button class="lclose" title="close (esc)" aria-label="close">&times;</button>
+	<button class="lnav lprev" title="previous" aria-label="previous image">&#8249;</button>
+	<button class="lnav lnext" title="next" aria-label="next image">&#8250;</button>
 	<img id="limg" alt="">
 	<div class="linfo"><span id="ltitle"></span><span id="lres"></span><a id="lsrc" href="#" rel="noopener">view source</a></div>
 </div>
@@ -257,7 +260,12 @@ select:hover,select:focus{border-color:var(--acc);outline:0}
 .tile{position:relative;padding:0;border:0;background:var(--card);border-radius:10px;overflow:hidden;cursor:zoom-in;aspect-ratio:4/3;transition:transform .15s,box-shadow .15s;animation:rise .3s ease backwards}
 .tile:hover{transform:scale(1.025);box-shadow:0 4px 18px rgba(0,0,0,.45)}
 .tile img{width:100%;height:100%;object-fit:cover;display:block}
-.badge{position:absolute;right:6px;bottom:6px;background:rgba(0,0,0,.75);color:#cfd3d8;font-size:11px;padding:1px 6px;border-radius:5px}
+.badge{position:absolute;right:6px;top:6px;background:rgba(0,0,0,.75);color:#cfd3d8;font-size:11px;padding:1px 6px;border-radius:5px}
+.tcap{position:absolute;left:0;right:0;bottom:0;padding:20px 10px 8px;font-size:11.5px;color:#e8e9eb;background:linear-gradient(transparent,rgba(6,7,9,.88));opacity:0;transform:translateY(4px);transition:opacity .15s,transform .15s;text-align:left;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tile:hover .tcap,.tile:focus-visible .tcap{opacity:1;transform:none}
+.lnav{position:absolute;top:50%;transform:translateY(-50%);z-index:101;background:rgba(20,22,26,.72);border:1px solid var(--line);color:var(--txt);width:42px;height:42px;border-radius:50%;font-size:20px;cursor:pointer;transition:background .12s,border-color .12s;line-height:1}
+.lnav:hover{background:var(--card);border-color:var(--acc)}
+.lprev{left:14px}.lnext{right:14px}
 .pages{display:flex;gap:6px;justify-content:center;margin:26px 0 10px}
 .pg{min-width:34px;text-align:center;padding:7px 10px;border-radius:8px;color:var(--dim);border:1px solid transparent;transition:all .15s}
 a.pg:hover{color:var(--txt);border-color:var(--line);background:var(--card)}
@@ -315,12 +323,16 @@ var cat=f.querySelector('[name="categories"]');if(cat)u.set("categories",cat.val
 if(lang!=="auto")u.set("language",lang);if(tr)u.set("time_range",tr);if(ss!=="1")u.set("safesearch",ss);
 busy();location.href="/search?"+u;};
 var lbox=document.getElementById("lbox"),limg=document.getElementById("limg"),lt=document.getElementById("ltitle"),lr=document.getElementById("lres"),ls=document.getElementById("lsrc");
-document.querySelectorAll(".tile").forEach(function(t){t.addEventListener("click",function(){
-limg.src=t.dataset.full;lt.textContent=t.dataset.title;lr.textContent=t.dataset.res||"";ls.href=t.dataset.src;lbox.hidden=false;});});
+var tiles=Array.prototype.slice.call(document.querySelectorAll(".tile")),ti=0;
+function showTile(i){if(!tiles.length)return;ti=(i+tiles.length)%tiles.length;var t=tiles[ti];
+limg.src=t.dataset.full;lt.textContent=t.dataset.title;lr.textContent=t.dataset.res||"";ls.href=t.dataset.src}
+tiles.forEach(function(t,ix){t.addEventListener("click",function(){showTile(ix);lbox.hidden=false})});
+document.querySelector(".lprev").addEventListener("click",function(e){e.stopPropagation();showTile(ti-1)});
+document.querySelector(".lnext").addEventListener("click",function(e){e.stopPropagation();showTile(ti+1)});
 function close(){lbox.hidden=true;limg.src=""}
 lbox.addEventListener("click",function(e){if(e.target===lbox)close()});
 document.querySelector(".lclose").addEventListener("click",close);
-document.addEventListener("keydown",function(e){if(e.key==="Escape")close()});
+document.addEventListener("keydown",function(e){if(e.key==="Escape")close();if(!lbox.hidden){if(e.key==="ArrowLeft")showTile(ti-1);if(e.key==="ArrowRight")showTile(ti+1)}});
 var q0=document.getElementById("q");
 document.querySelectorAll(".fsel").forEach(function(f){
 var b=f.querySelector(".fbtn");
