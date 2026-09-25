@@ -1,5 +1,9 @@
 # ramjet changelog
 
+## 0.7.3
+- theme: last hardcoded orange gone (go-button hover) - accent now covers everything
+- iphone: no more auto zoom-in when you type (all inputs 16px minimum on phones)
+
 ## 0.7.2
 - engine fix: live server was missing engine packages - the proxy actually boots now
 - phones: text no longer auto-inflates (fixes sideways scrolling + broken settings layout)
