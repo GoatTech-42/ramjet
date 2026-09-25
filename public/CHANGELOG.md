@@ -1,3 +1,7 @@
+## v0.10.1
+- fix: the search box now opens urls through the proxy instead of searching for the string - "wikipedia.org" goes to the site, "wikipedia" still searches
+- fix: a stale service worker could hang the engine boot forever (every proxied page stuck) - boot now times out, drops the dead worker and reloads once; new workers take over immediately and the worker script is pinned to the shipped version
+
 ## v0.10.0
 - image lightbox: blurred backdrop, loading spinner with fade-in, position counter (n / total)
 - hovering an image tile preloads the full-size image so the lightbox opens instantly

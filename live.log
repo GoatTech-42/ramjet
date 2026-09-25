@@ -1,0 +1,39 @@
+ramjet: blocklist loaded (29 entries)
+ramjet: listening on http://goattechserver:14204 (bind 127.0.0.1:14204, gate armed)
+ramjet: shutting down
+ramjet: blocklist loaded (29 entries)
+ramjet: listening on http://goattechserver:14204 (bind 127.0.0.1:14204, gate armed)
+ramjet: shutting down
+ramjet: blocklist loaded (29 entries)
+ramjet: listening on http://goattechserver:14204 (bind 127.0.0.1:14204, gate armed)
+ramjet: shutting down
+ramjet: blocklist loaded (29 entries)
+ramjet: listening on http://goattechserver:14204 (bind 127.0.0.1:14204, gate armed)
+ramjet: shutting down
+ramjet: blocklist loaded (29 entries)
+ramjet: listening on http://goattechserver:14204 (bind 127.0.0.1:14204, gate armed)
+ramjet: shutting down
+ramjet: blocklist loaded (29 entries)
+ramjet: listening on http://goattechserver:14204 (bind 127.0.0.1:14204, gate armed)
+ramjet: shutting down
+ramjet: blocklist loaded (29 entries)
+node:events:502
+      throw er; // Unhandled 'error' event
+      ^
+
+Error: listen EADDRINUSE: address already in use 127.0.0.1:14204
+    at Server.setupListenHandle [as _listen2] (node:net:1902:16)
+    at listenInCluster (node:net:1959:12)
+    at doListen (node:net:2133:7)
+    at process.processTicksAndRejections (node:internal/process/task_queues:83:21)
+Emitted 'error' event on Server instance at:
+    at emitErrorNT (node:net:1938:8)
+    at process.processTicksAndRejections (node:internal/process/task_queues:82:21) {
+  code: 'EADDRINUSE',
+  errno: -98,
+  syscall: 'listen',
+  address: '127.0.0.1',
+  port: 14204
+}
+
+Node.js v20.19.2
