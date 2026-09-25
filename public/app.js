@@ -1337,7 +1337,7 @@ function suggestCandidates(q) {
 	const seen = new Set();
 	const out = [];
 	const push = (url, kind) => {
-		if (seen.has(url) || out.length >= 6) return;
+		if (seen.has(url) || out.length >= 3) return;
 		seen.add(url);
 		out.push({ url, kind });
 	};
@@ -1345,34 +1345,73 @@ function suggestCandidates(q) {
 	for (const h of history) if (h.url.toLowerCase().includes(needle)) push(h.url, "hist");
 	return out;
 }
+// display text for a suggestion row: engine suggestions and ramjet-search
+// history entries show the query, everything else shows the url
+function sugLabel(item) {
+	if (item.label) return item.label;
+	const px = location.origin + "/searx/search?q=";
+	if (item.url.startsWith(px)) {
+		try { return new URL(item.url).searchParams.get("q") || item.url; } catch (err) {}
+	}
+	return item.url;
+}
+
+// live suggestions from the ramjet search engine's own autocomplete
+let sugTimer = null, lastSugQ = null, lastEngSugs = [];
+function engineSuggestUrl(q) {
+	let eng = ENGINES[settings.engine];
+	if (settings.engine === "custom" && settings.customEngineUrl) eng = ["custom", settings.customEngineUrl];
+	if (!eng || !eng[1].startsWith("/searx/")) return null;
+	return eng[1].replace("/search?q=", "/autocompleter?q=") + encodeURIComponent(q);
+}
 function renderSuggest(q) {
-	suggestItems = suggestCandidates(q);
-	suggest.innerHTML = "";
-	if (!suggestItems.length) { hideSuggest(); return; }
-	suggestItems.forEach((item, i) => {
-		const row = document.createElement("button");
-		row.type = "button";
-		row.className = "rj-sug-row";
-		let host = item.url;
-		try { host = new URL(item.url).hostname; } catch (err) {}
-		const icon = document.createElement("span");
-		icon.className = "rj-sug-icon";
-		icon.textContent = item.kind === "star" ? "\u2605" : "\u21ba";
-		const label = document.createElement("span");
-		label.className = "rj-sug-label";
-		label.textContent = item.url;
-		row.append(icon, label);
-		row.title = item.url;
-		row.addEventListener("mousedown", (e) => {
-			e.preventDefault();
-			address.value = item.url;
-			hideSuggest();
-			form.requestSubmit();
+	const needle = q.trim();
+	const local = suggestCandidates(q);
+	const paint = () => {
+		suggestItems = [...lastEngSugs, ...local];
+		suggest.innerHTML = "";
+		if (!suggestItems.length) { hideSuggest(); return; }
+		suggestItems.forEach((item, i) => {
+			const row = document.createElement("button");
+			row.type = "button";
+			row.className = "rj-sug-row";
+			row.dataset.kind = item.kind;
+			const icon = document.createElement("span");
+			icon.className = "rj-sug-icon";
+			icon.textContent = item.kind === "star" ? "\u2605" : item.kind === "search" ? "\u2315" : "\u21ba";
+			const label = document.createElement("span");
+			label.className = "rj-sug-label";
+			label.textContent = sugLabel(item);
+			row.append(icon, label);
+			row.title = item.url;
+			row.addEventListener("mousedown", (e) => {
+				e.preventDefault();
+				address.value = item.kind === "search" ? (item.label || item.url) : item.url;
+				hideSuggest();
+				form.requestSubmit();
+			});
+			if (i === suggestIndex) row.classList.add("active");
+			suggest.appendChild(row);
 		});
-		if (i === suggestIndex) row.classList.add("active");
-		suggest.appendChild(row);
-	});
-	suggest.hidden = false;
+		suggest.hidden = false;
+	};
+	if (needle === lastSugQ) { paint(); return; }
+	lastSugQ = needle;
+	lastEngSugs = [];
+	paint(); // local matches instantly, engine suggestions land a beat later
+	clearTimeout(sugTimer);
+	const api = needle.length >= 2 ? engineSuggestUrl(needle) : null;
+	if (!api) return;
+	sugTimer = setTimeout(async () => {
+		try {
+			const r = await fetch(api, { credentials: "same-origin" });
+			const data = await r.json();
+			const sugs = Array.isArray(data) && Array.isArray(data[1]) ? data[1] : [];
+			if (lastSugQ !== needle || address.value.trim() !== needle) return;
+			lastEngSugs = sugs.slice(0, 4).map((t) => ({ url: resolveInput(t) || (ENGINES.rj[1] + encodeURIComponent(t)), kind: "search", label: t }));
+			paint();
+		} catch (err) {}
+	}, 150);
 }
 address.addEventListener("input", () => { suggestIndex = -1; renderSuggest(address.value); });
 address.addEventListener("blur", () => { hideSuggest(); });

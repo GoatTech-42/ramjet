@@ -1,6 +1,7 @@
 // Ramjet server - static UI + wisp transport on one port, password-gated.
 // GoatTech, 2026. MIT.
-import { createServer, request as httpRequest } from "node:http";
+import { createServer, request as httpRequest } from "node:http"
+import { gzipSync } from "node:zlib";
 import { readFile, stat, writeFile, mkdir } from "node:fs/promises";
 import { readFileSync } from "node:fs";
 import { join, normalize, extname } from "node:path";
@@ -77,6 +78,10 @@ function loadConfig() {
 
 // -- v0.4: server-side ad/tracker blocklist ----------------------------------
 // One domain per line in blocklist.txt ("#" comments ok). A line matches the
+const searxHtmlCache = new Map();
+const SEARX_CACHE_TTL_MS = 10 * 60 * 1000;
+const SEARX_CACHE_MAX = 150;
+
 // exact host or any subdomain. Applied as wisp's native hostname_blacklist so
 // blocked connections never leave the box. Global toggle: config.adblock.
 // NOTE (ZK): per-user adblock prefs live in the encrypted user blob, which the
@@ -501,10 +506,32 @@ const server = createServer(async (req, res) => {
 		}
 		if (pathname === "/searx" || pathname.startsWith("/searx/")) {
 			// reverse proxy to the local searxng container - the session gate
-			// above already ran, so only signed-in users reach this. engine
-			// traffic from frames goes via wisp instead; this route is for
-			// direct visits, so root-absolute links get the /searx prefix.
+			// above already ran, so only signed-in users reach this. frames
+			// load these pages same-origin; root-absolute links get the /searx prefix.
 			const upstreamPath = req.url.slice("/searx".length) || "/";
+			// small in-memory cache for search/index HTML: repeat searches and
+			// back/forward nav come back instantly. keyed by path + the user's
+			// searxng preferences cookie so different prefs never share entries.
+			const pref = /(?:^|;\s*)preferences=([^;]*)/.exec(req.headers.cookie || "");
+			const cacheKey = upstreamPath + "|" + (pref ? pref[1] : "");
+			const cacheable = req.method === "GET" && (upstreamPath === "/" || upstreamPath.startsWith("/search"));
+			const sendSearxHtml = (body, type) => {
+				const out = Buffer.from(body, "utf8");
+				const h2 = { "content-type": type || "text/html; charset=utf-8", "cache-control": "private, no-cache", vary: "accept-encoding" };
+				if (String(req.headers["accept-encoding"] || "").includes("gzip") && out.length > 1024) {
+					h2["content-encoding"] = "gzip";
+					res.writeHead(200, h2);
+					res.end(gzipSync(out));
+				} else {
+					h2["content-length"] = out.length;
+					res.writeHead(200, h2);
+					res.end(out);
+				}
+			};
+			if (cacheable) {
+				const hit = searxHtmlCache.get(cacheKey);
+				if (hit && Date.now() - hit.ts < SEARX_CACHE_TTL_MS) { sendSearxHtml(hit.body, hit.type); return; }
+			}
 			const headers = { ...req.headers, host: "127.0.0.1:8888" };
 			delete headers["accept-encoding"];
 			const u = httpRequest({ host: "127.0.0.1", port: 8888, path: upstreamPath, method: req.method, headers }, (ures) => {
@@ -520,11 +547,14 @@ const server = createServer(async (req, res) => {
 						let body = Buffer.concat(chunks).toString("utf8");
 						body = body.replace(/(\bhref|\bsrc|\baction)="\/(?!\/|searx\/)/g, '$1="/searx/');
 						body = body.replace(/(url=)\/(?!\/|searx\/)/g, "$1/searx/");
-						delete h["content-length"];
-						res.writeHead(200, h);
-						res.end(body);
+						if (cacheable) {
+							searxHtmlCache.set(cacheKey, { body, type, ts: Date.now() });
+							if (searxHtmlCache.size > SEARX_CACHE_MAX) searxHtmlCache.delete(searxHtmlCache.keys().next().value);
+						}
+						sendSearxHtml(body, type);
 					});
 				} else {
+					if (ures.statusCode === 200 && upstreamPath.startsWith("/static/")) h["cache-control"] = "public, max-age=86400";
 					res.writeHead(ures.statusCode || 502, h);
 					ures.pipe(res);
 				}
