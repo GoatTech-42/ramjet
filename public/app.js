@@ -1413,7 +1413,7 @@ function renderSuggest(q) {
 		} catch (err) {}
 	}, 150);
 }
-address.addEventListener("input", () => { suggestIndex = -1; renderSuggest(address.value); });
+address.addEventListener("input", () => { suggestIndex = -1; hideSuggest(); }); // v0.9.2: suggestions removed per Luke
 address.addEventListener("blur", () => { hideSuggest(); });
 address.addEventListener("keydown", (e) => {
 	if (suggest.hidden) return;
@@ -1607,6 +1607,38 @@ function openMenu(x, y, linkUrl, tab) {
 document.addEventListener("click", hideMenu);
 document.addEventListener("keydown", (e) => { if (e.key === "Escape") hideMenu(); });
 window.addEventListener("blur", hideMenu);
+
+// -- overflow menu: the bar shows essentials; the rest lives behind the dots --
+const MORE_ITEMS = [
+	["rj-fwd", "forward"],
+	["rj-reload", "reload"],
+	["rj-home", "home"],
+	["rj-star", "bookmark this page"],
+	["rj-dlbtn", "downloads"],
+	["rj-cloak", "tab cloak"],
+	["rj-gear2", "settings"],
+	["rj-fs", "hide the bar"],
+	["rj-logout", "lock ramjet"],
+];
+const moreBtn = document.getElementById("rj-more");
+moreBtn.addEventListener("click", (e) => {
+	e.stopPropagation();
+	if (!menu.hidden) { hideMenu(); return; }
+	menu.innerHTML = "";
+	let added = 0;
+	for (const [id, label] of MORE_ITEMS) {
+		const el = document.getElementById(id);
+		if (!el || el.offsetParent !== null) continue; // visible in the bar - not overflowed
+		if (added === 5) menu.appendChild(menuSep());
+		menu.appendChild(menuItem(label, () => el.click()));
+		added++;
+	}
+	if (!added) return;
+	const r = moreBtn.getBoundingClientRect();
+	menu.hidden = false;
+	menu.style.left = Math.max(8, Math.min(r.right - menu.offsetWidth, window.innerWidth - menu.offsetWidth - 8)) + "px";
+	menu.style.top = (r.bottom + 6) + "px";
+});
 
 
 // -- tab strip context menu --
