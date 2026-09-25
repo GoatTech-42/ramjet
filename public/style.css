@@ -801,6 +801,9 @@ body.in-flight #rj-address { font-family: system-ui, -apple-system, "Segoe UI", 
 #rj-panel-card::-webkit-scrollbar { width: 10px; }
 #rj-panel-card::-webkit-scrollbar-thumb { background: #2c313a; border-radius: 5px; border: 3px solid var(--panel); }
 #rj-panel-card::-webkit-scrollbar-track { background: transparent; }
+#rj-dl-card::-webkit-scrollbar, #rj-hist-card::-webkit-scrollbar { width: 10px; }
+#rj-dl-card::-webkit-scrollbar-thumb, #rj-hist-card::-webkit-scrollbar-thumb { background: #2c313a; border-radius: 5px; border: 3px solid var(--panel); }
+#rj-dl-card::-webkit-scrollbar-track, #rj-hist-card::-webkit-scrollbar-track { background: transparent; }
 #rj-gear { border-radius: 8px; width: 34px; height: 34px; display: inline-flex; align-items: center; justify-content: center; transition: background 140ms ease, color 140ms ease; }
 #rj-gear:hover { background: #ffffff0d; color: var(--text); }
 body.in-flight #rj-form { align-items: center; }
@@ -865,7 +868,19 @@ body.in-flight.no-chrome #rj-framehost { inset: 0 0 30px 0; }
 	margin: 0 0 12px;
 	cursor: pointer;
 }
-.rj-check input { accent-color: var(--amber); width: 15px; height: 15px; margin: 0; }
+.rj-check input {
+	appearance: none; -webkit-appearance: none;
+	width: 15px; height: 15px; margin: 0; flex: none;
+	background: #0e0f12; border: 1.5px solid #3a404a; border-radius: 4px;
+	display: inline-grid; place-content: center; cursor: pointer;
+}
+.rj-check input:hover { border-color: #4a5160; }
+.rj-check input:checked { background: var(--amber); border-color: var(--amber); }
+.rj-check input:checked::after {
+	content: ""; width: 8px; height: 4px;
+	border: 2px solid #14100a; border-top: 0; border-right: 0;
+	transform: rotate(-45deg) translate(0.5px, -1px);
+}
 .rj-beta { font-size: 10px; color: var(--muted); border: 1px solid var(--edge); border-radius: 4px; padding: 0 4px; }
 .rj-action {
 	width: 100%;
