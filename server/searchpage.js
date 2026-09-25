@@ -208,7 +208,7 @@ ${meta}
 	<button class="lnav lprev" title="previous" aria-label="previous image">&#8249;</button>
 	<button class="lnav lnext" title="next" aria-label="next image">&#8250;</button>
 	<img id="limg" alt="">
-	<div class="linfo"><span id="ltitle"></span><span id="lres"></span><a id="lsrc" href="#" rel="noopener">view source</a></div>
+	<div class="linfo"><span id="ltitle"></span><span id="lres"></span><span id="lcount"></span><a id="lsrc" href="#" rel="noopener">view source</a></div>
 </div>
 <script>${JS}</script>
 </body></html>`;
@@ -292,12 +292,16 @@ a.pg:hover{color:var(--txt);border-color:var(--line);background:var(--card)}
 #rj-load .bar{height:100%;width:34%;background:var(--acc);border-radius:0 3px 3px 0;box-shadow:0 0 10px color-mix(in srgb,var(--acc) 55%,transparent);animation:slide 1.05s ease-in-out infinite}
 @keyframes slide{0%{transform:translateX(-110%)}55%{transform:translateX(180%)}100%{transform:translateX(340%)}}
 body.busy #wrap,body.busy .bar,body.busy .tabs{opacity:.55;transition:opacity .15s}
-.lbox{position:fixed;inset:0;z-index:100;background:rgba(6,7,9,.92);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:24px;animation:fadein .18s ease}
+.lbox{position:fixed;inset:0;z-index:100;background:rgba(6,7,9,.78);backdrop-filter:blur(10px) saturate(1.1);-webkit-backdrop-filter:blur(10px) saturate(1.1);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:24px;animation:fadein .18s ease}
 .lbox[hidden]{display:none}
-.lbox img{max-width:min(92vw,1100px);max-height:74vh;border-radius:10px;box-shadow:0 12px 60px rgba(0,0,0,.6);animation:zoom .2s ease}
+.lbox img{max-width:min(92vw,1100px);max-height:74vh;border-radius:10px;box-shadow:0 12px 60px rgba(0,0,0,.6);opacity:0;transition:opacity .18s ease}
+.lbox img.rdy{opacity:1;animation:zoom .2s ease}
+.lbox.loading::before{content:"";position:absolute;top:50%;left:50%;width:34px;height:34px;margin:-20px 0 0 -20px;border-radius:50%;border:3px solid color-mix(in srgb,var(--acc) 25%,transparent);border-top-color:var(--acc);animation:spin .7s linear infinite;z-index:100}
+@keyframes spin{to{transform:rotate(360deg)}}
 @keyframes zoom{from{transform:scale(.94);opacity:.4}to{transform:none;opacity:1}}
 .linfo{display:flex;gap:14px;align-items:center;flex-wrap:wrap;justify-content:center;color:var(--dim);font-size:13.5px;max-width:90vw}
 #ltitle{color:var(--txt);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:52vw}
+#lcount{color:#5c626b;font-variant-numeric:tabular-nums}
 .lclose{position:absolute;top:16px;right:20px;background:none;border:0;color:var(--dim);font-size:34px;cursor:pointer;line-height:1;transition:color .12s}
 .lclose:hover{color:#fff}
 @media(max-width:560px){body{padding:12px 10px 40px}.vthumb{display:none}.filters{margin-bottom:14px}}
@@ -322,10 +326,11 @@ var u=new URLSearchParams({q:document.getElementById("q").value});
 var cat=f.querySelector('[name="categories"]');if(cat)u.set("categories",cat.value);
 if(lang!=="auto")u.set("language",lang);if(tr)u.set("time_range",tr);if(ss!=="1")u.set("safesearch",ss);
 busy();location.href="/search?"+u;};
-var lbox=document.getElementById("lbox"),limg=document.getElementById("limg"),lt=document.getElementById("ltitle"),lr=document.getElementById("lres"),ls=document.getElementById("lsrc");
+var lbox=document.getElementById("lbox"),limg=document.getElementById("limg"),lt=document.getElementById("ltitle"),lr=document.getElementById("lres"),ls=document.getElementById("lsrc"),lc=document.getElementById("lcount");
+limg.addEventListener("load",function(){lbox.classList.remove("loading");limg.classList.add("rdy")});
 var tiles=Array.prototype.slice.call(document.querySelectorAll(".tile")),ti=0;
 function showTile(i){if(!tiles.length)return;ti=(i+tiles.length)%tiles.length;var t=tiles[ti];
-limg.src=t.dataset.full;lt.textContent=t.dataset.title;lr.textContent=t.dataset.res||"";ls.href=t.dataset.src}
+lbox.classList.add("loading");limg.classList.remove("rdy");limg.src=t.dataset.full;lt.textContent=t.dataset.title;lr.textContent=t.dataset.res||"";lc.textContent=(ti+1)+" / "+tiles.length;ls.href=t.dataset.src}
 tiles.forEach(function(t,ix){t.addEventListener("click",function(){showTile(ix);lbox.hidden=false})});
 document.querySelector(".lprev").addEventListener("click",function(e){e.stopPropagation();showTile(ti-1)});
 document.querySelector(".lnext").addEventListener("click",function(e){e.stopPropagation();showTile(ti+1)});
@@ -347,6 +352,7 @@ document.addEventListener("keydown",function(e){if(e.key==="/"&&document.activeE
 // click feels instant; page 2 prefetches at idle for the same reason.
 var warm=function(u){try{fetch(u,{credentials:"same-origin"}).then(function(r){return r.text()}).catch(function(){})}catch(e){}};
 document.querySelectorAll(".tab:not(.on)").forEach(function(a){a.addEventListener("pointerenter",function(){warm(a.href)},{once:true})});
+tiles.forEach(function(t){t.addEventListener("pointerenter",function(){var i=new Image();i.src=t.dataset.full},{once:true})});
 window.addEventListener("load",function(){var n=document.querySelector(".pg.next");if(!n)return;
 var go2=function(){warm(n.href)};
 if(window.requestIdleCallback)requestIdleCallback(go2,{timeout:2500});else setTimeout(go2,1600);});
