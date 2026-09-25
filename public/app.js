@@ -744,6 +744,10 @@ async function ensureReady() {
 	if (!swReady) {
 		setStatus("spooling up...", "busy");
 		swReady = (async () => {
+			// v0.10.4: note whether a worker pre-exists - the boot-timeout self
+			// heal below only makes sense against a stale worker, not a slow
+			// first registration.
+			window.__rjHadPriorSw = !!(await navigator.serviceWorker.getRegistration());
 			const registration = await navigator.serviceWorker.register("/sw.js?v=35", { updateViaCache: "none" });
 			registration.update();
 			if (!navigator.serviceWorker.controller) {
@@ -780,18 +784,24 @@ async function ensureReady() {
 		})();
 	}
 	try {
-		return await Promise.race([swReady, new Promise((_, rej) => setTimeout(() => rej(new Error("engine boot timeout")), 12000))]);
+		const ready = await Promise.race([swReady, new Promise((_, rej) => setTimeout(() => rej(new Error("engine boot timeout")), 12000))]);
+		sessionStorage.removeItem("rjSwReset");
+		return ready;
 	} catch (err) {
 		// v0.10.1: a stale service worker can hold a dead engine handshake -
 		// drop it and reload once; the fresh worker boots clean.
-		if (!sessionStorage.getItem("rjSwReset")) {
+		// v0.10.4: only when a worker pre-existed. With no prior worker the
+		// timeout just means a slow first registration (tunneled networks) -
+		// and right after a self-heal the re-registration is the slowest boot
+		// there is, so a second timeout must wait the boot out, not fail it.
+		if (!sessionStorage.getItem("rjSwReset") && window.__rjHadPriorSw) {
 			sessionStorage.setItem("rjSwReset", "1");
 			try { const regs = await navigator.serviceWorker.getRegistrations(); await Promise.all(regs.map((r) => r.unregister())); } catch (e2) {}
 			location.reload();
 			await new Promise(() => {});
 		}
-		swReady = null;
-		throw err;
+		sessionStorage.removeItem("rjSwReset");
+		return await swReady;
 	}
 }
 
