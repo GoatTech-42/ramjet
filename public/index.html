@@ -13,7 +13,7 @@
 <script src="/scramjet/scramjet_bundled.js"></script>
 <script src="/controller/controller.api.js"></script>
 <script src="/rjcrypto.js"></script>
-<script src="/app.js?v=38" defer></script>
+<script src="/app.js?v=39" defer></script>
 </head>
 <body>
 
@@ -184,6 +184,8 @@
 		<section data-page="cloak">
 			<h3>Tab cloak</h3>
 			<button id="rj-popout" type="button" class="rj-action">pop out to about:blank</button>
+			<button id="rj-popout-full" type="button" class="rj-action">pop out full page</button>
+			<label class="rj-check"><input id="rj-fullpage" type="checkbox"> Always open sites full-page</label>
 			<select id="rj-cloak-sel" style="margin-top:8px">
 				<option value="off">Off</option>
 				<option value="docs">Google Docs</option>
@@ -238,13 +240,13 @@
 				<li><span class="kbd">alt &#8592;&#8594;</span> back / forward</li>
 			</ul>
 		</section>
-			<p class="rj-ver">ramjet v0.10.4</p>
+			<p class="rj-ver">ramjet v0.10.5</p>
 	</div>
 </div>
 
 <footer id="rj-foot">
 	<span id="rj-status" data-mode="idle"></span>
-	<span class="ver">v0.10.4</span>
+	<span class="ver">v0.10.5</span>
 </footer>
 
 </body>
