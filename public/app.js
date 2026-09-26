@@ -1,7 +1,7 @@
 // Ramjet client - ignition logic + settings, bookmarks, history, cloak, panic. GoatTech, 2026. MIT.
 "use strict";
 
-const APP_VERSION = "1.0.5"; // bump every release; index.html + labels + asset params follow
+const APP_VERSION = "1.1.0"; // bump every release; index.html + labels + asset params follow
 // stale-client self-heal: mixed HTML/JS from caches gets one clean reload
 if (window.RJ_VERSION && window.RJ_VERSION !== APP_VERSION && !sessionStorage.getItem("rj-reheal")) {
 	sessionStorage.setItem("rj-reheal", "1");
@@ -247,6 +247,67 @@ function closeTab(tab) {
 	}
 }
 
+// v1.0.6 (Luke report): on phones a desktop-width page keeps its full width and
+// the edges get cut off ("doesn't scale, too wide"). Measure the page and
+// scale the frame down so the whole width fits; undo it when it fits again.
+function resetFrameFit(ifr) {
+	if (!ifr.dataset.rjFitW) return;
+	ifr.style.width = "";
+	ifr.style.height = "";
+	ifr.style.transform = "";
+	ifr.style.transformOrigin = "";
+	delete ifr.dataset.rjFitW;
+}
+
+function fitFrameToScreen(ifr) {
+	if (!isMobile()) { resetFrameFit(ifr); return; }
+	if (!ifr.parentElement) return;
+	let doc;
+	try { doc = ifr.contentDocument; } catch (err) { return; }
+	if (!doc || !doc.documentElement) return;
+	const hostW = ifr.parentElement.clientWidth;
+	const hostH = ifr.parentElement.clientHeight;
+	if (!hostW || !hostH) return;
+	const needW = Math.max(doc.documentElement.scrollWidth, doc.body ? doc.body.scrollWidth : 0);
+	if (needW <= hostW + 4) { resetFrameFit(ifr); return; }
+	if (ifr.dataset.rjFitW && Math.abs(needW - Number(ifr.dataset.rjFitW)) <= 8) return;
+	const s = hostW / needW;
+	ifr.style.width = needW + "px";
+	ifr.style.height = Math.ceil(hostH / s) + "px";
+	ifr.style.transform = "scale(" + s + ")";
+	ifr.style.transformOrigin = "top left";
+	ifr.dataset.rjFitW = String(needW);
+}
+
+function fitAllFrames() {
+	for (const t of tabs) {
+		if (t.frame && t.frame.frame) fitFrameToScreen(t.frame.frame);
+	}
+}
+
+function scheduleFit(ifr) {
+	fitFrameToScreen(ifr);
+	setTimeout(() => fitFrameToScreen(ifr), 600);
+	setTimeout(() => fitFrameToScreen(ifr), 1800);
+	setTimeout(() => fitFrameToScreen(ifr), 4000);
+	// pages keep settling after load (SPAs, late media) - keep re-checking on DOM changes, debounced
+	clearTimeout(ifr._rjFitWatch);
+	ifr._rjFitWatch = setTimeout(() => {
+		let doc;
+		try { doc = ifr.contentDocument; } catch (err) { return; }
+		if (!doc || !doc.documentElement) return;
+		let deb = 0;
+		const mo = new MutationObserver(() => {
+			clearTimeout(deb);
+			deb = setTimeout(() => fitFrameToScreen(ifr), 500);
+		});
+		mo.observe(doc.documentElement, { childList: true, subtree: true });
+	}, 4500);
+}
+
+window.addEventListener("resize", fitAllFrames);
+window.addEventListener("orientationchange", () => setTimeout(fitAllFrames, 300));
+
 function ensureFrame(tab) {
 	if (tab.frame) return tab.frame;
 	const f = engine.createFrame();
@@ -291,6 +352,8 @@ function ensureFrame(tab) {
 		if (tab === activeTab) { syncBar(); setStatus("", "idle"); scheduleStoragePush(); }
 		renderTabs();
 		wireFrameDoc(tab, f);
+		resetFrameFit(f.frame); // v1.0.7: fresh page = fresh measurement, no stale fit from the previous page
+		scheduleFit(f.frame);
 	});
 	frameHost.appendChild(f.frame);
 	tab.frame = f;
@@ -1876,7 +1939,26 @@ function injectPopBar(w, href) {
 		} catch (err) {}
 	});
 	bar.appendChild(omni);
-	const homeBtn = mk("ramjet", () => { try { window.focus(); } catch (err) {} });
+	// v1.1: addon tiles on the home view - entries come from the server's
+// registered addons (/auth/addons), each linking out of the shell to its app.
+(async function addonTiles() {
+	try {
+		const r = await fetch("/auth/addons");
+		if (!r.ok) return;
+		const d = await r.json();
+		const box = document.getElementById("rj-addons");
+		if (!box || !d.ok || !Array.isArray(d.addons) || !d.addons.length) return;
+		for (const a of d.addons) {
+			const t = document.createElement("a");
+			t.className = "rj-addon-tile";
+			t.href = a.entry;
+			t.textContent = a.name;
+			box.appendChild(t);
+		}
+		box.hidden = false;
+	} catch (err) {}
+})();
+const homeBtn = mk("ramjet", () => { try { window.focus(); } catch (err) {} });
 	homeBtn.className = "wb-home";
 	bar.appendChild(homeBtn);
 	doc.body.appendChild(bar);
@@ -1916,7 +1998,7 @@ async function runClearOnExit() {
 	if (settings.clearOnExit) {
 		history = [];
 		localStorage.removeItem(HISTORY_KEY);
-		try { if (typeof RJCrypto !== "undefined" && RJCrypto.unlocked()) await RJCrypto.push({ history: [], bookmarks: bookmarks.slice(0, 100), settings }); } catch (err) {}
+		try { if (typeof RJCrypto !== "undefined" && RJCrypto.unlocked()) { const cur = (await RJCrypto.pull()) || {}; cur.history = []; cur.bookmarks = bookmarks.slice(0, 100); cur.settings = settings; await RJCrypto.push(cur); } } catch (err) {}
 	}
 	if (settings.clearCookiesOnExit) {
 		try { await storeWrite("{}"); } catch (err) {}
@@ -2119,7 +2201,7 @@ function scheduleSyncPush() {
 	clearTimeout(syncTimer);
 	syncTimer = setTimeout(async () => {
 		try {
-			await RJCrypto.push({ history: history.slice(0, 200), bookmarks: bookmarks.slice(0, 100), settings });
+			const cur = (await RJCrypto.pull()) || {}; cur.history = history.slice(0, 200); cur.bookmarks = bookmarks.slice(0, 100); cur.settings = settings; await RJCrypto.push(cur);
 			markSync("synced");
 		} catch (err) { markSync("sync failed"); }
 	}, 800);
@@ -2514,8 +2596,21 @@ syncSettingsUI();
 renderBookmarks();
 setStatus("", "idle");document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") scheduleStoragePush(); });
 window.addEventListener("pagehide", () => {
-	if (settings.clearOnExit || settings.clearCookiesOnExit) runClearOnExit();
-	else if (storageSyncOn()) pushStorageNow();
+	// v1.0.8 (Luke report): the wipe must actually land. Synchronous localStorage
+	// wipes first (they survive the page being killed), then a sendBeacon
+	// tombstone so the server records the close, then a broadcast to sibling
+	// tabs; the old async jar/server wipe stays as best effort on top.
+	if (settings.clearOnExit) {
+		history = [];
+		localStorage.removeItem(HISTORY_KEY);
+		localStorage.removeItem(TABS_KEY);
+	}
+	if (settings.clearCookiesOnExit) clearSiteStorageKeys();
+	if (settings.clearOnExit || settings.clearCookiesOnExit) {
+		try { navigator.sendBeacon("/auth/wipe-on-close", "1"); } catch (err) {}
+		try { new BroadcastChannel("rj-wipe").postMessage({ at: Date.now() }); } catch (err) {}
+		runClearOnExit();
+	} else if (storageSyncOn()) pushStorageNow();
 });
 setInterval(() => { if (document.visibilityState === "visible") scheduleStoragePush(); }, 5 * 60 * 1000);
 // v1.0.3: if a close-time wipe got interrupted (killed tab, dead push),
@@ -2532,7 +2627,68 @@ function enforceClearOnExitBoot() {
 		}).catch(() => {});
 	}
 }
-hydrateFromServer().then(enforceClearOnExitBoot);
+
+// v1.0.8 (Luke report): close-time wipe guarantee. If the tab dies before the
+// pagehide wipe lands (iOS kill/freeze), the beacon tombstone finishes the job:
+// the next real load, a new tab, or a sibling tab coming to front sees the
+// tombstone and wipes then. One way or another, closed = wiped.
+function clearSiteStorageKeys() {
+	const doomed = [];
+	for (let i = 0; i < localStorage.length; i++) {
+		const k = localStorage.key(i);
+		if (k && k.indexOf("@") > 0) doomed.push(k); // engine per-site keys are host@key
+	}
+	for (const k of doomed) localStorage.removeItem(k);
+}
+async function doLocalWipe() {
+	if (settings.clearOnExit) {
+		history = [];
+		localStorage.removeItem(HISTORY_KEY);
+		localStorage.removeItem(TABS_KEY);
+		try { renderHistory(); } catch (err) {}
+	}
+	if (settings.clearCookiesOnExit) {
+		clearSiteStorageKeys();
+		try { await storeWrite("{}"); } catch (err) {}
+	}
+	scheduleSyncPush();
+	if (storageSyncOn()) pushStorageNow();
+}
+let rjWipeAck = Number(localStorage.getItem("rj-wipe-ack") || 0);
+async function checkWipeTombstone() {
+	if (!settings.clearOnExit && !settings.clearCookiesOnExit) return;
+	try {
+		const res = await fetch("/auth/wipe-status", { credentials: "same-origin" });
+		if (!res.ok) return;
+		const j = await res.json();
+		const at = j && j.wipeAt ? Number(j.wipeAt) : 0;
+		if (at > rjWipeAck) {
+			rjWipeAck = at;
+			localStorage.setItem("rj-wipe-ack", String(at));
+			await doLocalWipe();
+		}
+	} catch (err) {}
+}
+let rjWipeVisibleAt = 0;
+document.addEventListener("visibilitychange", () => {
+	if (document.visibilityState !== "visible") return;
+	const now = Date.now();
+	if (now - rjWipeVisibleAt < 30000) return;
+	rjWipeVisibleAt = now;
+	checkWipeTombstone();
+});
+try {
+	new BroadcastChannel("rj-wipe").addEventListener("message", (ev) => {
+		const at = ev && ev.data && ev.data.at ? Number(ev.data.at) : Date.now();
+		if (at > rjWipeAck) {
+			rjWipeAck = at;
+			localStorage.setItem("rj-wipe-ack", String(at));
+			doLocalWipe();
+		}
+	});
+} catch (err) {}
+
+hydrateFromServer().then(enforceClearOnExitBoot).then(checkWipeTombstone);
 // v0.9.9: deep link - /?u=<url or search> acts exactly like an omnibox submit,
 // so external shortcuts can open a target through the proxy in one tap.
 try {

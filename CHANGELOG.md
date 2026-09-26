@@ -1,5 +1,19 @@
 # ramjet changelog
 
+## v1.1.0 - 2026-09-26
+- addons (Luke): ramjet is now extensible. addons are self-contained dirs (usually their own repo) registered in ramjet-data/addons.json; the server mounts their API at /api/<id>/*, serves their UI at /<id>/ behind the same login, and lists them for the new home-page tiles. first addon: jetstream (own repo, GoatTech-42/jetstream).
+- modularity: server/index.js split into server/util.js, server/auth.js, server/addons.js - index.js is bootstrap + routing only. same behavior, same dispatch order.
+- addon storage: per-user addon data rides the existing client-encrypted sync blob under namespaced keys; core sync pushes now preserve foreign keys instead of clobbering them.
+
+## v1.0.8 - 2026-09-26
+- fix: clear-on-close (history + cookies) now actually lands (Luke report). pagehide does the synchronous localStorage wipes first, fires a sendBeacon tombstone to the server (new /auth/wipe-on-close + /auth/wipe-status), and broadcasts the wipe to other open ramjet tabs. If the tab is killed or frozen before any of that runs, the next real load, a new tab, or a sibling tab coming to front sees the tombstone and wipes then - closed means wiped, one way or another. Server keeps a wipe log per his ask ("logs that I closed").
+
+## v1.0.7 - 2026-09-26
+- fix: the v1.0.6 fit-to-screen scale no longer sticks to the next page when a tab navigates from a wide desktop page to a normal mobile one; the fit resets on every fresh page load before re-measuring.
+
+## v1.0.6 - 2026-09-26
+- fix: mobile pages that are wider than the phone (desktop YouTube and other desktop-width sites) no longer get cut off left/right (Luke report). On phones ramjet now measures the page and scales the frame down so the whole width fits the screen, and un-scales it when the page fits on its own.
+
 ## v1.0.5 - 2026-09-26
 - fix: YouTube (and any site) forcing links/windows into new browser tabs no longer lands in a broken bare tab (Luke report). In embedded mode a target=_blank plain click now navigates the same frame, and window.open from page scripts opens a working new tab inside ramjet instead. Bare /view/ tabs had no app shell around them - no transport context once the app tab moved on, no watcher, no mode fallback - which is why the site acted like it couldn't be browsed there while default mode worked.
 
