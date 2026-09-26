@@ -1,5 +1,9 @@
 # ramjet changelog
 
+## v1.0.4 - 2026-09-26
+- corner version label shows the full version (v1.0.4, was just "v1") and now renders from APP_VERSION so it always matches the running build (Luke)
+
+
 ## v1.0.3 - 2026-09-26
 - fix: clear-history-on-close actually works now (Luke report) - moved to pagehide (iOS never fired beforeunload) and the wipe clears the synced copy too, so hydrate no longer resurrects cleared history; boot re-enforces the wipe if a close was interrupted
 - new setting: clear cookies when ramjet closes (empties the engine cookie jar locally + in sync)
