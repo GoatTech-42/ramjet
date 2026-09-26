@@ -1,5 +1,9 @@
 # ramjet changelog
 
+## v1.0.5 - 2026-09-26
+- fix: YouTube (and any site) forcing links/windows into new browser tabs no longer lands in a broken bare tab (Luke report). In embedded mode a target=_blank plain click now navigates the same frame, and window.open from page scripts opens a working new tab inside ramjet instead. Bare /view/ tabs had no app shell around them - no transport context once the app tab moved on, no watcher, no mode fallback - which is why the site acted like it couldn't be browsed there while default mode worked.
+
+
 ## v1.0.4 - 2026-09-26
 - corner version label shows the full version (v1.0.4, was just "v1") and now renders from APP_VERSION so it always matches the running build (Luke)
 

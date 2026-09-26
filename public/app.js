@@ -1,7 +1,7 @@
 // Ramjet client - ignition logic + settings, bookmarks, history, cloak, panic. GoatTech, 2026. MIT.
 "use strict";
 
-const APP_VERSION = "1.0.4"; // bump every release; index.html + labels + asset params follow
+const APP_VERSION = "1.0.5"; // bump every release; index.html + labels + asset params follow
 // stale-client self-heal: mixed HTML/JS from caches gets one clean reload
 if (window.RJ_VERSION && window.RJ_VERSION !== APP_VERSION && !sessionStorage.getItem("rj-reheal")) {
 	sessionStorage.setItem("rj-reheal", "1");
@@ -1943,6 +1943,34 @@ function wireFrameDoc(tab, f) {
 		e.stopPropagation();
 		newTab(decodeProxied(a.href));
 	}, true);
+	// v1.0.5 (Luke): never let an embedded page escape into a bare browser tab.
+	// A bare /view/ tab has no app shell around it - once the app tab moves on
+	// the controller has no live frame for that prefix, and there is no watcher
+	// or mode fallback - so sites (YouTube) that force target=_blank/window.open
+	// landed in a broken tab even though the same page browses fine embedded.
+	doc.addEventListener("click", (e) => {
+		if (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
+		const a = linkAt(e);
+		if (!a) return;
+		const tgt = (a.getAttribute("target") || "").toLowerCase();
+		if (!tgt || tgt === "_self") return; // named targets open a new browsing context too
+		e.preventDefault();
+		e.stopPropagation();
+		try { f.frame.contentWindow.location.href = a.href; } catch (err) { f.frame.src = a.href; }
+	}, true);
+	// window.open from page scripts gets the same treatment: a working new tab
+	// inside ramjet (keeps the shell) instead of a broken bare browser tab.
+	try {
+		const cw = f.frame.contentWindow;
+		cw.open = function (url, target, feats) {
+			try {
+				const abs = new URL(String(url || ""), cw.location.href).href;
+				const dest = decodeProxied(abs);
+				if (/^https?:/i.test(dest)) { newTab(dest); return null; }
+			} catch (err) {}
+			return null;
+		};
+	} catch (err) {}
 	doc.addEventListener("auxclick", (e) => {
 		if (e.button !== 1) return;
 		const a = linkAt(e);
