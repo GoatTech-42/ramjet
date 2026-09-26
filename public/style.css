@@ -200,6 +200,7 @@ body.in-flight .ignite { padding: 0 16px; font-size: 13px; }
 	position: fixed;
 	inset: 45px 0 30px 0;
 	background: #fff;
+	overflow: hidden;
 }
 
 #w6a4153[hidden] { display: none; }
@@ -540,6 +541,7 @@ body.in-flight .ignite { padding: 0 16px; font-size: 13px; }
 	position: fixed;
 	inset: 45px 0 30px 0;
 	background: #fff;
+	overflow: hidden;
 }
 
 #w6a4153[hidden] { display: none; }
@@ -1302,3 +1304,12 @@ body.in-flight.bmbar #w6a4153 { inset: 75px 0 30px 0; }
 @media (min-width: 561px) {
   #w52d56d, #w44e3a7, #w34b262 { display: none !important; }
 }
+
+/* v1.1: addon tiles on the home view */
+.rj-addons { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; margin-top: 22px; }
+.rj-addon-tile {
+	display: inline-block; text-decoration: none;
+	background: var(--panel); border: 1px solid var(--edge); border-radius: 10px;
+	padding: 10px 18px; font-size: 14px; font-weight: 600; letter-spacing: .01em;
+}
+.rj-addon-tile:hover { border-color: var(--amber-deep); color: var(--amber); }
