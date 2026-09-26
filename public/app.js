@@ -624,6 +624,7 @@ const DEFAULTS = {
 	panicUrl: "https://www.google.com",
 	zoom: "100",
 	clearOnExit: false,
+	clearCookiesOnExit: false,
 	lowData: false,
 	restoreTabs: true,
 	pageMode: "full",
@@ -1465,6 +1466,7 @@ function syncSettingsUI() {
 	document.getElementById("w4b08f2").hidden = settings.theme !== "custom";
 	if (settings.customAccent) customAccentIn.value = settings.customAccent;
 	clearHistToggle.checked = !!settings.clearOnExit;
+	clearCookiesToggle.checked = !!settings.clearCookiesOnExit;
 	customEngineRow.hidden = settings.engine !== "custom";
 	customEngineName.value = settings.customEngineName || "";
 	customEngineUrl.value = settings.customEngineUrl || "";
@@ -1896,9 +1898,27 @@ clearHistToggle.addEventListener("change", () => {
 	settings.clearOnExit = clearHistToggle.checked;
 	saveSettings();
 });
-window.addEventListener("beforeunload", () => {
-	if (settings.clearOnExit) localStorage.removeItem(HISTORY_KEY);
+// clear cookies on exit (v1.0.3)
+const clearCookiesToggle = document.getElementById("wc00k1e5");
+clearCookiesToggle.addEventListener("change", () => {
+	settings.clearCookiesOnExit = clearCookiesToggle.checked;
+	saveSettings();
 });
+// v1.0.3: close-time wipe. Runs on pagehide (the only reliable close event on
+// mobile - iOS often never fires beforeunload) and clears the SYNCED copies
+// too: the old beforeunload version only deleted local history, and
+// hydrateFromServer resurrected the server-synced copy on next launch.
+async function runClearOnExit() {
+	if (settings.clearOnExit) {
+		history = [];
+		localStorage.removeItem(HISTORY_KEY);
+		try { if (typeof RJCrypto !== "undefined" && RJCrypto.unlocked()) await RJCrypto.push({ history: [], bookmarks: bookmarks.slice(0, 100), settings }); } catch (err) {}
+	}
+	if (settings.clearCookiesOnExit) {
+		try { await storeWrite("{}"); } catch (err) {}
+		try { if (storageSyncOn()) await pushStorageNow(); } catch (err) {}
+	}
+}
 
 
 // -- in-page controls: ctrl/cmd+click and middle-click open tabs, custom right-click menu --
@@ -2461,9 +2481,26 @@ applyCloak();
 syncSettingsUI();
 renderBookmarks();
 setStatus("", "idle");document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") scheduleStoragePush(); });
-window.addEventListener("pagehide", () => { if (storageSyncOn()) pushStorageNow(); });
+window.addEventListener("pagehide", () => {
+	if (settings.clearOnExit || settings.clearCookiesOnExit) runClearOnExit();
+	else if (storageSyncOn()) pushStorageNow();
+});
 setInterval(() => { if (document.visibilityState === "visible") scheduleStoragePush(); }, 5 * 60 * 1000);
-hydrateFromServer();
+// v1.0.3: if a close-time wipe got interrupted (killed tab, dead push),
+// enforce it right after re-hydrate so synced history/cookies can't resurrect.
+function enforceClearOnExitBoot() {
+	if (settings.clearOnExit && history.length) {
+		history = [];
+		localStorage.removeItem(HISTORY_KEY);
+		scheduleSyncPush();
+	}
+	if (settings.clearCookiesOnExit) {
+		storeRead().then((st) => {
+			if (st && st.cookies && st.cookies !== "{}") storeWrite("{}").then(() => { if (storageSyncOn()) pushStorageNow(); });
+		}).catch(() => {});
+	}
+}
+hydrateFromServer().then(enforceClearOnExitBoot);
 // v0.9.9: deep link - /?u=<url or search> acts exactly like an omnibox submit,
 // so external shortcuts can open a target through the proxy in one tap.
 try {
