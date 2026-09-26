@@ -1,7 +1,7 @@
 // Ramjet client - ignition logic + settings, bookmarks, history, cloak, panic. GoatTech, 2026. MIT.
 "use strict";
 
-const APP_VERSION = "0.7.0-alpha"; // bump every release; index.html + labels + asset params follow
+const APP_VERSION = "1.0.3"; // bump every release; index.html + labels + asset params follow
 // stale-client self-heal: mixed HTML/JS from caches gets one clean reload
 if (window.RJ_VERSION && window.RJ_VERSION !== APP_VERSION && !sessionStorage.getItem("rj-reheal")) {
 	sessionStorage.setItem("rj-reheal", "1");
