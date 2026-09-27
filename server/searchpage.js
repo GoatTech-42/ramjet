@@ -219,12 +219,12 @@ const CSS = `
 :root{--acc:#ffa028;--acc2:#c96f04;--bg:#0b0c0e;--card:#14161a;--line:#2c313a;--txt:#e8e9eb;--dim:#8a8f98}
 *{margin:0;box-sizing:border-box;scrollbar-width:none}::-webkit-scrollbar{display:none}
 html,body{background:var(--bg);color:var(--txt);font:15px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif}
-body{max-width:760px;margin:0 auto;padding:18px 16px 60px;animation:fadein .25s ease}
+body{max-width:1240px;margin:0 auto;padding:18px 28px 60px;animation:fadein .25s ease}
 @keyframes fadein{from{opacity:0}to{opacity:1}}
 a{color:var(--acc);text-decoration:none}
 .bar{display:flex;gap:0;background:var(--card);border:1.5px solid var(--line);border-radius:12px;overflow:hidden;transition:border-color .15s,box-shadow .15s}
 .bar:focus-within{border-color:var(--acc);box-shadow:0 0 0 3px color-mix(in srgb,var(--acc) 22%,transparent)}
-#q{flex:1;min-width:0;background:none;border:0;outline:0;color:var(--txt);font-size:16px;padding:12px 14px}
+#q{flex:1;min-width:0;appearance:none;-webkit-appearance:none;background:none;border:0;outline:0;color:var(--txt);font-size:16px;padding:12px 14px}
 #go{flex:0 0 auto;background:var(--acc);border:0;color:#14100a;padding:0 18px;cursor:pointer;display:flex;align-items:center;transition:filter .12s}
 #go:hover{filter:brightness(1.12)} #go:active{transform:scale(.96)}
 #go svg{width:20px;height:20px}
@@ -235,7 +235,7 @@ a{color:var(--acc);text-decoration:none}
 .filters{display:flex;gap:8px;flex-wrap:wrap;margin:14px 0 20px}
 select{appearance:none;-webkit-appearance:none;background:var(--card) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%238a8f98' stroke-width='1.5' fill='none'/%3E%3C/svg%3E") no-repeat right 10px center;border:1.5px solid var(--line);border-radius:8px;color:var(--txt);font-size:13.5px;padding:7px 30px 7px 12px;cursor:pointer;transition:border-color .15s}
 select:hover,select:focus{border-color:var(--acc);outline:0}
-.cols{display:grid;grid-template-columns:1fr 300px;gap:22px;align-items:start}
+.cols{display:grid;grid-template-columns:1fr 320px;gap:28px;align-items:start}
 @media(max-width:900px){.cols{grid-template-columns:1fr}.ibox{order:-1}}
 .res{display:flex;gap:14px;padding:14px 0;border-bottom:1px solid color-mix(in srgb,var(--line) 55%,transparent);animation:rise .3s ease backwards}
 .res:nth-child(2){animation-delay:.04s}.res:nth-child(3){animation-delay:.08s}.res:nth-child(4){animation-delay:.12s}.res:nth-child(5){animation-delay:.16s}
