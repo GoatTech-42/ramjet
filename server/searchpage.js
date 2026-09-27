@@ -134,7 +134,7 @@ function page(o) {
 	const tab = (c, label) => {
 		const u = new URLSearchParams({ q });
 		if (c !== "general") u.set("categories", c);
-		if (safesearch !== "1") u.set("safesearch", safesearch);
+		if (safesearch !== "2") u.set("safesearch", safesearch);
 		if (time_range) u.set("time_range", time_range);
 		if (language !== "auto") u.set("language", language);
 		return `<a class="tab${c === category ? " on" : ""}" href="/search?${u}">${label}</a>`;
@@ -171,7 +171,7 @@ function page(o) {
 		const mk = (p, label, cls) => {
 			const u = new URLSearchParams({ q });
 			if (category !== "general") u.set("categories", category);
-			if (safesearch !== "1") u.set("safesearch", safesearch);
+			if (safesearch !== "2") u.set("safesearch", safesearch);
 			if (time_range) u.set("time_range", time_range);
 			if (language !== "auto") u.set("language", language);
 			if (p > 1) u.set("pageno", String(p));
@@ -341,7 +341,7 @@ var lang=dv("language"),tr=dv("time_range"),ss=dv("safesearch");
 var d0=urlDest(document.getElementById("q").value);if(d0){goProxy(d0);return}
 var u=new URLSearchParams({q:document.getElementById("q").value});
 var cat=f.querySelector('[name="categories"]');if(cat)u.set("categories",cat.value);
-if(lang!=="auto")u.set("language",lang);if(tr)u.set("time_range",tr);if(ss!=="1")u.set("safesearch",ss);
+if(lang!=="auto")u.set("language",lang);if(tr)u.set("time_range",tr);if(ss!=="2")u.set("safesearch",ss);
 busy();location.href="/search?"+u;};
 var lbox=document.getElementById("lbox"),limg=document.getElementById("limg"),lt=document.getElementById("ltitle"),lr=document.getElementById("lres"),ls=document.getElementById("lsrc"),lc=document.getElementById("lcount");
 limg.addEventListener("load",function(){lbox.classList.remove("loading");limg.classList.add("rdy")});
@@ -385,7 +385,7 @@ function parseQuery(url) {
 		q: (p.get("q") || "").trim(),
 		category,
 		pageno: Math.max(1, parseInt(p.get("pageno") || "1", 10) || 1),
-		safesearch: ["0", "1", "2"].includes(p.get("safesearch")) ? p.get("safesearch") : "1",
+		safesearch: ["0", "1", "2"].includes(p.get("safesearch")) ? p.get("safesearch") : "2",
 		time_range: ["day", "week", "month", "year"].includes(p.get("time_range")) ? p.get("time_range") : "",
 		language: LANGS.some(([v]) => v === p.get("language")) ? p.get("language") : "auto",
 	};
