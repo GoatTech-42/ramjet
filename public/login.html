@@ -36,6 +36,11 @@
 	#wd7f640 a { color: #ffa028; text-decoration: none; cursor: pointer; }
 	#wd7f640 a:hover { text-decoration: underline; }
 
+	/* brand lockup: centered + bigger (Luke 9/26 - "too small and uncentered") */
+	#we020a1 { display: flex !important; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: max(34px, env(safe-area-inset-top)) 20px 0; text-align: center; }
+	#we020a1 .mark { width: 52px !important; height: 52px !important; margin: 0 !important; }
+	#we020a1 .byline { font-size: 20px !important; letter-spacing: .34em; text-transform: lowercase; margin: 0 0 0 .34em; color: var(--muted, #7d838d); font-weight: 600; }
+
 	/* self-sufficiency fallback (9/26): the gate must render even if /style.css is stale or missing.
 	   Mirrors the base rules in style.css with var() fallbacks; harmless when style.css loads fresh. */
 	body { background: #0b0c0e; color: #e8eaee; }
