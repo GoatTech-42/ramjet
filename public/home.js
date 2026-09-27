@@ -88,27 +88,41 @@
 	// -- mini jetstream trending ---------------------------------------------------
 	let lowData = false;
 	try { lowData = !!(JSON.parse(localStorage.getItem("rj.settings") || "{}").lowData); } catch (e) {}
-	if (!lowData) {
-		fetch("/api/jetstream/trending").then((r) => (r.ok ? r.json() : null)).then((d) => {
-			const all = (d && d.items) || [];
-			const nonlive = all.filter((x) => !x.live);
-			const items = (nonlive.length ? nonlive : all).slice(0, 4);
-			const w = $("ntTrendWrap"), grid = $("ntTrend");
-			if (!w || !grid || !items.length) return;
-			for (const it of items) {
-				const a = document.createElement("a");
-				a.className = "nt-trend-card";
-				a.href = "/jetstream/#/w/" + encodeURIComponent(it.id);
-				a.innerHTML = '<span class="nt-thumb"><img loading="lazy" src="' + it.thumb.replace(/"/g, "&quot;") + '" alt="">' +
-					(it.live ? '<span class="nt-live">LIVE</span>' : "") + "</span>" +
-					'<span class="nt-trend-title"></span>';
-				a.querySelector(".nt-trend-title").textContent = it.title;
-				grid.appendChild(a);
-			}
-			w.hidden = false;
-		}).catch(() => {});
-	}
+	(function trending() {
+		const w = $("ntTrendWrap"), grid = $("ntTrend");
+		if (!w || !grid) return;
+		let tries = 0;
+		function go() {
+			fetch("/api/jetstream/trending").then((r) => (r.ok ? r.json() : Promise.reject(new Error("trending " + r.status)))).then((d) => {
+				const all = (d && d.items) || [];
+				const nonlive = all.filter((x) => !x.live);
+				const items = (nonlive.length ? nonlive : all).slice(0, 4);
+				if (!items.length) throw new Error("empty");
+				for (const it of items) {
+					const a = document.createElement("a");
+					a.className = lowData ? "nt-trend-card nt-trend-row" : "nt-trend-card";
+					a.href = "/jetstream/#/w/" + encodeURIComponent(it.id);
+					if (lowData) {
+						a.innerHTML = '<span class="nt-trend-title"></span>';
+					} else {
+						a.innerHTML = '<span class="nt-thumb"><img loading="lazy" src="' + it.thumb.replace(/"/g, "&quot;") + '" alt="">' +
+							(it.live ? '<span class="nt-live">LIVE</span>' : "") + "</span>" +
+							'<span class="nt-trend-title"></span>';
+					}
+					a.querySelector(".nt-trend-title").textContent = it.title;
+					grid.appendChild(a);
+				}
+				if (lowData) grid.classList.add("nt-trend-list");
+				w.hidden = false;
+			}).catch(() => {
+				// jetstream cold-boots on first request - retry a few times before giving up
+				if (++tries < 4) setTimeout(go, 4000);
+			});
+		}
+		go();
+	})();
 })();
+
 
 // -- "open in jetstream" badge on proxied YouTube pages -------------------------
 (function () {
