@@ -47,6 +47,22 @@
 		if (q) ignite(q);
 	});
 
+
+	// -- "/" focuses the home search while home is showing (bar is hidden there) --
+	window.addEventListener("keydown", (e) => {
+		if (e.key !== "/" && !((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k")) return;
+		const t = e.target;
+		if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+		const b = document.body;
+		if (b.classList.contains("in-flight") || b.classList.contains("page-view")) return;
+		const q = $("ntQ");
+		if (!q) return;
+		e.preventDefault();
+		e.stopImmediatePropagation();
+		q.focus();
+		q.select();
+	}, true);
+
 	// -- quick links from bookmarks ----------------------------------------------
 	function hostOf(u) {
 		try { return new URL(u).hostname.replace(/^www\./, ""); } catch (e) { return ""; }
