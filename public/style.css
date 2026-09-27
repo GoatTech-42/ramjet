@@ -1404,3 +1404,11 @@ body:not(.in-flight):not(.page-view) #w367d60 { display: none; }
 .nt-link:hover { transform: translateY(-2px); }
 .nt-trend-card img { transition: filter .15s; }
 .nt-trend-card:hover img { filter: brightness(1.1); }
+
+/* ------- trending widget text mode (lowData) + retry fix (v1.4) ------- */
+.nt-trend.nt-trend-list { grid-template-columns: 1fr; gap: 6px; }
+.nt-trend-row {
+	display: block; background: var(--panel); border: 1px solid var(--edge);
+	border-radius: 10px; padding: 11px 13px;
+}
+.nt-trend-row .nt-trend-title { margin-top: 0; font-size: 13px; -webkit-line-clamp: 1; }
