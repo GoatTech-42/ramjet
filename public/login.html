@@ -9,7 +9,7 @@
 <link rel="icon" href="/assets/ramjet.svg" type="image/svg+xml">
 <link rel="manifest" href="/site.webmanifest">
 <meta name="theme-color" content="#0b0c0e">
-<link rel="stylesheet" href="/style.css?v=30">
+<link rel="stylesheet" href="/style.css?v=31">
 <style>
 	#w1ea08f { color: var(--err); font-size: 13px; text-align: center; margin: 14px 22px 0; min-height: 1.4em; }
 	#wc6ce8d {
@@ -39,14 +39,14 @@
 	/* self-sufficiency fallback (9/26): the gate must render even if /style.css is stale or missing.
 	   Mirrors the base rules in style.css with var() fallbacks; harmless when style.css loads fresh. */
 	body { background: #0b0c0e; color: #e8eaee; }
-	#w894381 { display: flex; align-items: stretch; gap: 0; width: min(680px, calc(100vw - 44px)); margin: 26px auto 0; background: var(--panel, #14161a); border: 1px solid var(--edge, #23262c); border-radius: 10px; overflow: hidden; }
+	#w894381 { display: flex !important; align-items: stretch; gap: 0; width: min(680px, calc(100vw - 44px)); margin: 26px auto 0; background: var(--panel, #14161a); border: 1px solid var(--edge, #23262c); border-radius: 10px; overflow: hidden; }
 	#w894381:focus-within { border-color: var(--amber-deep, #c96f04); box-shadow: 0 0 0 3px rgba(255,160,40,0.12); }
 	#w37dc41 { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; color: var(--text, #e8eaee); font: 15px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; padding: 15px 12px 15px 16px; }
 	#w894381 .prefix { align-self: center; color: var(--muted, #7d838d); }
 	#w894381 .ignite { border: 0; background: var(--amber, #ffa028); color: #14100a; font-weight: 700; font-size: 14px; letter-spacing: 0.02em; padding: 0 22px; cursor: pointer; }
 </style>
 </head>
-<body>
+<body class="gate">
 
 <header id="we020a1">
 	<svg class="mark" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path fill="var(--amber)" d="M11.6 39.6 L14.4 42.4 L4.7 50.7 L3.3 49.3 Z"/><path fill="var(--amber)" d="M20.6 48.6 L23.4 51.4 L15.7 57.7 L14.3 56.3 Z"/><path fill="var(--amber-deep)" d="M58 6 L12 22 L30 32 Z"/><path fill="var(--amber)" d="M58 6 L30 32 L40 50 Z"/></svg>
