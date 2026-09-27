@@ -687,6 +687,7 @@ const DEFAULTS = {
 	theme: "amber",
 	engine: "rj",
 	cloak: "off",
+	lastCloak: "docs",
 	panicKey: "`",
 	panicUrl: "https://www.google.com",
 	zoom: "100",
@@ -818,10 +819,10 @@ const ENGINES = {
 
 // cloak presets: title + tiny inline favicon
 const CLOAK_ICON = {
-	docs: "data:image/svg+xml," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><rect width="16" height="16" rx="2" fill="#fff"/><path d="M4 2h6l3 3v9H4z" fill="#4285f4"/><path d="M6 7h5M6 9.5h5M6 12h3.5" stroke="#fff" stroke-width="1.1"/></svg>'),
-	classroom: "data:image/svg+xml," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><rect width="16" height="16" rx="2" fill="#0f9d58"/><circle cx="8" cy="5.5" r="2" fill="#fff"/><path d="M3.5 13c.6-2.6 2.4-4 4.5-4s3.9 1.4 4.5 4z" fill="#fff"/></svg>'),
-	gmail: "data:image/svg+xml," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><rect width="16" height="16" rx="2" fill="#fff"/><path d="M2.5 4.5 8 9l5.5-4.5v7.5h-11z" fill="#ea4335"/><path d="M2.5 4.5 8 9l5.5-4.5" stroke="#fff" stroke-width="1" fill="none"/></svg>'),
-	wiki: "data:image/svg+xml," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><rect width="16" height="16" rx="2" fill="#fff"/><text x="8" y="12.5" font-family="Georgia,serif" font-size="11" font-weight="bold" text-anchor="middle" fill="#333">W</text></svg>'),
+	docs: "data:image/svg+xml," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M6 2h8l6 6v13a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1z" fill="#4285f4"/><path d="M14 2l6 6h-6z" fill="#a8c7fa"/><path d="M8 12h8M8 15.5h8M8 19h5" stroke="#fff" stroke-width="1.6" stroke-linecap="round"/></svg>'),
+	classroom: "data:image/svg+xml," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><rect width="24" height="24" rx="4" fill="#1e8e3e"/><circle cx="12" cy="8.6" r="2.7" fill="#fff"/><path d="M5.5 18.8c.9-3.8 3.5-5.7 6.5-5.7s5.6 1.9 6.5 5.7z" fill="#fff"/></svg>'),
+	gmail: "data:image/svg+xml," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><rect width="24" height="24" rx="4" fill="#fff"/><path fill="#ea4335" d="M21.5 6.6v10.8a1.3 1.3 0 0 1-1.3 1.3h-3V11.4L12 15.4l-5.2-4v7.3h-3a1.3 1.3 0 0 1-1.3-1.3V6.6c0-1.6 1.8-2.5 3.1-1.6L12 10l6.4-5c1.3-.9 3.1 0 3.1 1.6z"/></svg>'),
+	wiki: "data:image/svg+xml," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9.5" fill="#f8f9fa" stroke="#a2a9b1" stroke-width="1"/><path d="M12 2.5c-2.6 2.6-4 5.8-4 9.5s1.4 6.9 4 9.5c2.6-2.6 4-5.8 4-9.5s-1.4-6.9-4-9.5z" fill="none" stroke="#a2a9b1" stroke-width=".9"/><path d="M3.2 9.4h17.6M3.2 14.6h17.6" stroke="#a2a9b1" stroke-width=".9"/></svg>'),
 };
 const CLOAKS = {
 	off: ["Ramjet - GoatTech", "/assets/ramjet.svg"],
@@ -1498,12 +1499,18 @@ pageModeSel.addEventListener("change", () => { settings.pageMode = pageModeSel.v
 const cloakSel = document.getElementById("w570f7f");
 cloakSel.addEventListener("change", () => {
 	settings.cloak = cloakSel.value;
+	if (cloakSel.value !== "off") settings.lastCloak = cloakSel.value;
 	saveSettings();
 	applyCloak();
 	syncSettingsUI();
 });
 cloakBtn.addEventListener("click", () => {
-	settings.cloak = settings.cloak === "off" ? "docs" : "off";
+	if (settings.cloak === "off") {
+		settings.cloak = CLOAKS[settings.lastCloak] && settings.lastCloak !== "off" ? settings.lastCloak : "docs";
+	} else {
+		settings.lastCloak = settings.cloak;
+		settings.cloak = "off";
+	}
 	saveSettings();
 	applyCloak();
 	syncSettingsUI();
@@ -1939,26 +1946,7 @@ function injectPopBar(w, href) {
 		} catch (err) {}
 	});
 	bar.appendChild(omni);
-	// v1.1: addon tiles on the home view - entries come from the server's
-// registered addons (/auth/addons), each linking out of the shell to its app.
-(async function addonTiles() {
-	try {
-		const r = await fetch("/auth/addons");
-		if (!r.ok) return;
-		const d = await r.json();
-		const box = document.getElementById("rj-addons");
-		if (!box || !d.ok || !Array.isArray(d.addons) || !d.addons.length) return;
-		for (const a of d.addons) {
-			const t = document.createElement("a");
-			t.className = "rj-addon-tile";
-			t.href = a.entry;
-			t.textContent = a.name;
-			box.appendChild(t);
-		}
-		box.hidden = false;
-	} catch (err) {}
-})();
-const homeBtn = mk("ramjet", () => { try { window.focus(); } catch (err) {} });
+	const homeBtn = mk("ramjet", () => { try { window.focus(); } catch (err) {} });
 	homeBtn.className = "wb-home";
 	bar.appendChild(homeBtn);
 	doc.body.appendChild(bar);
@@ -2700,3 +2688,23 @@ try {
 	}
 } catch (err) {}
 address.focus();
+
+// v1.1: addon tiles on the home view - entries come from the server's
+// registered addons (/auth/addons), each linking out of the shell to its app.
+(async function addonTiles() {
+	try {
+		const r = await fetch("/auth/addons");
+		if (!r.ok) return;
+		const d = await r.json();
+		const box = document.getElementById("rj-addons");
+		if (!box || !d.ok || !Array.isArray(d.addons) || !d.addons.length) return;
+		for (const a of d.addons) {
+			const t = document.createElement("a");
+			t.className = "rj-addon-tile";
+			t.href = a.entry;
+			t.textContent = a.name;
+			box.appendChild(t);
+		}
+		box.hidden = false;
+	} catch (err) {}
+})();
