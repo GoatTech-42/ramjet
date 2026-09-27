@@ -1386,7 +1386,7 @@ body.in-flight.bmbar #w6a4153 { inset: 75px 0 30px 0; }
 .js-open:hover { background: var(--amber); color: #14100a; }
 
 /* ------- one-bar home + polish (v1.3) ------- */
-body:not(.in-flight):not(.page-view) #w894381 { display: none; }
+body:not(.in-flight):not(.page-view):not(.gate) #w894381 { display: none; }
 body:not(.in-flight):not(.page-view) #w367d60 { display: none; }
 
 .nt { animation: nt-in .35s ease-out; }
