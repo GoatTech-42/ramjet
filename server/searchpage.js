@@ -394,6 +394,7 @@ function parseQuery(url) {
 async function handle(req, res) {
 	const params = parseQuery(req.url);
 	res.setHeader("content-type", "text/html; charset=utf-8");
+	res.setHeader("cache-control", "no-store");
 	if (!params.q) {
 		res.writeHead(303, { location: "/searx/" });
 		res.end();
