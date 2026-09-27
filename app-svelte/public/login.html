@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ramjet - sign in</title>
+<meta name="description" content="Ramjet: a fast web proxy by GoatTech.">
+<meta name="robots" content="noindex">
+<link rel="icon" href="/assets/ramjet.svg" type="image/svg+xml">
+<link rel="manifest" href="/site.webmanifest">
+<meta name="theme-color" content="#0b0c0e">
+<link rel="stylesheet" href="/style.css?v=30">
+<style>
+	#w1ea08f { color: var(--err); font-size: 13px; text-align: center; margin: 14px 22px 0; min-height: 1.4em; }
+	#wc6ce8d {
+		flex: 0 0 34%;
+		min-width: 0;
+		border: 0;
+		outline: 0;
+		background: transparent;
+		color: var(--text);
+		font-family: var(--mono);
+		font-size: 15px;
+		padding: 15px 12px;
+		border-right: 1px solid var(--edge);
+	}
+	#wc6ce8d::placeholder { color: #5b616b; }
+	@media (max-width: 640px) {
+		#w894381 { flex-direction: column; align-items: stretch; gap: 8px; padding: 12px; width: min(420px, calc(100vw - 48px)); border-radius: 18px; }
+		#w894381 .prefix { display: none; }
+		#wc6ce8d { flex: none; font-size: 16px; }
+		#w894381 input { border-right: 0 !important; border: 1px solid var(--edge) !important; border-radius: 10px; padding: 13px 14px; font-size: 16px; background: rgba(255,255,255,0.03); width: 100%; box-sizing: border-box; }
+		#w894381 button { padding: 13px; border-radius: 10px; font-size: 15px; width: 100%; }
+	}
+	#wd7f640 { margin-top: 18px; font-size: 13px; color: #7d838d; text-align: center; }
+	#wd7f640 a { color: #ffa028; text-decoration: none; cursor: pointer; }
+	#wd7f640 a:hover { text-decoration: underline; }
+
+	/* self-sufficiency fallback (9/26): the gate must render even if /style.css is stale or missing.
+	   Mirrors the base rules in style.css with var() fallbacks; harmless when style.css loads fresh. */
+	body { background: #0b0c0e; color: #e8eaee; }
+	#w894381 { display: flex; align-items: stretch; gap: 0; width: min(680px, calc(100vw - 44px)); margin: 26px auto 0; background: var(--panel, #14161a); border: 1px solid var(--edge, #23262c); border-radius: 10px; overflow: hidden; }
+	#w894381:focus-within { border-color: var(--amber-deep, #c96f04); box-shadow: 0 0 0 3px rgba(255,160,40,0.12); }
+	#w37dc41 { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; color: var(--text, #e8eaee); font: 15px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; padding: 15px 12px 15px 16px; }
+	#w894381 .prefix { align-self: center; color: var(--muted, #7d838d); }
+	#w894381 .ignite { border: 0; background: var(--amber, #ffa028); color: #14100a; font-weight: 700; font-size: 14px; letter-spacing: 0.02em; padding: 0 22px; cursor: pointer; }
+</style>
+</head>
+<body>
+
+<header id="we020a1">
+	<svg class="mark" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path fill="var(--amber)" d="M11.6 39.6 L14.4 42.4 L4.7 50.7 L3.3 49.3 Z"/><path fill="var(--amber)" d="M20.6 48.6 L23.4 51.4 L15.7 57.7 L14.3 56.3 Z"/><path fill="var(--amber-deep)" d="M58 6 L12 22 L30 32 Z"/><path fill="var(--amber)" d="M58 6 L30 32 L40 50 Z"/></svg>
+	<span class="byline">goattech</span>
+</header>
+
+<main id="wd46431">
+	<h1 class="wordmark-big">ram<em>jet</em></h1>
+	<p class="tag" id="w93d2fd">crew only. sign in.</p>
+</main>
+
+<form id="w894381">
+	<input id="wc6ce8d" type="text" name="username" autocomplete="username" placeholder="username" aria-label="Username" autocapitalize="none" required>
+	<span class="prefix">//</span>
+	<input id="w37dc41" type="password" name="password" autocomplete="current-password" placeholder="password" aria-label="Password" required>
+	<button type="submit" class="ignite" id="w1b27ac">unlock&nbsp;&#8594;</button>
+</form>
+
+<p id="w1ea08f" role="alert"></p>
+<p id="wd7f640"><a id="w18fac0">need an account? sign up</a></p>
+
+<footer id="w446de8">
+	<span id="w073edd" data-mode="idle">gate armed</span>
+	<span class="ver">v1</span>
+</footer>
+
+<script src="/rjcrypto.js"></script>
+<script>
+	const err = document.getElementById("w1ea08f");
+	const form = document.getElementById("w894381");
+	const user = document.getElementById("wc6ce8d");
+	const pass = document.getElementById("w37dc41");
+	const mode = document.getElementById("w93d2fd");
+	const swaplink = document.getElementById("w18fac0");
+	let signingUp = false;
+
+	swaplink.addEventListener("click", () => {
+		signingUp = !signingUp;
+		err.textContent = "";
+		mode.textContent = signingUp ? "claim your seat." : "crew only. sign in.";
+		swaplink.textContent = signingUp ? "have an account? sign in" : "need an account? sign up";
+		document.getElementById("w1b27ac").innerHTML = signingUp ? "join&nbsp;&#8594;" : "unlock&nbsp;&#8594;";
+		user.focus();
+	});
+
+	const q = new URLSearchParams(location.search);
+	if (q.has("bad")) err.textContent = "wrong password. try again.";
+	if (q.has("locked")) err.textContent = "too many tries - gate's locked for 15 minutes.";
+
+	form.addEventListener("submit", async (e) => {
+		e.preventDefault();
+		err.textContent = "";
+		const u = user.value.trim().toLowerCase();
+		const p = pass.value;
+		if (!u || !p) { err.textContent = "username and password required."; return; }
+		const body = "username=" + encodeURIComponent(u) + "&password=" + encodeURIComponent(p);
+		try {
+			if (signingUp) {
+				const res = await fetch("/auth/signup", { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body });
+				const data = await res.json();
+				if (!res.ok) { err.textContent = data.error || "signup failed."; return; }
+				if (data.pending) { err.textContent = ""; mode.textContent = "in the queue - luke approves new accounts."; return; }
+			} else {
+				const res = await fetch("/auth/login", { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body });
+				const data = await res.json().catch(() => ({}));
+				if (!res.ok) { err.textContent = data.error || "wrong username or password."; return; }
+			}
+			// key chain: derive from the password, store KEK on-device only
+			const okc = await RJCrypto.unlockWithPassword(p);
+			if (!okc) { err.textContent = "signed in, but the encryption key would not unlock. tell luke."; return; }
+			location.href = "/";
+		} catch {
+			err.textContent = "network error. try again.";
+		}
+	});
+	user.focus();
+</script>
+
+<script>
+// white-page recovery (9/25): an outdated service worker from an older ramjet
+// version can hold the shell blank. /login?reset=1 unregisters every worker,
+// wipes caches + heal flags, and bounces back to a clean shell.
+(async () => {
+	try {
+		const q = new URLSearchParams(location.search);
+		if (q.get("reset") !== "1") return;
+		if ("serviceWorker" in navigator) {
+			const regs = await navigator.serviceWorker.getRegistrations();
+			await Promise.all(regs.map((r) => r.unregister()));
+		}
+		if (self.caches && caches.keys) { const ks = await caches.keys(); await Promise.all(ks.map((k) => caches.delete(k))); }
+		try { sessionStorage.clear(); } catch (e) {}
+		location.replace("/?fresh=" + Date.now());
+	} catch (err) { location.replace("/"); }
+})();
+</script>
+</body>
+</html>
