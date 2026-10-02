@@ -1,0 +1,22 @@
+import { chromium, devices } from "playwright";
+import { readFileSync } from "fs";
+const PW = readFileSync("/home/luke/goattech/ramjet-rebuild/data/.qa-password", "utf8").trim();
+const BASE = "http://127.0.0.1:14224";
+const browser = await chromium.launch();
+const page = await (await browser.newContext(devices["iPhone 13"])).newPage();
+await page.goto(BASE + "/login");
+const inputs = await page.$$("input");
+await inputs[0].fill("qa"); await inputs[1].fill(PW);
+await page.click("button[type=submit], button");
+await page.waitForURL(BASE + "/", { timeout: 8000 });
+await page.evaluate(() => localStorage.clear());
+await page.goto(BASE + "/sage");
+await page.waitForTimeout(700);
+// server-style message that ends with "- try again" must not double with the button
+await page.route("**/api/apps/sage/chat", (r) => r.fulfill({ status: 502, contentType: "application/json", body: JSON.stringify({ error: "couldn't reach the model - try again" }) }));
+await page.fill(".composer textarea", "test");
+await page.keyboard.press("Enter");
+await page.waitForSelector(".error .retrylink", { timeout: 15000 });
+console.log("line:", JSON.stringify(await page.evaluate(() => document.querySelector(".error")?.textContent)));
+await page.screenshot({ path: "/tmp/qa-sage-err-iphone.png" });
+await browser.close();

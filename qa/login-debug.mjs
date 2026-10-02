@@ -1,0 +1,14 @@
+import { chromium } from "playwright";
+import { readFileSync } from "fs";
+const PW = readFileSync("/home/luke/goattech/ramjet-rebuild/data/.qa-password", "utf8").trim();
+const BASE = "http://127.0.0.1:14224";
+const browser = await chromium.launch();
+const page = await browser.newPage();
+await page.goto(BASE + "/login");
+const inputs = await page.$$("input");
+await inputs[0].fill("qa"); await inputs[1].fill(PW);
+await page.click("button[type=submit], button");
+await page.waitForTimeout(4000);
+console.log("url:", page.url());
+console.log("body:", (await page.textContent("body")).slice(0, 300));
+await browser.close();

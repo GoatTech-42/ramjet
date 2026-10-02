@@ -1,0 +1,26 @@
+import { chromium } from "playwright";
+import { readFileSync } from "fs";
+const pw = readFileSync("../data/.qa-password", "utf8").trim();
+const browser = await chromium.launch();
+const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+const page = await ctx.newPage();
+const login = await page.request.post("http://127.0.0.1:14224/api/auth/login", { data: { username: "qa", password: pw } });
+const token = (login.headers()["set-cookie"] || "").match(/rj2_session=([^;]+)/)?.[1];
+await ctx.addCookies([{ name: "rj2_session", value: token, url: "http://127.0.0.1:14224" }]);
+await page.goto("http://127.0.0.1:14224/jetstream", { waitUntil: "domcontentloaded" });
+await page.waitForSelector(".scard", { timeout: 60000 });
+const d = await page.evaluate(() => {
+  const c = document.querySelector(".scard");
+  const out = { card: Math.round(c.getBoundingClientRect().height), kids: [] };
+  for (const k of c.children) out.kids.push({ cls: k.className, h: Math.round(k.getBoundingClientRect().height) });
+  const hist = c.closest(".hist");
+  out.rowH = Math.round(hist.getBoundingClientRect().height);
+  out.align = getComputedStyle(hist).alignItems;
+  const img = c.querySelector("img");
+  out.imgH = Math.round(img.getBoundingClientRect().height);
+  out.imgNatural = img.naturalWidth + "x" + img.naturalHeight;
+  out.imgCss = getComputedStyle(img).aspectRatio;
+  return out;
+});
+console.log(JSON.stringify(d, null, 1));
+await browser.close();

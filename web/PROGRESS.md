@@ -1,0 +1,1 @@
+- Sep 30 6:2x: Amp recently played (device-local); Sage answer length brief/normal/deep (server system prompt) + header fits at 390.

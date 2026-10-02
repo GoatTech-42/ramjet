@@ -1,0 +1,15 @@
+import { chromium } from "playwright";
+const BASE = "http://127.0.0.1:14224";
+const browser = await chromium.launch();
+const page = await browser.newPage();
+const resp = [];
+page.on("response", (r) => resp.push(r.status() + " " + r.url()));
+await page.goto(BASE + "/login");
+const inputs = await page.$$("input");
+await inputs[0].fill("qatmp"); await inputs[1].fill("tmppass123");
+await page.click("button[type=submit], button");
+await page.waitForTimeout(5000);
+console.log("url:", page.url());
+console.log("body:", (await page.textContent("body")).replace(/\s+/g, " ").slice(0, 200));
+console.log("responses:", resp.slice(-5).join(" | "));
+await browser.close();

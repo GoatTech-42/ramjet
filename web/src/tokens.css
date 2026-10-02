@@ -1,0 +1,48 @@
+ /* wallpapers (home screen) - .wall is the fixed layer, .wall-* the paint, so settings can reuse the paint on small chips */
+.wall { position: fixed; inset: 0; z-index: -1; pointer-events: none; }
+.wall-aurora { background: radial-gradient(60% 50% at 12% 0%, color-mix(in srgb, var(--rj-accent) 24%, transparent), transparent 70%), radial-gradient(50% 45% at 92% 8%, rgba(70,100,230,.22), transparent 70%), radial-gradient(60% 50% at 70% 105%, rgba(160,60,190,.2), transparent 70%); }
+.wall-dusk { background: linear-gradient(180deg, rgba(40,22,80,.55) 0%, rgba(110,40,100,.4) 55%, rgba(210,100,60,.32) 100%); }
+.wall-ember { background: radial-gradient(70% 55% at 50% 110%, rgba(255,120,40,.3), transparent 70%), radial-gradient(40% 30% at 85% 0%, rgba(255,70,40,.14), transparent 70%); }
+.wall-ocean { background: linear-gradient(180deg, rgba(10,60,110,.4) 0%, rgba(8,30,70,.35) 60%, rgba(0,0,0,0) 100%); }
+.wall-forest { background: radial-gradient(70% 50% at 20% 100%, rgba(40,150,80,.26), transparent 70%), radial-gradient(50% 40% at 90% 0%, rgba(120,170,40,.16), transparent 70%); }
+.wall-golden { background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1600 900' preserveAspectRatio='xMidYMax slice'%3E%3Cpath fill='%2314121f' d='M0 640 L160 575 L300 610 L440 548 L590 615 L720 600 L1000 650 L1180 575 L1240 420 L1252 575 L1330 580 L1600 610 L1600 900 L0 900Z'/%3E%3Cpath fill='%230b0a14' d='M0 800 Q200 725 420 790 T820 800 T1250 782 T1600 765 L1600 900 L0 900Z'/%3E%3C/svg%3E") center bottom / cover no-repeat, linear-gradient(180deg, rgba(0,0,0,.18), rgba(0,0,0,.18)), linear-gradient(180deg, #0f1836 0%, #34305f 30%, #7d4a69 54%, #cf8450 67%, #232c48 68%, #0c1226 100%); }
+.wall-silk { background: #0d0c1c url(/cloak/silk-dark.jpg) center / cover no-repeat; }
+@media (max-width: 700px) { .wall-silk { background-image: url(/cloak/silk-dark-s.jpg); } }
+.wall-silk-light { background: linear-gradient(rgba(0,0,0,.28), rgba(0,0,0,.28)), url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1600 900' preserveAspectRatio='xMidYMid slice'%3E%3Cdefs%3E%3ClinearGradient id='bg' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='#6b5440'/%3E%3Cstop offset='1' stop-color='#a68a68'/%3E%3C/linearGradient%3E%3ClinearGradient id='f1' x1='1' y1='0' x2='0' y2='1'%3E%3Cstop offset='0' stop-color='#e9d3ae'/%3E%3Cstop offset='.55' stop-color='#9a8068'/%3E%3Cstop offset='1' stop-color='#5b4636'/%3E%3C/linearGradient%3E%3ClinearGradient id='f2' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='#d9bf94'/%3E%3Cstop offset='1' stop-color='#6e5742'/%3E%3C/linearGradient%3E%3ClinearGradient id='f3' x1='1' y1='1' x2='0' y2='0'%3E%3Cstop offset='0' stop-color='#c9b9c9'/%3E%3Cstop offset='1' stop-color='#6d5a64'/%3E%3C/linearGradient%3E%3ClinearGradient id='rim' x1='0' y1='1' x2='1' y2='0'%3E%3Cstop offset='0' stop-color='#fff2d6' stop-opacity='.1'/%3E%3Cstop offset='.5' stop-color='#fff6e4' stop-opacity='.9'/%3E%3Cstop offset='1' stop-color='#f1e0ff' stop-opacity='.4'/%3E%3C/linearGradient%3E%3Cfilter id='gl'%3E%3CfeGaussianBlur stdDeviation='3'/%3E%3C/filter%3E%3C/defs%3E%3Crect width='1600' height='900' fill='url(#bg)'/%3E%3Cpath d='M1600 0V900H520C700 640 1000 520 1250 360C1420 250 1500 120 1560 0Z' fill='url(#f1)'/%3E%3Cpath d='M1000 0C1010 140 880 300 640 470C420 620 180 740 0 800V0Z' fill='url(#f2)'/%3E%3Cpath d='M1600 900H1150C1250 700 1450 560 1600 470Z' fill='url(#f3)'/%3E%3Cg fill='none' stroke='url(#rim)' stroke-linecap='round'%3E%3Cpath d='M520 900C700 640 1000 520 1250 360C1420 250 1500 120 1560 0' stroke-width='6' filter='url(#gl)' opacity='.6'/%3E%3Cpath d='M520 900C700 640 1000 520 1250 360C1420 250 1500 120 1560 0' stroke-width='2'/%3E%3Cpath d='M1000 0C1010 140 880 300 640 470C420 620 180 740 0 800' stroke-width='6' filter='url(#gl)' opacity='.6'/%3E%3Cpath d='M1000 0C1010 140 880 300 640 470C420 620 180 740 0 800' stroke-width='2'/%3E%3Cpath d='M1150 900C1250 700 1450 560 1600 470' stroke-width='2' opacity='.8'/%3E%3C/g%3E%3C/svg%3E") center / cover no-repeat; }
+.wall-grid { background-image: linear-gradient(rgba(255,255,255,.045) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.045) 1px, transparent 1px); background-size: 36px 36px; }
+.wall-dots { background-image: radial-gradient(rgba(255,255,255,.12) 1px, transparent 1.2px); background-size: 22px 22px; }
+:root {
+  --rj-bg: #000000;
+  --rj-surface: #212121;
+  --rj-surface-2: #2f2f2f;
+  --rj-hover: #171717;
+  --rj-border: rgba(255, 255, 255, 0.08);
+  --rj-text: #ececec;
+  --rj-text-dim: #b4b4b4;
+  --rj-text-faint: #8e8e8e;
+  --rj-accent: #d9f24b;
+  --rj-accent-ink: #1e230a;
+  --rj-danger: #f93a37;
+  --rj-radius: 16px;
+  --rj-pill: 999px;
+  --rj-font: system-ui, -apple-system, "Segoe UI", sans-serif;
+  --rj-mono: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, monospace;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body {
+  background: var(--rj-bg);
+  color: var(--rj-text);
+  font-family: var(--rj-font);
+  -webkit-font-smoothing: antialiased;
+  min-height: 100dvh;
+}
+a { color: var(--rj-text); text-decoration: none; }
+button { font-family: inherit; cursor: pointer; }
+::selection { background: rgba(255, 255, 255, 0.2); }
+
+/* desktop scrollbars: scroll stays, chrome goes (Luke, Tue 5:58 PM) */
+@media (pointer: fine) {
+  * { scrollbar-width: none; }
+  *::-webkit-scrollbar { display: none; }
+}

@@ -1,0 +1,12 @@
+import { chromium } from "playwright";
+const browser = await chromium.launch();
+const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+await page.goto("http://127.0.0.1:4599/", { waitUntil: "domcontentloaded" });
+await page.waitForTimeout(7000);
+await page.fill("#url", "https://www.google.com/search?q=minecraft+servers");
+await page.click("#go");
+await page.waitForTimeout(12000);
+const t = await page.evaluate(() => { try { return document.getElementById("frame").contentDocument?.title } catch (e) { return "guard" } });
+console.log("GOOGLE TITLE:", t);
+await page.screenshot({ path: "/tmp/browse-spike/v2-google.png" });
+await browser.close();

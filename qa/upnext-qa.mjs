@@ -1,0 +1,35 @@
+import { chromium, devices } from "playwright";
+import { readFileSync } from "fs";
+const PW = readFileSync("/home/luke/goattech/ramjet-rebuild/data/.qa-password", "utf8").trim();
+const BASE = "http://127.0.0.1:14224";
+const browser = await chromium.launch();
+for (const [name, ctxopts] of [["iphone", devices["iPhone 13"]], ["desktop", { viewport: { width: 1280, height: 900 } }]]) {
+  const ctx = await browser.newContext(ctxopts);
+  const page = await ctx.newPage();
+  page.on("pageerror", (e) => console.log("PAGEERROR", name, String(e).slice(0, 150)));
+  await page.goto(BASE + "/login");
+  const inputs = await page.$$("input");
+  await inputs[0].fill("qa"); await inputs[1].fill(PW);
+  await page.click("button[type=submit], button");
+  await page.waitForURL(BASE + "/", { timeout: 8000 });
+  await page.goto(BASE + "/jetstream", { waitUntil: "networkidle" });
+  await page.fill(".bar input", "lofi beats");
+  await page.click(".bar button");
+  await page.waitForSelector(".row img", { timeout: 20000 });
+  const resultCount = await page.$$eval(".results .row", (r) => r.length);
+  await page.click(".row");
+  await page.waitForSelector(".frame video, .buffering", { timeout: 25000 });
+  await page.waitForTimeout(1500);
+  const label = await page.$eval(".uplabel", (e) => e.textContent).catch(() => "MISSING");
+  const upnextCount = await page.$$eval(".player .results .row", (r) => r.length).catch(() => 0);
+  console.log(name, "| results:", resultCount, "| uplabel:", JSON.stringify(label), "| upnext rows:", upnextCount);
+  await page.evaluate(() => document.querySelector(".uplabel")?.scrollIntoView());
+  await page.waitForTimeout(600);
+  await page.screenshot({ path: `/tmp/qa-upnext-${name}.png` });
+  await page.click(".player .results .row");
+  await page.waitForTimeout(2500);
+  const title = await page.$eval(".player h1", (e) => e.textContent);
+  console.log(name, "| after up-next tap, now watching:", JSON.stringify(title.slice(0, 60)));
+  await ctx.close();
+}
+await browser.close();

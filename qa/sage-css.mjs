@@ -1,0 +1,27 @@
+import { chromium } from "playwright";
+import { readFileSync } from "fs";
+const PW = readFileSync("/home/luke/goattech/ramjet-rebuild/data/.qa-password", "utf8").trim();
+const BASE = "http://127.0.0.1:14224";
+const browser = await chromium.launch();
+const page = await (await browser.newContext({ viewport: { width: 1280, height: 800 } })).newPage();
+await page.goto(BASE + "/login");
+const inputs = await page.$$("input");
+await inputs[0].fill("qa"); await inputs[1].fill(PW);
+await page.click("button[type=submit], button");
+await page.waitForURL(BASE + "/", { timeout: 8000 });
+await page.goto(BASE + "/sage");
+await page.evaluate(() => localStorage.removeItem("sage-conversation"));
+await page.reload();
+await page.waitForTimeout(800);
+await page.fill(".composer textarea", "hi");
+await page.click(".composer button");
+await page.waitForTimeout(2500);
+const info = await page.evaluate(() => {
+  const msg = document.querySelector(".msg");
+  const bubble = document.querySelector(".msg .bubble");
+  const list = document.querySelector(".list");
+  const cs = (el) => el ? ((s) => ({ display: s.display, bg: s.backgroundColor, color: s.color, h: el.getBoundingClientRect().height, w: el.getBoundingClientRect().width, y: el.getBoundingClientRect().y }))(getComputedStyle(el)) : null;
+  return { msg: cs(msg), bubble: cs(bubble), list: cs(list), listScrollH: list?.scrollHeight, listClientH: list?.clientHeight };
+});
+console.log(JSON.stringify(info, null, 1));
+await browser.close();

@@ -1,0 +1,46 @@
+import { chromium, devices } from "playwright";
+import { readFileSync } from "fs";
+const pw = readFileSync("../data/.qa-password", "utf8").trim();
+const mobile = process.argv[2] === "iphone";
+const browser = await chromium.launch();
+const ctx = await browser.newContext(mobile ? { ...devices["iPhone 13"] } : { viewport: { width: 1280, height: 800 } });
+const page = await ctx.newPage();
+const login = await page.request.post("http://127.0.0.1:14224/api/auth/login", { data: { username: "qa", password: pw } });
+const sc = login.headers()["set-cookie"] || "";
+const token = sc.match(/rj2_session=([^;]+)/)?.[1];
+await ctx.addCookies([{ name: "rj2_session", value: token, url: "http://127.0.0.1:14224" }]);
+const vsrc = [];
+page.on("response", (r) => { if (r.url().includes("/vsrc") || r.url().includes("/stream?")) vsrc.push(`${r.status()} ${r.url().split("?")[0].split("/").pop()} ${r.request().headers()["range"] || ""}`); });
+page.on("console", (m) => { if (m.type() === "error") console.log("CONSOLE-ERR", m.text().slice(0, 200)); });
+page.on("requestfailed", (r) => console.log("REQFAIL", r.url().slice(0, 120), r.failure()?.errorText));
+await page.goto("http://127.0.0.1:14224/jetstream", { waitUntil: "domcontentloaded" });
+await page.fill(".bar input", "never gonna give you up");
+await page.click(".bar button");
+await page.waitForSelector(".row img", { timeout: 15000 });
+await page.click(".row");
+await page.waitForSelector(".frame video", { timeout: 20000 });
+await page.waitForTimeout(3000);
+const info1 = await page.evaluate(() => {
+  const v = document.querySelector(".frame video");
+  const a = document.querySelector("audio");
+  return { t: v?.currentTime ?? -1, src: (v?.src || "").split("?")[0].split("/").pop(), muted: v?.muted, hasAudio: !!a, readyState: v?.readyState };
+});
+// gesture to kick iOS-style audio, then play more
+await page.click("h1").catch(() => {});
+if (mobile) await page.touchscreen.tap(200, 600).catch(() => {});
+await page.waitForTimeout(6000);
+const info2 = await page.evaluate(() => {
+  const v = document.querySelector(".frame video");
+  const a = document.querySelector("audio");
+  return { t: v?.currentTime ?? -1, at: a?.currentTime ?? -1, paused: v?.paused, ap: a?.paused, vw: v?.videoWidth, vh: v?.videoHeight };
+});
+const q = await page.evaluate(() => document.querySelector(".qbtn")?.textContent);
+await page.screenshot({ path: `qa/shots/hd-${mobile ? "iphone" : "desktop"}.png` });
+console.log("QUALITY_BTN", q);
+console.log("EARLY", JSON.stringify(info1));
+console.log("LATE", JSON.stringify(info2));
+console.log("VSRC-COUNT", vsrc.length);
+console.log(vsrc.slice(0, 12).join("\n"));
+const bad = vsrc.filter((l) => !l.startsWith("2") && !l.startsWith("416"));
+console.log("NON-2XX", bad.length, bad.slice(0, 5).join(" | "));
+await browser.close();
