@@ -87,6 +87,39 @@
     await pull(true);
     return true;
   }
+
+  let selRect = $state(null);
+  const selM = $derived(selMsg ? msgs.find((x) => x.id === selMsg) : null);
+  $effect(() => {
+    const id = selMsg;
+    if (!id) { selRect = null; return; }
+    tick().then(() => {
+      const el = document.querySelector('[data-mid="' + id + '"] .bub, [data-mid="' + id + '"] .img');
+      const r = el ? el.getBoundingClientRect() : null;
+      selRect = r ? { top: r.top, left: r.left, right: r.right, bottom: r.bottom, width: r.width, height: r.height } : { top: 200, left: 24, right: 224, bottom: 260, width: 200, height: 60 };
+    });
+  });
+  function ovPos() {
+    const r = selRect; if (!r) return '';
+    const vw = window.innerWidth, vh = window.innerHeight;
+    const mine = selM && selM.from === me;
+    const menuH = 4 + (selM && selM.type === 'text' ? 46 : 0) * 1 + 46 + (selM && selM.from === me && selM.type !== 'invite' ? 46 : 0) + (selM && selM.type === 'text' ? 46 : 0);
+    // preview keeps its place unless the stack would leave the screen
+    let top = r.top, h = Math.min(r.height, vh * 0.4);
+    const need = 56 + 10 + h + 10 + menuH + 12;
+    let shift = 0;
+    if (top - 66 < 12) shift = 12 + 66 - top;
+    if (top + shift + h + 10 + menuH + 12 > vh) shift = Math.min(shift, 0) - ((top + shift + h + 10 + menuH + 12) - vh);
+    if (top + shift - 66 < 12) shift = 12 + 66 - top;
+    top = top + shift;
+    const w = Math.min(r.width, vw - 24);
+    const left = mine ? Math.max(12, r.right - w) : Math.min(r.left, vw - 12 - w);
+    const mw = 220, mleft = mine ? Math.min(vw - 12 - mw, Math.max(12, r.right - mw)) : Math.max(12, Math.min(r.left, vw - 12 - mw));
+    const ew = 6 * 42 + 16, eleft = mine ? Math.max(12, Math.min(vw - 12 - ew, r.right - ew)) : Math.max(12, Math.min(r.left, vw - 12 - ew));
+    return `--pt:${top}px;--ph:${h}px;--pl:${left}px;--pw:${w}px;--mt:${top + h + 10}px;--ml:${mleft}px;--et:${top - 56 - 10}px;--el:${eleft}px;`;
+  }
+  async function copyMsg(m) { try { await navigator.clipboard.writeText(m.text || ''); flash('copied'); } catch { flash('could not copy'); } selMsg = 0; }
+  function ovKey(e) { if (e.key === 'Escape' && selMsg) selMsg = 0; }
   let editing = $state(null);
   function startEdit(m) { editing = { id: m.id }; replyTo = null; composer = m.text; selMsg = 0; tick().then(() => { const t = document.querySelector('.composer textarea'); if (t) { t.focus(); t.setSelectionRange(t.value.length, t.value.length); } }); }
   let lpT = 0, lpFired = false;
@@ -230,6 +263,7 @@
   });
 </script>
 
+<svelte:window onkeydown={ovKey} />
 <svelte:head><title>{totalUnread ? '(' + totalUnread + ') ' : ''}banter - ramjet</title></svelte:head>
 
 <div class="app" class:inchat={cur}>
@@ -331,14 +365,6 @@
             {#if m.reacts}
               <span class="rxs">{#each Object.entries(m.reacts) as [e, who]}<button class="rx" class:mine={who.includes(me)} onclick={() => react(m, e)} aria-label="{e} {who.length}">{e}<b>{who.length}</b></button>{/each}</span>
             {/if}
-            {#if selMsg === m.id && m.type !== 'deleted'}
-              <span class="emo">{#each EMOJI as e}<button onclick={() => react(m, e)} aria-label="react {e}">{e}</button>{/each}</span>
-              <span class="macts">
-                <button onclick={() => startReply(m)}>reply</button>
-                {#if mine && m.type === 'text'}<button onclick={() => startEdit(m)}>edit</button>{/if}
-                {#if mine && m.type !== 'invite'}<button class="dng" onclick={() => delMsg(m)}>delete</button>{/if}
-              </span>
-            {/if}
             {#if selMsg !== m.id && m.type !== 'deleted' && m.type !== 'invite'}<span class="hov">
               <button onclick={() => startReply(m)} aria-label="reply">reply</button>
               {#if mine && m.type === 'text'}<button onclick={() => startEdit(m)} aria-label="edit">edit</button>{/if}
@@ -352,6 +378,24 @@
           <p class="hint mid">say something</p>
         {/each}
       </div>
+      {#if selM && selRect && selM.type !== 'deleted'}
+        <div class="ov" style={ovPos()} role="dialog" aria-label="message actions">
+          <button class="ov-bd" aria-label="close" onclick={() => (selMsg = 0)}></button>
+          <div class="ov-emo">{#each EMOJI as e}<button onclick={() => react(selM, e)} aria-label="react {e}" class:on={selM.reacts?.[e]?.includes(me)}>{e}</button>{/each}</div>
+          <div class="ov-prev" class:mine={selM.from === me}>
+            {#if selM.type === 'text'}<div class="bub">{selM.text}</div>
+            {:else if selM.type === 'image'}<img class="img" src={B + 'media?id=' + selM.media} alt="" />
+            {:else if selM.type === 'gif'}<img class="img" src={proxied(selM.url)} alt="gif" />
+            {:else}<div class="bub">{selM.question || selM.group || 'message'}</div>{/if}
+          </div>
+          <div class="ov-menu">
+            <button onclick={() => startReply(selM)}><span>reply</span><svg viewBox="0 0 24 24"><path d="M9 14L4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 6 6v3"/></svg></button>
+            {#if selM.type === 'text'}<button onclick={() => copyMsg(selM)}><span>copy</span><svg viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h9"/></svg></button>{/if}
+            {#if selM.from === me && selM.type === 'text'}<button onclick={() => startEdit(selM)}><span>edit</span><svg viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16z"/></svg></button>{/if}
+            {#if selM.from === me && selM.type !== 'invite'}<button class="dng" onclick={() => delMsg(selM)}><span>delete</span><svg viewBox="0 0 24 24"><path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="M6 7l1 13h10l1-13"/></svg></button>{/if}
+          </div>
+        </div>
+      {/if}
       {#if err}<p class="bad bar-err">{err}</p>{/if}
       {#if editing}<div class="replychip"><span>editing your message</span><button aria-label="cancel edit" onclick={() => { editing = null; composer = ''; }}>&times;</button></div>{/if}
       {#if replyTo}<div class="replychip"><span>replying to <b>{replyTo.from === me ? 'yourself' : replyTo.from}</b>{replyTo.text ? ': ' + replyTo.text.slice(0, 50) : ''}</span><button aria-label="cancel reply" onclick={() => (replyTo = null)}>&times;</button></div>{/if}
@@ -525,4 +569,23 @@
   .hov button { height: 26px; padding: 0 10px; border: 0; background: none; color: var(--rj-text); font-size: 12px; font-weight: 600; border-radius: var(--rj-pill); }
   .hov button:hover { background: var(--rj-hover); } .hov .dng { color: #ff6b6b; }
   @media (hover: hover) and (pointer: fine) { .m:hover .hov { display: inline-flex; } }
+
+  .ov { position: fixed; inset: 0; z-index: 60; }
+  .ov-bd { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; padding: 0; background: color-mix(in srgb, var(--rj-bg) 55%, transparent); -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px); animation: ovf .16s ease-out; }
+  .ov-emo { position: absolute; top: var(--et); left: var(--el); display: flex; gap: 2px; padding: 6px 8px; background: var(--rj-surface-2, var(--rj-surface)); border: 1px solid var(--rj-border); border-radius: 999px; box-shadow: 0 10px 30px rgba(0,0,0,.45); -webkit-backdrop-filter: blur(var(--rj-g-blur, 0px)); backdrop-filter: blur(var(--rj-g-blur, 0px)); animation: ovp .18s cubic-bezier(.2,1.2,.4,1); transform-origin: bottom center; }
+  .ov-emo button { width: 40px; height: 40px; border: 0; background: none; font-size: 24px; border-radius: 50%; transition: transform .12s; }
+  .ov-emo button:hover, .ov-emo button:active { transform: scale(1.28); background: var(--rj-hover); }
+  .ov-emo button.on { background: color-mix(in srgb, var(--rj-accent) 28%, transparent); }
+  .ov-prev { position: absolute; top: var(--pt); left: var(--pl); width: var(--pw); max-height: var(--ph); overflow: hidden; pointer-events: none; display: flex; }
+  .ov-prev.mine { justify-content: flex-end; }
+  .ov-prev .bub { max-width: 100%; box-shadow: 0 8px 28px rgba(0,0,0,.4); }
+  .ov-prev .img { max-width: 100%; max-height: var(--ph); border-radius: var(--rj-radius, 14px); box-shadow: 0 8px 28px rgba(0,0,0,.4); }
+  .ov-menu { position: absolute; top: var(--mt); left: var(--ml); width: 220px; background: var(--rj-surface-2, var(--rj-surface)); border: 1px solid var(--rj-border); border-radius: calc(var(--rj-radius, 14px) + 2px); overflow: hidden; box-shadow: 0 14px 40px rgba(0,0,0,.5); -webkit-backdrop-filter: blur(var(--rj-g-blur, 0px)); backdrop-filter: blur(var(--rj-g-blur, 0px)); animation: ovp .18s ease-out; transform-origin: top center; }
+  .ov-menu button { display: flex; width: 100%; align-items: center; justify-content: space-between; min-height: 46px; padding: 0 16px; border: 0; background: none; color: var(--rj-text); font: inherit; font-size: 15.5px; text-align: left; }
+  .ov-menu button + button { border-top: 1px solid var(--rj-border); }
+  .ov-menu button:hover, .ov-menu button:active { background: var(--rj-hover); }
+  .ov-menu svg { width: 19px; height: 19px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; opacity: .85; }
+  .ov-menu .dng { color: #ff6b6b; }
+  @keyframes ovf { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes ovp { from { opacity: 0; transform: scale(.9); } to { opacity: 1; transform: none; } }
 </style>
