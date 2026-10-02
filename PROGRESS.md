@@ -877,3 +877,4 @@ Hub layouts (list, home-screen grid, desktop+dock with status widgets) via rj-la
 - 4:44 PM dock/widgets layout: top bar + menu bar removed (settings via dock tile); fake page dots removed from home screen.
 - 4:51 PM mode switch fully restyles: presets carry wallpaper + icon-tile style (color/accent/mono), glass restores prior layout on exit, cache ?v=8.
 - 4:54 PM Banter message overlay: blurred backdrop, reaction bar, message preview, menu (reply/copy/edit/delete) anchored to message; themed.
+- 4:57 PM /searx results page rebuilt on theme vars (theme-boot, wallpapers, glass), Google-style tabs, favicon letters, recent searches synced via rj-browse-searches, back chevron, framed mode inside Browse.
