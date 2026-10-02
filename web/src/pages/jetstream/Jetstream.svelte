@@ -158,6 +158,7 @@
   let feedSearchErr = $state('');
   let liked = $state(new Set());
   let dislikedSet = $state(new Set());
+  let chanTab = $state('videos');
   let chanPage = $state(null); // channel page: { id, name, videos, shorts, err }
   // video summary (free hosted model, from captions)
   let sum = $state(null); // null | {loading} | {data} | {error}
@@ -1175,6 +1176,7 @@
     if (feedOpen) closeFeed();
     back(); // leave the player - the channel page replaces it
     plPage = null; bioOpen = false;
+    chanTab = 'videos';
     chanPage = { id, name: name || '', videos: null, shorts: null, playlists: null, info: null, err: '' };
     api(`/api/apps/jetstream/channel/info?id=${encodeURIComponent(id)}`).then((ir) => { if (chanPage && chanPage.id === id && ir.ok) chanPage = { ...chanPage, name: chanPage.name || ir.data.name, info: ir.data }; });
     api(`/api/apps/jetstream/channel/playlists?id=${encodeURIComponent(id)}`).then((pr) => { if (chanPage && chanPage.id === id) chanPage = { ...chanPage, playlists: pr.ok ? (pr.data.items || []) : [] }; });
@@ -1444,7 +1446,7 @@ network {stats.net} · ready {stats.ready}</pre>
       <button class="backbtn" onclick={closePlaylist}>back</button>
     </section>
   {:else if chanPage}
-    <section class="chanpage">
+    <section class="chanpage" data-tab={chanTab}>
       {#if chanPage.info?.banner}
         <div class="cbanner"><img src={avatar(chanPage.info.banner)} alt="" /></div>
       {/if}
@@ -1466,10 +1468,15 @@ network {stats.net} · ready {stats.ready}</pre>
           {#if chanPage.info.desc.length > 140}<button class="linkbtn" onclick={() => (bioOpen = !bioOpen)}>{bioOpen ? 'less' : 'more'}</button>{/if}
         </div>
       {/if}
+      <div class="chan-tabs" role="tablist">
+        <button role="tab" aria-selected={chanTab === 'videos'} class:on={chanTab === 'videos'} onclick={() => (chanTab = 'videos')}>videos</button>
+        {#if chanPage.shorts?.length}<button role="tab" aria-selected={chanTab === 'shorts'} class:on={chanTab === 'shorts'} onclick={() => (chanTab = 'shorts')}>shorts</button>{/if}
+        {#if chanPage.playlists?.length}<button role="tab" aria-selected={chanTab === 'playlists'} class:on={chanTab === 'playlists'} onclick={() => (chanTab = 'playlists')}>playlists</button>{/if}
+      </div>
       {#if chanPage.err}<p class="err" role="alert">{chanPage.err}</p>{/if}
       {#if !chanPage.videos && !chanPage.err}<p class="empty">loading the channel...</p>{/if}
       {#if chanPage.videos}
-        <div class="chan-sec">
+        <div class="chan-sec" data-t="videos">
           <div class="chan-sec-h">
             <h2>videos</h2>
             {#if chanPage.videos.length}<button class="playall" onclick={playAll}>play all</button>{/if}
@@ -1492,7 +1499,7 @@ network {stats.net} · ready {stats.ready}</pre>
         </div>
       {/if}
       {#if chanPage.playlists && chanPage.playlists.length}
-        <div class="chan-sec">
+        <div class="chan-sec" data-t="playlists">
           <div class="chan-sec-h"><h2>playlists</h2></div>
           <div class="hist">
             {#each chanPage.playlists as pl (pl.id)}
@@ -1505,7 +1512,7 @@ network {stats.net} · ready {stats.ready}</pre>
         </div>
       {/if}
       {#if chanPage.shorts}
-        <div class="chan-sec">
+        <div class="chan-sec" data-t="shorts">
           <div class="chan-sec-h">
             <h2>shorts</h2>
             {#if chanPage.shorts.length}<button class="playall" onclick={() => scrollChannelShorts(0)}>scroll their shorts</button>{/if}
@@ -1957,4 +1964,21 @@ network {stats.net} · ready {stats.ready}</pre>
     .hcard { flex-basis: 210px; }
   }
   @media (min-width: 900px) { .frame:not(.portrait):not(:fullscreen) { max-width: min(100%, calc((100dvh - 200px) * 16 / 9)); margin-left: auto; margin-right: auto; } }
+  /* channel tabs */
+  .chan-tabs { display: flex; gap: 4px; margin: 14px 0 6px; border-bottom: 1px solid var(--rj-line, rgba(255,255,255,.12)); position: sticky; top: 0; z-index: 5; background: var(--rj-bg, #0b0b0c); }
+  .chan-tabs button { background: none; border: 0; color: var(--rj-dim, #999); font: inherit; font-weight: 600; padding: 12px 16px; border-bottom: 2px solid transparent; margin-bottom: -1px; cursor: pointer; text-transform: lowercase; }
+  .chan-tabs button.on { color: var(--rj-text, #fff); border-bottom-color: var(--rj-accent, #d9f24b); }
+  .chanpage[data-tab='videos'] .chan-sec:not([data-t='videos']),
+  .chanpage[data-tab='shorts'] .chan-sec:not([data-t='shorts']),
+  .chanpage[data-tab='playlists'] .chan-sec:not([data-t='playlists']) { display: none; }
+  @media (min-width: 1000px) {
+    .chanpage .results { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 18px 16px; }
+    .chanpage .results .row { flex-direction: column; align-items: stretch; }
+    .chanpage .results .row img { width: 100%; height: auto; aspect-ratio: 16/9; }
+    .chanpage .hist { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 16px; overflow: visible; }
+    .chanpage .hist .hcard { width: auto; }
+  }
+  .cbanner { max-height: 200px; overflow: hidden; border-radius: 14px; }
+  .cbanner img { width: 100%; max-height: 200px; object-fit: cover; display: block; }
+  @media (min-width: 1000px) { .cbanner, .cbanner img { max-height: 240px; } }
 </style>
