@@ -249,7 +249,24 @@
 
 <svelte:head><title>sage - ramjet</title></svelte:head>
 
+{#snippet convlist()}
+        <p class="sheet-h">your chats</p>
+        <button class="newchat" onclick={newChat}>new chat</button>
+        {#if convs.length > 5}<input class="convq" type="search" placeholder="search your chats" bind:value={convQ} />{/if}
+        {#each shownConvs as c (c.id)}
+          <button class="convrow" onclick={() => openConv(c)}>
+            <span class="convtitle">{c.title}</span>
+            <span class="convmeta">{c.count} {c.count === 1 ? 'message' : 'messages'}</span>
+            <span class="convdel convren" role="button" tabindex="-1" aria-label="rename conversation" onclick={(e) => renameConv(c, e)}>&#9998;</span>
+            <span class="convdel" role="button" tabindex="-1" aria-label="delete conversation" onclick={(e) => deleteConv(c, e)}>x</span>
+          </button>
+        {:else}
+          <p class="convempty">{convQ.trim() ? 'no chats match' : 'nothing yet - ask sage something and it saves here'}</p>
+        {/each}
+{/snippet}
+
 <div class="page">
+  <aside class="side"><div class="sidein">{@render convlist()}</div></aside>
   <header class="top">
     <a class="back" href="/" aria-label="back to ramjet">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
@@ -264,19 +281,7 @@
   {#if sheetOpen}
     <div class="overlay" onclick={() => { sheetOpen = false; }}>
       <div class="sheet" onclick={(e) => e.stopPropagation()}>
-        <p class="sheet-h">your chats</p>
-        <button class="newchat" onclick={newChat}>new chat</button>
-        {#if convs.length > 5}<input class="convq" type="search" placeholder="search your chats" bind:value={convQ} />{/if}
-        {#each shownConvs as c (c.id)}
-          <button class="convrow" onclick={() => openConv(c)}>
-            <span class="convtitle">{c.title}</span>
-            <span class="convmeta">{c.count} {c.count === 1 ? 'message' : 'messages'}</span>
-            <span class="convdel convren" role="button" tabindex="-1" aria-label="rename conversation" onclick={(e) => renameConv(c, e)}>&#9998;</span>
-            <span class="convdel" role="button" tabindex="-1" aria-label="delete conversation" onclick={(e) => deleteConv(c, e)}>x</span>
-          </button>
-        {:else}
-          <p class="convempty">{convQ.trim() ? 'no chats match' : 'nothing yet - ask sage something and it saves here'}</p>
-        {/each}
+        {@render convlist()}
       </div>
     </div>
   {/if}
@@ -392,4 +397,16 @@
   .composer button:disabled { opacity: 0.4; }
   .composer button svg { width: 20px; height: 20px; }
   @media (min-width: 1000px) { .top, .list, .composer { max-width: 860px; } .bubble { max-width: 74%; } }
+  .side { display: none; }
+  @media (min-width: 1000px) {
+    .page { display: grid; grid-template-columns: 290px minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr) auto; }
+    .side { display: block; grid-row: 1 / span 3; grid-column: 1; border-right: 1px solid var(--rj-border); background: color-mix(in srgb, var(--rj-surface) 55%, transparent); overflow-y: auto; }
+    .sidein { padding: 22px 14px; display: flex; flex-direction: column; gap: 8px; }
+    .sidein .sheet-h { padding: 0 6px; font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--rj-text-faint); }
+    .page > .top, .page > .list, .page > .composer { grid-column: 2; max-width: 900px; }
+    .page > .overlay { display: none; }
+    .chatsbtn:not(.stylebtn):not(.copyall) { display: none; }
+    .bubble { max-width: 82%; }
+  }
+  @media (min-width: 1500px) { .page { grid-template-columns: 320px minmax(0, 1fr); } .page > .top, .page > .list, .page > .composer { max-width: 980px; } .list { font-size: 17px; } }
 </style>
