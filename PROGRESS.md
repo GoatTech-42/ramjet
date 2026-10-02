@@ -875,3 +875,4 @@ Hub layouts (list, home-screen grid, desktop+dock with status widgets) via rj-la
 - 4:37 PM Amp desktop: 2-col (1280) / 3-col (1920) song lists, 3-4 col playlists, centered search; phone unchanged.
 - 4:40 PM Jetstream channel page: tabs (videos/shorts/playlists), desktop grid, capped banner.
 - 4:44 PM dock/widgets layout: top bar + menu bar removed (settings via dock tile); fake page dots removed from home screen.
+- 4:51 PM mode switch fully restyles: presets carry wallpaper + icon-tile style (color/accent/mono), glass restores prior layout on exit, cache ?v=8.

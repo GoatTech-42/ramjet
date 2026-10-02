@@ -462,4 +462,8 @@
   }
   @media (max-width: 520px) { html[data-skin=glass] .lay-dock .tile { width: 44px !important; height: 44px !important; border-radius: 12px !important; } }
   main.lay-dock { padding-top: calc(20px + env(safe-area-inset-top)); }
+  :global(html[data-tiles=mono]) .lay-grid .row[data-app] .tile { background: var(--rj-surface-2); box-shadow: inset 0 0 0 1px var(--rj-border, rgba(255,255,255,.14)); }
+  :global(html[data-tiles=mono]) .lay-grid .row[data-app] .tile svg { stroke: var(--rj-accent); filter: none; }
+  :global(html[data-tiles=accent]) .lay-grid .row[data-app] .tile { background: linear-gradient(180deg, var(--rj-accent), color-mix(in srgb, var(--rj-accent) 62%, #000)); }
+  :global(html[data-tiles=accent]) .lay-grid .row[data-app] .tile svg { stroke: var(--rj-accent-ink, #14170a); filter: none; }
 </style>
