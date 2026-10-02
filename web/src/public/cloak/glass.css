@@ -59,3 +59,5 @@ html[data-skin=glass] :is(.convq, .convrow) { background: var(--rj-surface-2); }
   html[data-skin=glass] .lay-dock .row { padding: 4px 4px; }
 }
 html[data-skin=glass] ::placeholder { color: rgba(240,244,255,.58); }
+
+html[data-skin=glass] .row[data-app=settings] .tile { background: linear-gradient(180deg, #a9aeb8, #646a76); }
