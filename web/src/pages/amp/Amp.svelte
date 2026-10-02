@@ -677,4 +677,19 @@
   .qtt, .qa { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .qa { font-size: 12px; color: var(--rj-text-dim); }
   @media (min-width: 1000px) { .top, .wrap { max-width: 1040px; } }
+  /* amp desktop v2 */
+  @media (min-width: 1100px) {
+    .wrap { max-width: 1240px; padding-bottom: 150px; }
+    .search { max-width: 760px; margin-left: auto; margin-right: auto; }
+    .chips { justify-content: center; }
+    .wrap .list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 20px; }
+    .wrap .pls { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px 16px; }
+    .home-h { margin-top: 28px; }
+    .wrap .empty { padding: 60px 0; text-align: center; }
+  }
+  @media (min-width: 1700px) {
+    .wrap { max-width: 1560px; }
+    .wrap .list { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .wrap .pls { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  }
 </style>
