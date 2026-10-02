@@ -1,0 +1,20 @@
+import { chromium } from "playwright";
+const browser = await chromium.launch();
+const page = await browser.newPage();
+const reqs = [];
+page.on("request", (r) => { if (r.url().includes("wikipedia") || r.url().includes("load.php")) reqs.push(r.url().slice(0, 110)); });
+await page.goto("http://127.0.0.1:4599/", { waitUntil: "domcontentloaded" });
+await page.waitForTimeout(5000);
+await page.fill("#url", "https://en.wikipedia.org/wiki/Minecraft");
+await page.click("#go");
+await page.waitForTimeout(15000);
+console.log("WIKI DIRECT REQS:", JSON.stringify(reqs.slice(0, 10), null, 1));
+const csp = await page.evaluate(() => {
+  const d = document.getElementById("frame").contentDocument;
+  const metas = [...d.querySelectorAll("meta[http-equiv]")].map((m) => m.getAttribute("http-equiv") + ": " + (m.content || "").slice(0, 200));
+  const link = d.querySelector("link[rel=stylesheet]");
+  const cs = link ? getComputedStyle(link) : null;
+  return { metas, linkDisplay: cs?.display, linkMedia: link?.media, linkDisabled: link?.disabled };
+});
+console.log(JSON.stringify(csp, null, 1));
+await browser.close();

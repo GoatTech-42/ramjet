@@ -1,0 +1,13 @@
+import { chromium } from "playwright";
+const browser = await chromium.launch();
+const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+const bad = [];
+page.on("response", (r) => { if (r.status() >= 400) bad.push(r.status() + " " + r.url().slice(0, 140)); });
+page.on("requestfailed", (r) => bad.push("FAILED " + r.url().slice(0, 140)));
+await page.goto("http://127.0.0.1:4599/", { waitUntil: "domcontentloaded" });
+await page.waitForTimeout(5000);
+await page.fill("#url", "https://en.wikipedia.org/wiki/Minecraft");
+await page.click("#go");
+await page.waitForTimeout(15000);
+console.log("BAD:", JSON.stringify(bad.slice(0, 15), null, 1));
+await browser.close();

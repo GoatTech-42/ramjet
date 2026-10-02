@@ -1,0 +1,14 @@
+import { chromium } from "playwright";
+const BASE = "http://127.0.0.1:14224";
+const b = await chromium.launch();
+const pg = await (await b.newContext({ viewport: { width: 1280, height: 800 } })).newPage();
+await pg.goto(BASE + "/login", { waitUntil: "networkidle" });
+await pg.fill("input[type=text], input[name=username], input:not([type=password])", "qa");
+await pg.fill("input[type=password]", process.env.QAPASS);
+await pg.click("button[type=submit], button");
+await pg.waitForURL("**/", { timeout: 8000 }).catch(() => {});
+await pg.goto(BASE + "/settings", { waitUntil: "networkidle" });
+await pg.screenshot({ path: "/tmp/qa-settings.png", fullPage: true });
+await pg.goto(BASE + "/sage", { waitUntil: "networkidle" });
+await pg.screenshot({ path: "/tmp/qa-sage.png" });
+await b.close();

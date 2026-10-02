@@ -1,0 +1,10 @@
+node_modules/
+.venv/
+models/
+data/
+data-boot.log
+dist/
+qa/*.png
+*.log
+.env
+*.secret

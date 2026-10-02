@@ -1,0 +1,17 @@
+import { chromium, devices } from "playwright";
+import { readFileSync } from "fs";
+const pw = readFileSync("../data/.qa-password", "utf8").trim();
+const mobile = process.argv[2] === "iphone";
+const tag = mobile ? "iphone" : "desktop";
+const browser = await chromium.launch();
+const ctx = await browser.newContext(mobile ? { ...devices["iPhone 13"] } : { viewport: { width: 1280, height: 800 } });
+const page = await ctx.newPage();
+const login = await page.request.post("http://127.0.0.1:14224/api/auth/login", { data: { username: "qa", password: pw } });
+const token = (login.headers()["set-cookie"] || "").match(/rj2_session=([^;]+)/)?.[1];
+await ctx.addCookies([{ name: "rj2_session", value: token, url: "http://127.0.0.1:14224" }]);
+await page.goto("http://127.0.0.1:14224/settings", { waitUntil: "domcontentloaded" });
+await page.waitForTimeout(1500); await page.evaluate(() => { [...document.querySelectorAll("p.label")].find((e) => e.textContent.includes("jetstream"))?.scrollIntoView({ block: "center" }); }); await page.waitForTimeout(600);
+const btn = await page.evaluate(() => [...document.querySelectorAll("button")].map((b) => b.textContent.trim()).filter((t) => t.includes("clear")));
+console.log("CLEAR-BTNS", JSON.stringify(btn));
+await page.screenshot({ path: `qa/shots/settings-${tag}.png` });
+await browser.close();
