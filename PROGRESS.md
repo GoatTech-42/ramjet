@@ -861,3 +861,13 @@ Hub layouts (list, home-screen grid, desktop+dock with status widgets) via rj-la
 - 4:05 PM UI QUEUE (Luke, until ~6 PM, then feature loop; mobile AND desktop each): (1) desktop layouts too squished: jetstream/amp/sage/banter/hub need wider multi-column at 1280/1920; (2) widgets redesign from scratch + draggable/resizable (12-col grid, s/m/l sizes, pointer drag, more widget types: calendar, notes, todo, focus timer); (3) macOS glass: stronger refraction/specular, menu bar, window chrome, dock; fix unstyled flash at top (glass.css now parser-blocking via document.write); (4) layout picker back in main settings next to modes, every theme x every layout; (5) jetstream creator pages: header, tabs videos/shorts/playlists, horizontal rows, infinite scroll, subscribe; (6) full theming QA matrix (qa/qm_e2e.mjs in /tmp, 80 shots, no errors/hscroll as of 4:02). Luke emailed dark silk wallpaper: now /cloak/silk-dark.jpg (macOS style default wall).
 - 4:07 PM desktop width pass 1 done: jetstream 1320 max w/ wider results/for-you grids + player capped to viewport height; amp 1040; sage 860; settings 2-col at 1000+. Remaining: banter/amp inner grids at 1920 not yet reviewed; widgets redesign next.
 - 4:11 PM widgets v2 shipped: 12-col grid, s/m/l sizes, drag to reorder (window pointer events), new widgets calendar/notes/todo/focus timer, note+todo synced per account. Unverified: touch drag on a real phone.
+
+## 4:33 PM Fri Oct 2 - UI block, batch 2
+- Sync audit + fix: recents/history/watch-later/positions/cloak/adblock/datasaver/autoclear/sage conv + new recent searches (jetstream/amp/browse) now per-account; focus re-pull; two-session test passed.
+- Banter: GIF search fixed (Tenor keyed API shut down; now public search page, no key); edit own text messages + "edited"; long-press / hover menus.
+- Settings redesigned (side nav + sections, toggles, advanced theming sub-page with back/Esc/done); settings only reachable from hub (gear + tile in list/home screen/dock); gear removed from apps.
+- Home screen layout now iOS-style; list + home screen got pick-up-where-you-left-off cards.
+- theme-boot.js / glass.css were cached immutable for a year: now no-cache + ?v=7.
+- Search bars: themed + wider (hub quick search, Browse address bar, Browse hero search); dock fits 6 icons at 390.
+- Git: ramjet-rebuild is now a git repo; pushed to GoatTech-42/ramjet branch rebuild-v2 (main untouched). Push hourly.
+- TODO next: study pro UI references (Apple/Material/Linear/Spotify/YouTube/Arc), per-app per-style redesign, desktop widths Amp/Banter/Browse/Sage, creator pages, glass realism.

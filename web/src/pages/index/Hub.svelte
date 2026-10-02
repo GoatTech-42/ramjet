@@ -447,4 +447,19 @@
   .lay-grid .strip { margin-top: 30px; } .lay-grid .sh { text-align: center; }
   .lay-grid .sc { justify-content: safe center; }
   .lay-grid .hs-search { margin-top: 26px; }
+  /* search v2 */
+  .sform input { font-size: 16px; padding: 13px 16px; border-radius: 99px; background: color-mix(in srgb, var(--rj-surface-2) 85%, transparent); border: 1px solid var(--rj-border); }
+  .sform input::placeholder { color: var(--rj-text-faint); opacity: 1; }
+  .sform input:focus { border-color: var(--rj-accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--rj-accent) 22%, transparent); }
+  .sform .go { width: 46px; height: 46px; border-radius: 50%; flex: none; }
+  .lsearch, .hs-search { box-shadow: 0 1px 0 rgba(255,255,255,.04) inset; }
+  .lsearch:focus-within, .hs-search:focus-within { border-color: var(--rj-accent); }
+  .lsearch input::placeholder, .hs-search input::placeholder { color: var(--rj-text-faint); opacity: 1; }
+  @media (max-width: 520px) {
+    .lay-dock .list { gap: 0; padding: 8px 6px; max-width: calc(100vw - 16px); }
+    .lay-dock .row { padding: 4px 3px; min-width: 0; }
+    .lay-dock .tile { width: 42px; height: 42px; }
+    .lay-dock .name { font-size: 9.5px; max-width: 54px; overflow: hidden; text-overflow: ellipsis; }
+  }
+  @media (max-width: 520px) { html[data-skin=glass] .lay-dock .tile { width: 44px !important; height: 44px !important; border-radius: 12px !important; } }
 </style>
