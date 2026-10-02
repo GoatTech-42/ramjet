@@ -580,6 +580,7 @@
     <div class="center home">
       <h1>browse</h1>
       <p class="dim">{boot || 'the open web, through ramjet'}</p>
+      <form class="hero" onsubmit={go}><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg><input bind:value={address} list="br-recent-q" placeholder="search or type an address" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="search or type an address" /><button class="go" type="submit" disabled={!ready}>go</button></form>
       <div class="chips">
         {#each quick as s}
           <button class="chip" onclick={() => open(s)} disabled={!ready}>{s.name}</button>
@@ -750,4 +751,22 @@
     .navbtns { flex: 1; margin-left: 0; }
     .home h1 { font-size: 34px; }
   }
+  input { font-size: 16px; }
+  input::placeholder { color: var(--rj-text-faint); opacity: 1; }
+  input:focus { border-color: var(--rj-accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--rj-accent) 22%, transparent); }
+  header form input { padding: 10px 18px; }
+  .hero { flex: none; width: min(640px, 100%); display: flex; align-items: center; gap: 10px; margin-top: 14px; padding: 6px 6px 6px 18px; height: 56px; border-radius: var(--rj-pill); background: var(--rj-surface); border: 1px solid var(--rj-border); color: var(--rj-text-faint); backdrop-filter: blur(var(--rj-g-blur, 0px)); -webkit-backdrop-filter: blur(var(--rj-g-blur, 0px)); }
+  .hero:focus-within { border-color: var(--rj-accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--rj-accent) 22%, transparent); }
+  .hero input { background: none; border: 0; box-shadow: none; padding: 0; height: 100%; font-size: 17px; }
+  .hero input:focus { border: 0; box-shadow: none; }
+  .hero .go { height: 44px; padding: 0 24px; }
+  @media (max-width: 700px) {
+    header { flex-wrap: wrap; row-gap: 8px; }
+    header form { order: 5; flex: 1 1 100%; }
+    header form input { height: 44px; }
+    header form .go { height: 44px; }
+    .navbtns { margin-left: auto; }
+    .hero { height: 52px; }
+  }
+  @media (max-width: 520px) { .hero { padding-left: 14px; gap: 8px; } .hero .go { padding: 0 18px; } .hero input { font-size: 16px; } }
 </style>
