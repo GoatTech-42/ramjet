@@ -16,7 +16,7 @@
   const PVR = { sharp: 4, soft: 9, round: 15 };
   const PVF = { system: 'system-ui, sans-serif', mono: 'ui-monospace, Menlo, monospace', serif: 'ui-serif, Georgia, serif', round: 'ui-rounded, system-ui, sans-serif' };
   const pvBg = (v) => v.skin === 'glass' ? 'linear-gradient(180deg,#1a2650,#7d4a69 65%,#cf8450)' : (BASES.find((x) => x[0] === v.base) || BASES[0])[1];
-  const isPreset = (v) => look.accent === v.accent && look.base === v.base && look.round === v.round && look.font === v.font && (look.skin || '') === (v.skin || '');
+  const isPreset = (v) => (look.tiles || 'color') === (v.tiles || 'color') && look.accent === v.accent && look.base === v.base && look.round === v.round && look.font === v.font && (look.skin || '') === (v.skin || '');
   const WALLS = [['none', 'none'], ['silk', 'silk dark'], ['silk-light', 'silk light'], ['golden', 'golden hour'], ['aurora', 'aurora'], ['dusk', 'dusk'], ['ember', 'ember'], ['ocean', 'ocean'], ['forest', 'forest'], ['grid', 'grid'], ['dots', 'dots']];
   let wall = $state('none');
   try { const w = localStorage.getItem('rj-wall'); if (w) wall = w; } catch {}
@@ -27,17 +27,20 @@
   function setLayout(v) { layout = v; try { if (v === 'list') localStorage.removeItem('rj-layout'); else localStorage.setItem('rj-layout', v); } catch {} }
   const FONTS = [['system', 'system'], ['mono', 'terminal'], ['serif', 'editorial'], ['round', 'soft']];
   const PRESETS = [
-    ['ramjet', { accent: '#d9f24b', base: 'black', round: 'soft', font: 'system' }],
-    ['ios', { accent: '#5cc8ff', base: 'graphite', round: 'round', font: 'system' }],
-    ['terminal', { accent: '#4be3b0', base: 'black', round: 'sharp', font: 'mono' }],
-    ['dusk', { accent: '#ff7a6b', base: 'warm', round: 'round', font: 'soft' }],
-    ['paper', { accent: '#ffc447', base: 'warm', round: 'sharp', font: 'serif' }],
-    ['aurora', { accent: '#b69cff', base: 'midnight', round: 'round', font: 'system' }],
-    ['macos glass', { accent: '#4da3ff', base: 'black', round: 'soft', font: 'system', skin: 'glass', glass: 55 }],
+    ['ramjet', { accent: '#d9f24b', base: 'black', round: 'soft', font: 'system', wall: 'none', tiles: 'mono' }],
+    ['ios', { accent: '#5cc8ff', base: 'graphite', round: 'round', font: 'system', wall: 'none', tiles: 'color' }],
+    ['terminal', { accent: '#4be3b0', base: 'black', round: 'sharp', font: 'mono', wall: 'grid', tiles: 'mono' }],
+    ['dusk', { accent: '#ff7a6b', base: 'warm', round: 'round', font: 'soft', wall: 'dusk', tiles: 'accent' }],
+    ['paper', { accent: '#ffc447', base: 'warm', round: 'sharp', font: 'serif', wall: 'none', tiles: 'accent' }],
+    ['aurora', { accent: '#b69cff', base: 'midnight', round: 'round', font: 'system', wall: 'aurora', tiles: 'accent' }],
+    ['macos glass', { accent: '#4da3ff', base: 'black', round: 'soft', font: 'system', skin: 'glass', glass: 55, wall: 'silk', tiles: 'color' }],
   ];
   function setPreset(v) {
-    look = { ...v }; try { localStorage.setItem('rj-theme', JSON.stringify(look)); } catch {} window.__rjTheme?.(look);
-    if (v.skin === 'glass') { setLayout('dock'); setWall('silk'); window.__rjWall?.('silk'); }
+    const wasGlass = look.skin === 'glass';
+    look = { ...v }; delete look.wall; try { localStorage.setItem('rj-theme', JSON.stringify(look)); } catch {} window.__rjTheme?.(look);
+    setWall(v.wall || 'none');
+    if (v.skin === 'glass') { if (!wasGlass) { try { localStorage.setItem('rj-layout-pre', layout); } catch {} } setLayout('dock'); }
+    else if (wasGlass) { let pre = 'list'; try { pre = localStorage.getItem('rj-layout-pre') || 'list'; } catch {} setLayout(pre); }
   }
   let look = $state({ accent: '#d9f24b', base: 'black', round: 'soft', font: 'system' });
   try { const t = JSON.parse(localStorage.getItem('rj-theme') || 'null'); if (t) look = { ...look, ...t }; } catch {}

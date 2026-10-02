@@ -23,10 +23,11 @@
     if (glass) {
       root.setAttribute('data-skin', 'glass');
       if (!document.getElementById('rj-glass-css')) {
-        if (document.readyState === 'loading') document.write('<link id="rj-glass-css" rel="stylesheet" href="/cloak/glass.css?v=7">');
-        else { var l = document.createElement('link'); l.id = 'rj-glass-css'; l.rel = 'stylesheet'; l.href = "/cloak/glass.css?v=7"; document.head.appendChild(l); }
+        if (document.readyState === 'loading') document.write('<link id="rj-glass-css" rel="stylesheet" href="/cloak/glass.css?v=8">');
+        else { var l = document.createElement('link'); l.id = 'rj-glass-css'; l.rel = 'stylesheet'; l.href = "/cloak/glass.css?v=8"; document.head.appendChild(l); }
       }
     } else root.removeAttribute('data-skin');
+    root.setAttribute('data-tiles', (c && c.tiles) || 'color');
     var b = glass ? null : (BASES[c && c.base] || null);
     var props = ['--rj-bg', '--rj-surface', '--rj-surface-2', '--rj-hover'];
     if (glass) {
