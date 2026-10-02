@@ -871,3 +871,4 @@ Hub layouts (list, home-screen grid, desktop+dock with status widgets) via rj-la
 - Search bars: themed + wider (hub quick search, Browse address bar, Browse hero search); dock fits 6 icons at 390.
 - Git: ramjet-rebuild is now a git repo; pushed to GoatTech-42/ramjet branch rebuild-v2 (main untouched). Push hourly.
 - TODO next: study pro UI references (Apple/Material/Linear/Spotify/YouTube/Arc), per-app per-style redesign, desktop widths Amp/Banter/Browse/Sage, creator pages, glass realism.
+- 4:36 PM Sage desktop: persistent chats sidebar (>=1000px) + wider message column; phone keeps the chats sheet. Pro-chat-UI reference: sidebar + ~720-980px readable column.
