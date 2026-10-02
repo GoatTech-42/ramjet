@@ -14,6 +14,8 @@
       icon: 'M12 3l2.2 5.6L20 11l-5.8 2.4L12 19l-2.2-5.6L4 11l5.8-2.4z' },
     { name: 'banter', path: '/banter', desc: 'chat with friends',
       icon: 'M4 5h16v11H9l-5 4z' },
+    { name: 'settings', path: '/settings', desc: 'look, account, privacy',
+      icon: 'M12 8.8a3.2 3.2 0 1 0 0 6.4 3.2 3.2 0 0 0 0-6.4zM19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z' },
   ];
 
   let user = $state('');
@@ -423,6 +425,7 @@
   .lay-grid .row[data-app=jetstream] .tile { background: linear-gradient(180deg, #ff6b5e, #d02a1f); }
   .lay-grid .row[data-app=amp] .tile { background: linear-gradient(180deg, #ff5c7f, #cf1f4a); }
   .lay-grid .row[data-app=sage] .tile { background: linear-gradient(180deg, #c779ff, #7a36c9); }
+  .lay-grid .row[data-app=settings] .tile { background: linear-gradient(180deg, #9aa0ab, #5b616c); }
   .lay-grid .row[data-app=banter] .tile { background: linear-gradient(180deg, #4bdc6e, #1f9d3d); }
   .hs-search { display: flex; align-items: center; gap: 8px; width: min(78%, 320px); margin: 44px auto 0; padding: 0 16px; height: 40px; border-radius: 99px; background: color-mix(in srgb, var(--rj-surface-2) 80%, transparent); border: 1px solid var(--rj-border); color: var(--rj-text-faint); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); }
   .hs-search input { flex: 1; min-width: 0; background: none; border: 0; outline: 0; color: var(--rj-text); font: inherit; font-size: 15px; text-align: center; }
