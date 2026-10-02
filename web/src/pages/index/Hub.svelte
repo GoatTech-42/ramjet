@@ -156,17 +156,17 @@
 </script>
 
 <main class="lay-{layout}" class:glass={skin === 'glass'}>
-  {#if skin === 'glass' && layout === 'dock'}
+  {#if false && skin === 'glass' && layout === 'dock'}
     <nav class="menubar"><span class="mb-l"><b>ramjet</b>{#each apps as a}<a href={a.path}>{a.name}</a>{/each}</span><span class="mb-r"><span>{now.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })} {clockT}</span><a href="/settings">{user}</a><button onclick={logout}>log out</button></span></nav>
   {/if}
   
-  <header>
+  {#if layout !== 'dock'}<header>
     <div class="brand">ramjet<span class="dot">.</span></div>
     <div class="me">
       <button class="out" onclick={logout}>log out</button>
       <a class="avatar" href="/settings" aria-label="settings" title="settings"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3.2"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></a>
     </div>
-  </header>
+  </header>{/if}
 
   {#if user}<p class="hello">{hello}, {user}</p>{/if}
   {#if layout === 'list'}
@@ -272,7 +272,6 @@
       <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>
       <input bind:value={sq} placeholder="search" aria-label="search the web" autocomplete="off" />
     </form>
-    <p class="hs-dots" aria-hidden="true"><i class="on"></i><i></i></p>
   {/if}
 
   {#if sys}
@@ -462,4 +461,5 @@
     .lay-dock .name { font-size: 9.5px; max-width: 54px; overflow: hidden; text-overflow: ellipsis; }
   }
   @media (max-width: 520px) { html[data-skin=glass] .lay-dock .tile { width: 44px !important; height: 44px !important; border-radius: 12px !important; } }
+  main.lay-dock { padding-top: calc(20px + env(safe-area-inset-top)); }
 </style>
