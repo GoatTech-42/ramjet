@@ -357,7 +357,7 @@
   // recent sites: this device only (localStorage), host-level, never recorded
   // while the tab cloak is on, one tap to clear.
   let recents = $state([]);
-  try { recents = JSON.parse(localStorage.getItem('rj-browse-recent') || '[]').slice(0, 30); } catch {}
+  try { const a = JSON.parse(localStorage.getItem('rj-browse-recent') || '[]'); recents = (Array.isArray(a) ? a : []).filter((r) => r && typeof r.name === 'string' && typeof r.url === 'string').slice(0, 30); } catch {}
   function noteRecent(url) {
     if (cloaked || !/^https?:\/\//i.test(url)) return;
     try {
