@@ -895,3 +895,4 @@ Hub layouts (list, home-screen grid, desktop+dock with status widgets) via rj-la
 ## Overnight changelog (Luke signed off 9:19 PM; morning report only)
 - 9:18 PM Browse downloads panel shipped (a87f1a8). Untested: cancel mid-download, iPhone Safari.
 - 10:01 PM Browse new-tab recent sites row already existed (verified 390). Hardened: corrupt rj-browse-recent in localStorage no longer blanks the page.
+- 11:02 PM Browse -> search -> images tab -> tile click verified end to end at 390: stays in the Browse tab, themed results, thumbnails load, address bar updates to the page. Note: rd.com showed its own anti-adblock wall (site behavior with the bigger uBO list); screenshots /downloads/bi-1.png bi-2.png on the sandbox.
