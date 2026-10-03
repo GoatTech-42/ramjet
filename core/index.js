@@ -59,7 +59,7 @@ function serveStatic(res, urlPath) {
   const ext = extname(safe);
   const headers = {
     'content-type': MIME[ext] || 'application/octet-stream',
-    'cache-control': urlPath.startsWith('/cloak/') ? 'no-cache' : 'public, max-age=31536000, immutable',
+    'cache-control': urlPath.startsWith('/cloak/') || /^\/(browse-sw\.js|scramjet\/|controller\/|epoxy\/|libcurl\/)/.test(urlPath) ? 'no-cache' : 'public, max-age=31536000, immutable',
   };
   let body = readFileSync(safe);
   if (COMPRESSIBLE.has(ext) && body.length > 1024) {
@@ -98,180 +98,181 @@ if (existsSync(ADDONS)) {
 }
 
 
+// -- /searx
 
 
 
 
-const SEARX_UPSTREAM = 'http://127.0.0.1:8888';
 
-function sxEsc(s) {
-	return String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-}
-function sxHref(u) {
-	u = String(u || '');
-	return /^https?:\/\//i.test(u) ? u : '';
-}
-function sxCrumb(u) {
-	try {
-		const p = new URL(u);
-		const bits = p.pathname.split('/').filter(Boolean).slice(0, 3).map((b) => { try { return decodeURIComponent(b); } catch { return b; } });
-		return sxEsc(p.host) + (bits.length ? ' &rsaquo; ' + bits.map(sxEsc).join(' &rsaquo; ') : '');
-	} catch { return sxEsc(u); }
-}
-// search speed: a 5-minute result cache (repeat searches, back button, page
-// reloads answer from memory) and general searches pinned to the two engines
-// that actually return results - searxng's default fan-out spends ~0.3s more
-// waiting on engines that are suspended or slow.
-const SX_CACHE = new Map();
-const SX_TTL = 5 * 60 * 1000;
-async function sxFetch(query, page, cat, safe) {
-	const key = [query.toLowerCase(), page, cat, safe].join('|');
-	const hit = SX_CACHE.get(key);
-	if (hit && Date.now() - hit.at < SX_TTL) return hit.v;
-	const general = !cat || cat === 'general';
-	let v = await sxFetchRaw(query, page, cat, safe, general);
-	if (general && !v.down && !(v.data && v.data.results && v.data.results.length)) v = await sxFetchRaw(query, page, cat, safe, false);
-	if (!v.down && v.data && v.data.results && v.data.results.length) {
-		SX_CACHE.set(key, { at: Date.now(), v });
-		if (SX_CACHE.size > 200) SX_CACHE.delete(SX_CACHE.keys().next().value);
-	}
-	return v;
-}
-function sxFetchRaw(query, page, cat, safe, pin) {
-	return new Promise((resolve) => {
-		const qs = (pin ? '?engines=bing,google+cse&q=' : '?q=') + encodeURIComponent(query) + '&format=json' + (page > 1 ? '&pageno=' + page : '') + (cat && cat !== 'general' ? '&categories=' + encodeURIComponent(cat) : '') + '&safesearch=' + (safe | 0);
-		const up = httpRequest(SEARX_UPSTREAM + '/search' + qs, {
-			headers: { accept: 'application/json', 'accept-encoding': 'identity' },
-			timeout: 15000,
-		}, (ur) => {
-			const chunks = [];
-			ur.on('data', (c) => { if (Buffer.concat(chunks).length < 4 * 1024 * 1024) chunks.push(c); });
-			ur.on('end', () => {
-				try { resolve({ down: false, data: JSON.parse(Buffer.concat(chunks).toString('utf8')) }); }
-				catch { resolve({ down: true }); }
-			});
-			ur.on('error', () => resolve({ down: true }));
-		});
-		up.on('timeout', () => { up.destroy(); resolve({ down: true }); });
-		up.on('error', () => resolve({ down: true }));
-		up.end();
-	});
-}
 
-const SX_CATS = [['general', 'all'], ['images', 'images'], ['videos', 'videos'], ['news', 'news'], ['map', 'maps']];
-const SX_SAFE = ['off', 'moderate', 'strict'];
-function sxImg(u) { return u ? '/searx/img?u=' + encodeURIComponent(u) : ''; }
-const SX_BANGS = {
-	w: 'https://en.wikipedia.org/w/index.php?search=%s', yt: 'https://www.youtube.com/results?search_query=%s',
-	g: 'https://www.google.com/search?q=%s', ddg: 'https://duckduckgo.com/?q=%s', r: 'https://www.reddit.com/search/?q=%s',
-	gh: 'https://github.com/search?q=%s', a: 'https://www.amazon.com/s?k=%s', maps: 'https://www.google.com/maps/search/%s',
-	imdb: 'https://www.imdb.com/find/?q=%s', mdn: 'https://developer.mozilla.org/en-US/search?q=%s', so: 'https://stackoverflow.com/search?q=%s',
-	tw: 'https://x.com/search?q=%s', gi: 'https://www.google.com/search?tbm=isch&q=%s', wa: 'https://www.wolframalpha.com/input?i=%s',
-	npm: 'https://www.npmjs.com/search?q=%s', tr: 'https://translate.google.com/?sl=auto&text=%s', ebay: 'https://www.ebay.com/sch/i.html?_nkw=%s',
-};
-// "!w cats" or "cats !w": jump straight to that site (opens inside the proxy frame)
-function sxBang(q) {
-	const m = /^!([a-z]{1,5})\s+(.+)$/i.exec(q) || /^(.+?)\s+!([a-z]{1,5})$/i.exec(q);
-	if (!m) return null;
-	const k = (/^!/.test(q) ? m[1] : m[2]).toLowerCase(), t = (/^!/.test(q) ? m[2] : m[1]).trim();
-	return SX_BANGS[k] ? SX_BANGS[k].replace('%s', encodeURIComponent(t)) : null;
-}
-const SX_CSS = `
-:root { --rj-bg: #000000; --rj-surface: #212121; --rj-surface-2: #2f2f2f; --rj-hover: #171717; --rj-border: rgba(255,255,255,0.08); --rj-text: #ececec; --rj-text-dim: #b4b4b4; --rj-text-faint: #8e8e8e; --rj-accent: #d9f24b; --rj-accent-ink: #1e230a; --rj-radius: 16px; --rj-pill: 999px; --rj-font: system-ui, -apple-system, "Segoe UI", sans-serif; }
-:root { color-scheme: dark; }
-* { box-sizing: border-box; }
-html, body { margin: 0; padding: 0; }
-body { background: var(--rj-bg); color: var(--rj-text); font-family: var(--rj-font); -webkit-font-smoothing: antialiased; min-height: 100dvh; animation: sxin .28s ease-out both; }
-@keyframes sxin { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
-@view-transition { navigation: auto; }
-a { color: inherit; text-decoration: none; }
-.bar { position: sticky; top: 0; z-index: 20; display: flex; align-items: center; gap: 12px; padding: 12px max(16px, env(safe-area-inset-right)) 10px max(16px, env(safe-area-inset-left)); padding-top: calc(12px + env(safe-area-inset-top)); background: color-mix(in srgb, var(--rj-bg) 80%, transparent); -webkit-backdrop-filter: blur(var(--rj-g-blur, 18px)) saturate(1.4); backdrop-filter: blur(var(--rj-g-blur, 18px)) saturate(1.4); border-bottom: 1px solid var(--rj-border); }
-.bar-in { width: 100%; max-width: 1180px; margin: 0 auto; display: flex; align-items: center; gap: 14px; }
-.back { flex: none; width: 36px; height: 36px; display: grid; place-items: center; border-radius: 50%; color: var(--rj-text-dim); }
-.back:hover { background: var(--rj-hover); color: var(--rj-text); }
-.back svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
-.mark { flex: none; font-weight: 700; font-size: 19px; letter-spacing: -0.02em; }
-.mark b { color: var(--rj-accent); font-weight: 700; }
-.box { position: relative; display: flex; gap: 8px; flex: 1; min-width: 0; max-width: 760px; }
-.box .ic { position: absolute; left: 16px; top: 50%; transform: translateY(-50%); width: 17px; height: 17px; fill: none; stroke: var(--rj-text-dim); stroke-width: 2; stroke-linecap: round; pointer-events: none; }
-.box input[type=text] { flex: 1; min-width: 0; background: var(--rj-surface); border: 1px solid var(--rj-border); border-radius: var(--rj-pill); padding: 0 18px 0 42px; height: 44px; color: var(--rj-text); font: inherit; font-size: 16px; outline: none; transition: border-color .15s, box-shadow .15s; }
-.box input[type=text]:focus { border-color: var(--rj-accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--rj-accent) 22%, transparent); }
-.box input::placeholder { color: var(--rj-text-dim); opacity: .85; }
-.box button { flex: none; width: 44px; height: 44px; display: grid; place-items: center; background: var(--rj-accent); color: var(--rj-accent-ink); border: 0; border-radius: 50%; cursor: pointer; }
-.box button svg { width: 19px; height: 19px; fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
-.tabsrow { border-bottom: 1px solid var(--rj-border); }
-.tabs { width: 100%; max-width: 1180px; margin: 0 auto; padding: 0 16px; display: flex; align-items: center; gap: 2px; overflow-x: auto; scrollbar-width: none; white-space: nowrap; }
-.tabs::-webkit-scrollbar { display: none; }
-.tabset { display: flex; gap: 2px; }
-.tab { padding: 12px 14px 11px; font-size: 14.5px; color: var(--rj-text-dim); border-bottom: 2px solid transparent; margin-bottom: -1px; }
-.tab:hover { color: var(--rj-text); }
-.tab.on { color: var(--rj-text); border-bottom-color: var(--rj-accent); font-weight: 600; }
-.safe { margin-left: auto; display: inline-flex; flex: none; padding: 2px; border: 1px solid var(--rj-border); border-radius: var(--rj-pill); background: var(--rj-surface); }
-.sf { padding: 5px 11px; border-radius: var(--rj-pill); font-size: 12.5px; color: var(--rj-text-faint); }
-.sf.on { background: var(--rj-surface-2); color: var(--rj-text); }
-.wrap { width: 100%; max-width: 1180px; margin: 0 auto; padding: 20px 16px 56px; }
-.col { max-width: 820px; }
-.count { color: var(--rj-text-faint); font-size: 12.5px; margin: 0 2px 16px; }
-.hits { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
-.hit { padding: 12px 14px; margin: 0 -14px; border-radius: calc(var(--rj-radius) - 2px); animation: sxin .3s ease-out both; transition: background .15s; }
-.hit:hover { background: var(--rj-hover); }
-.hit-site { display: flex; align-items: center; gap: 9px; min-width: 0; margin-bottom: 4px; }
-.fav { flex: none; width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; font-size: 12px; font-weight: 700; text-transform: uppercase; color: var(--rj-accent-ink); background: var(--rj-accent); }
-.hit-crumb { color: var(--rj-text-dim); font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
-.hit-title { display: block; font-size: 19px; color: var(--rj-accent); line-height: 1.3; overflow-wrap: anywhere; font-weight: 500; }
-.hit-title:hover { text-decoration: underline; text-underline-offset: 3px; }
-.hit-snip { color: var(--rj-text-dim); font-size: 14.5px; line-height: 1.55; margin: 6px 0 0; overflow-wrap: anywhere; }
-.hit-meta { color: var(--rj-text-faint); font-size: 12px; margin-top: 6px; }
-.hit.has-th { display: flex; gap: 16px; align-items: flex-start; }
-.hit-body { min-width: 0; flex: 1; }
-.hit-th { width: 168px; flex: none; border-radius: calc(var(--rj-radius) - 4px); background: var(--rj-surface); object-fit: cover; aspect-ratio: 16/9; order: 2; }
-.hit-th.news { width: 96px; aspect-ratio: 1; }
-.answer { background: var(--rj-surface); border: 1px solid var(--rj-border); border-left: 3px solid var(--rj-accent); border-radius: var(--rj-radius); padding: 16px 18px; font-size: 16px; line-height: 1.5; margin-bottom: 20px; }
-.correction { color: var(--rj-text-dim); font-size: 14.5px; margin-bottom: 16px; }
-.correction a { color: var(--rj-accent); }
-.notice { background: var(--rj-surface); border: 1px solid var(--rj-border); border-radius: var(--rj-radius); padding: 18px; color: var(--rj-text-dim); font-size: 14.5px; margin-bottom: 20px; }
-.pager { display: flex; gap: 10px; margin-top: 28px; }
-.pill { background: var(--rj-surface); border: 1px solid var(--rj-border); border-radius: var(--rj-pill); padding: 10px 20px; font-size: 14px; color: var(--rj-text); }
-.pill:hover { background: var(--rj-surface-2); }
-.grid { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
-.tile a { display: block; aspect-ratio: 1; border-radius: calc(var(--rj-radius) - 2px); overflow: hidden; background: var(--rj-surface); }
-.tile img { width: 100%; height: 100%; object-fit: cover; display: block; transition: transform .25s; }
-.tile a:hover img { transform: scale(1.05); }
-.tile-cap { color: var(--rj-text-faint); font-size: 11.5px; margin-top: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.wrap.wide .col { max-width: none; }
-.home-hero { min-height: calc(100dvh - 120px); display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; padding: 0 16px 6vh; }
-.home-hero .mark { font-size: clamp(34px, 6vw, 52px); margin-bottom: 22px; }
-.home-hero .box { width: 100%; max-width: 640px; }
-.home-hero .box input[type=text] { height: 54px; font-size: 17px; }
-.home-hero .box button { width: 54px; height: 54px; }
-.recent { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 18px; max-width: 640px; }
-.recent a, .recent button { background: var(--rj-surface); border: 1px solid var(--rj-border); color: var(--rj-text-dim); border-radius: var(--rj-pill); padding: 7px 14px; font: inherit; font-size: 13.5px; cursor: pointer; }
-.recent a:hover { color: var(--rj-text); }
-.framed .back, .framed .mark { display: none; }
-.framed .bar { padding-top: 10px; }
-.foot { margin-top: 44px; color: var(--rj-text-faint); font-size: 11.5px; }
-html[data-skin=glass] .hit { background: var(--rj-surface); border: 1px solid var(--rj-border); margin: 0; padding: 14px 16px; -webkit-backdrop-filter: blur(var(--rj-g-blur, 18px)); backdrop-filter: blur(var(--rj-g-blur, 18px)); }
-html[data-skin=glass] .hits { gap: 10px; }
-html[data-skin=glass] .tabsrow, html[data-skin=glass] .bar { border-color: var(--rj-border); }
-html[data-skin=glass] .tab.on { color: var(--rj-text); }
-@media (max-width: 700px) {
-  .mark { display: none; }
-  .back { width: 32px; }
-  .hit-title { font-size: 17.5px; }
-  .hit-th { width: 104px; }
-  .hit-th.news { width: 72px; }
-  .hit.has-th { gap: 12px; }
-  .safe .sf { padding: 5px 9px; }
-  .tabs { padding: 0 8px; }
-}
-@media (min-width: 1100px) {
-  .bar-in, .tabs, .wrap { padding-left: 24px; padding-right: 24px; }
-  .bar-in { padding: 0; }
-  .col { max-width: 880px; }
-}
-`;
-const SX_JS = `
-(function () {
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+ document.addEventListener('error', function (e) { var t = e.target; if (!t || t.tagName !== 'IMG') return; var a = t.getAttribute('data-alt'); if (a) { t.removeAttribute('data-alt'); t.src = a; } else { var li = t.closest('li.tile'); if (li) li.style.display = 'none'; else t.style.visibility = 'hidden'; } }, true);
   var K = 'rj-browse-searches', de = document.documentElement;
   try { if (window.parent !== window) de.classList.add('framed'); } catch (e) { de.classList.add('framed'); }
   function read() { try { var a = JSON.parse(localStorage.getItem(K) || '[]'); return Array.isArray(a) ? a.slice(0, 12) : []; } catch (e) { return []; } }
@@ -313,7 +314,7 @@ function sxPage(query, page, result, cat, safe) {
 		const th = sxHref(r.thumbnail_src || r.thumbnail || '');
 		if (cat === 'images') {
 			const full = sxHref(r.img_src);
-			cards.push('<li class="tile"><a href="' + sxEsc(href) + '" title="' + sxEsc(r.title || '') + '"><img loading="lazy" referrerpolicy="no-referrer" alt="' + sxEsc(r.title || '') + '" src="' + sxEsc(sxImg(th || full)) + '" /></a><div class="tile-cap">' + sxEsc(String(r.title || '').slice(0, 60)) + '</div></li>');
+			cards.push('<li class="tile"><a href="' + sxEsc(href) + '" title="' + sxEsc(r.title || '') + '"><img loading="lazy" referrerpolicy="no-referrer" alt="' + sxEsc(r.title || '') + '" src="' + sxEsc(sxImg(th || full)) + '"' + (th && full ? ' data-alt="' + sxEsc(sxImg(full)) + '"' : '') + ' /></a><div class="tile-cap">' + sxEsc(String(r.title || '').slice(0, 60)) + '</div></li>');
 			continue;
 		}
 		const thumbHtml = (th && (cat === 'videos' || cat === 'news')) ? '<img class="hit-th ' + cat + '" loading="lazy" referrerpolicy="no-referrer" alt="" src="' + sxEsc(sxImg(th)) + '" />' : '';
@@ -391,6 +392,7 @@ async function proxySearx(req, res, session, restUrl) {
 		if (!imgGuard) { res.writeHead(400); return res.end(); }
 		const mod = t.protocol === 'https:' ? httpsRequest : httpRequest;
 		const ur = mod(t, { headers: { accept: 'image/*', 'user-agent': 'Mozilla/5.0' }, lookup: safeLookup, timeout: 10000 }, (ir) => {
+			if (ir.statusCode >= 300 && ir.statusCode < 400 && ir.headers.location && (parseInt(u.searchParams.get('h') || '0', 10) < 3)) { ir.resume(); let nx; try { nx = new URL(ir.headers.location, t); } catch { res.writeHead(404); return res.end(); } res.writeHead(302, { location: '/searx/img?h=' + (parseInt(u.searchParams.get('h') || '0', 10) + 1) + '&u=' + encodeURIComponent(nx.href) }); return res.end(); }
 			const ct = String(ir.headers['content-type'] || '');
 			if (ir.statusCode !== 200 || !/^image\/(jpeg|png|webp|gif|avif)/.test(ct)) { ir.resume(); res.writeHead(404); return res.end(); }
 			res.writeHead(200, { 'content-type': ct, 'cache-control': 'private, max-age=86400', 'x-content-type-options': 'nosniff' });
@@ -636,8 +638,10 @@ server.on('upgrade', (req, socket, head) => {
   const pm = req.url.match(/^\/pws-t\/([a-f0-9]{48})/);
   if (pm) {
     const tk = wispTickets.get(pm[1]);
-    if (!tk || tk.exp < Date.now()) { socket.destroy(); return; }
-    return pwsUpgrade(req, socket, head, tk.user, (n) => { try { guard.trackBytes(tk.user, n); } catch {} });
+    let puser = (tk && tk.exp >= Date.now()) ? tk.user : null;
+    if (!puser) { const ps = auth.sessionFromCookies(parseCookies(req)); if (ps) puser = ps.user; }
+    if (!puser) { socket.destroy(); return; }
+    return pwsUpgrade(req, socket, head, puser, (n) => { try { guard.trackBytes(puser, n); } catch {} });
   }
   const tm = req.url.match(/^\/wisp-t\/([a-f0-9]{48})/);
   if (!tm && !req.url.startsWith('/wisp/')) { socket.destroy(); return; }

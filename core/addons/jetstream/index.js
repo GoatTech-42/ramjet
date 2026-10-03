@@ -1688,7 +1688,7 @@ export async function register(req, res, ctx) {
     const line = JSON.stringify({
       ts: new Date().toISOString(), user: session.user,
       kind: String(body.kind || '').slice(0, 24), id: String(body.id || '').slice(0, 16),
-      vw: body.vw | 0, vh: body.vh | 0, hd: !!body.hd,
+      vw: body.vw | 0, vh: body.vh | 0, hd: !!body.hd, why: String(body.why || '').slice(0, 40),
       ua: String(body.ua || '').slice(0, 120),
     });
     try {

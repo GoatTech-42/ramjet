@@ -394,7 +394,23 @@
   // phone = low-data mode: 720p tier (pixel-exact on a phone screen, about half
   // the bytes of 1080p) and lighter prefetch. desktop keeps the full tier.
   const isPhone = (() => { try { const ds = localStorage.getItem('rj-datasaver'); if (ds === 'on') return true; if (ds === 'off') return false; return /iPhone|Android.*Mobile/.test(navigator.userAgent) || (matchMedia('(pointer: coarse)').matches && Math.min(screen.width, screen.height) <= 500); } catch { return false; } })();
-  const watchUrl = (id) => `/api/apps/jetstream/watch?id=${id}${canVp9 ? '&vp9=1' : ''}${isPhone ? '&lite=1' : ''}`;
+  let qTier = $state('auto'), qMenu = $state(false);
+  try { const t = localStorage.getItem('js-qtier'); if (['auto', 'hd', 'lite', '360'].includes(t)) qTier = t; } catch {}
+  const watchUrl = (id) => `/api/apps/jetstream/watch?id=${id}${canVp9 ? '&vp9=1' : ''}${(qTier === 'lite' || (qTier !== 'hd' && isPhone)) ? '&lite=1' : ''}`;
+  const QTIERS = [['auto', 'auto', 'best for this device'], ['hd', '1080p', 'sharpest, most data'], ['lite', '720p', 'about half the data'], ['360', '360p', 'smallest']];
+  async function pickTier(t) {
+    qMenu = false;
+    if (t === qTier) return;
+    qTier = t; try { localStorage.setItem('js-qtier', t); } catch {}
+    if (!watching) return;
+    const keep = videoEl ? videoEl.currentTime || 0 : 0;
+    if (keep > 1) pending = { id: watching.id, t: keep };
+    hdDropped = false;
+    if (t === '360') { if (watchInfo) { hdMode = false; startFallback(); } return; }
+    const r = await api(watchUrl(watching.id));
+    if (r.ok && watching) watchInfo = { ...r.data };
+  }
+
 
   let pullingMore = false;
   let lastAheadAt = -1;
@@ -1023,7 +1039,7 @@
 
   $effect(() => {
     if (!watchInfo || !videoEl) return;
-    const useHd = !!watchInfo.hd;
+    const useHd = !!watchInfo.hd && qTier !== '360';
     hdMode = useHd;
     if (useHd) startHd(); else startFallback();
   });
@@ -1313,27 +1329,19 @@
         {/if}
       </div>
       <h1>{watching.title}</h1>
-      <p class="meta">
-        {#if watchInfo?.channelId}
-          <button class="chanlink" onclick={() => openChannel(watchInfo.channelId, watchInfo.channel || watching.channel)}>{watchInfo.channel || watching.channel}</button>
-        {:else}
-          {watching.channel}
-        {/if}{watching.views ? ` · ${watching.views}` : ''}
-        {#if watchInfo?.hd}
-          {' · '}{#if !audioOnly}<button class="qbtn" onclick={toggleQuality} aria-label="switch quality">{hdMode ? watchInfo.hd.quality : '360p'}</button>{/if}
-          {' '}<button class="qbtn" class:on={audioOnly} onclick={toggleAudioOnly} aria-label="audio only" aria-pressed={audioOnly}>audio only</button>
-        {/if}
-        {#if techOn()}{' '}<button class="qbtn" class:on={statsOpen} onclick={toggleStats} aria-label="stats for nerds">stats</button>{/if}
-      </p>
+      <div class="wch">
+        <span class="wav" aria-hidden="true">{(watchInfo?.channel || watching.channel || '?').slice(0, 1)}</span>
+        <span class="wchtx">
+          {#if watchInfo?.channelId}<button class="chanlink" onclick={() => openChannel(watchInfo.channelId, watchInfo.channel || watching.channel)}>{watchInfo.channel || watching.channel}</button>{:else}<b class="chanlink">{watching.channel}</b>{/if}
+          {#if watching.views}<small>{watching.views}</small>{/if}
+        </span>
+      </div>
       {#if statsOpen && stats}
         <pre class="nerd">{stats.src}
 {stats.res} · {stats.state} · buffer {stats.buf}s
 dropped frames {stats.dropped} · rate {stats.rate}x
 network {stats.net} · ready {stats.ready}</pre>
       {/if}
-      <div class="sumrow">
-        <button class="qbtn" class:on={!!sum?.data} onclick={runSummary} aria-label="summarize this video">{sum?.loading ? 'reading the captions...' : sum?.data ? 'hide summary' : 'summarize'}</button>
-      </div>
       {#if sum?.error}<p class="hdnote">{sum.error}</p>{/if}
       {#if sum?.data}
         <section class="sumcard">
@@ -1346,7 +1354,7 @@ network {stats.net} · ready {stats.ready}</pre>
         </section>
       {/if}
       {#if hdDropped}
-        <p class="hdnote">hd hiccuped - dropped you to 360p</p>
+        <p class="hdnote">hd hiccuped here, so this one is playing at 360p. <button class="linkbtn" onclick={() => { hdDropped = false; hdMode = true; startHd(); }}>try hd again</button></p>
       {/if}
       {#if autoplay}
         <p class="hdnote">autoplaying {autoplay.channelName} - video {autoplay.idx + 1} of {autoplay.items.length}</p>
@@ -1364,6 +1372,13 @@ network {stats.net} · ready {stats.ready}</pre>
           <svg viewBox="0 0 24 24"><path d="M3.9 12a3.1 3.1 0 013.1-3.1h4V7H7a5 5 0 000 10h4v-1.9H7A3.1 3.1 0 013.9 12zM8 13h8v-2H8v2zm9-6h-4v1.9h4a3.1 3.1 0 010 6.2h-4V17h4a5 5 0 000-10z" /></svg>
           <span>{linkCopied ? 'copied' : 'link'}</span>
         </button>
+        {#if watchInfo?.hd}
+          {#if !audioOnly}<span class="qwrap"><button class="wlike" onclick={() => (qMenu = !qMenu)} aria-label="video quality" aria-expanded={qMenu}>{hdMode ? watchInfo.hd.quality : '360p'}{qTier === 'auto' ? '' : ' *'}</button>
+            {#if qMenu}<button class="qbd" aria-label="close" onclick={() => (qMenu = false)}></button><span class="qmenu" role="menu">{#each QTIERS as [k, n, d]}<button role="menuitem" class:on={qTier === k} onclick={() => pickTier(k)}><b>{n}</b><i>{d}</i></button>{/each}</span>{/if}</span>{/if}
+          <button class="wlike" class:liked={audioOnly} onclick={toggleAudioOnly} aria-label="audio only" aria-pressed={audioOnly}><span>audio only</span></button>
+        {/if}
+        <button class="wlike" class:liked={!!sum?.data} onclick={runSummary} aria-label="summarize this video"><span>{sum?.loading ? 'reading...' : sum?.data ? 'hide summary' : 'summarize'}</span></button>
+        {#if techOn()}<button class="wlike" class:liked={statsOpen} onclick={toggleStats} aria-label="stats for nerds"><span>stats</span></button>{/if}
       </div>
       <button class="backbtn" onclick={backToList}>back to results</button>
       {#if results.filter((r) => r.id !== watching.id).length}
@@ -1981,4 +1996,27 @@ network {stats.net} · ready {stats.ready}</pre>
   .cbanner { max-height: 200px; overflow: hidden; border-radius: 14px; }
   .cbanner img { width: 100%; max-height: 200px; object-fit: cover; display: block; }
   @media (min-width: 1000px) { .cbanner, .cbanner img { max-height: 240px; } }
+  .qwrap { position: relative; display: inline-block; }
+  .qbd { position: fixed; inset: 0; z-index: 49; background: transparent; border: 0; }
+  .qmenu { position: absolute; z-index: 50; left: 0; top: calc(100% + 6px); min-width: 220px; display: flex; flex-direction: column; padding: 6px; background: var(--rj-surface-2, var(--rj-surface)); border: 1px solid var(--rj-border); border-radius: calc(var(--rj-radius) - 2px); box-shadow: 0 14px 40px rgba(0,0,0,.5); -webkit-backdrop-filter: blur(var(--rj-g-blur, 0px)); backdrop-filter: blur(var(--rj-g-blur, 0px)); }
+  .qmenu button { display: flex; justify-content: space-between; align-items: baseline; gap: 14px; min-height: 42px; padding: 0 12px; border: 0; background: none; color: var(--rj-text); font: inherit; font-size: 15px; border-radius: calc(var(--rj-radius) - 6px); text-align: left; }
+  .qmenu button:hover { background: var(--rj-hover); }
+  .qmenu button.on { color: var(--rj-accent); }
+  .qmenu i { font-style: normal; font-size: 12px; color: var(--rj-text-faint); }
+  /* watch page under the player (youtube-style) */
+  .player h1 { font-size: 19px; font-weight: 600; margin: 16px 4px 10px; line-height: 1.3; letter-spacing: -0.01em; overflow-wrap: anywhere; }
+  .wch { display: flex; align-items: center; gap: 12px; margin: 0 4px 12px; }
+  .wav { flex: none; width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; background: var(--rj-accent); color: var(--rj-accent-ink); font-weight: 700; text-transform: uppercase; }
+  .wchtx { display: flex; flex-direction: column; min-width: 0; line-height: 1.25; }
+  .wchtx .chanlink { font-size: 15px; font-weight: 600; color: var(--rj-text); text-align: left; padding: 0; background: none; border: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .wchtx small { font-size: 12.5px; color: var(--rj-text-faint); }
+  .player .wactions { display: flex; flex-wrap: nowrap; gap: 8px; margin: 0 4px 12px; overflow-x: auto; scrollbar-width: none; padding-bottom: 2px; }
+  .player .wactions::-webkit-scrollbar { display: none; }
+  .player .wlike { flex: none; white-space: nowrap; background: var(--rj-surface); border-color: transparent; color: var(--rj-text); }
+  .player .wlike:hover { background: var(--rj-surface-2); }
+  .player .wlike.liked { border-color: var(--rj-accent); color: var(--rj-accent); }
+  .player .qwrap .qmenu { z-index: 60; }
+  .player .hdnote { margin: 0 4px 12px; padding: 10px 14px; border-radius: calc(var(--rj-radius) - 4px); background: var(--rj-surface); color: var(--rj-text-dim); font-size: 13px; }
+  .player .uplabel { margin: 18px 4px 8px; font-size: 13px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--rj-text-faint); }
+  @media (min-width: 1000px) { .player h1 { font-size: 22px; } .player .wactions { flex-wrap: wrap; overflow: visible; } }
 </style>

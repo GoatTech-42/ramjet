@@ -207,8 +207,9 @@
       const toB64 = (buf) => { let s = ''; const u = new Uint8Array(buf); for (let i = 0; i < u.length; i += 0x8000) s += String.fromCharCode.apply(null, u.subarray(i, i + 0x8000)); return btoa(s); };
       let sock = null, opening = null, nextId = 1;
       const pend = new Map();
-      const open = () => sock && sock.readyState === 1 ? Promise.resolve(sock) : opening || (opening = new Promise((res, rej) => {
-        const w = new WebSocket(pwsUrl); w.binaryType = 'arraybuffer';
+      const freshUrl = async () => { try { const r = await fetch('/api/wisp-ticket' + (ab ? '' : '?ab=0')); const j = await r.json(); if (j && j.ticket) return pwsUrl.replace(/\/pws-t\/[a-f0-9]+/, '/pws-t/' + j.ticket); } catch {} return pwsUrl; };
+      const open = () => sock && sock.readyState === 1 ? Promise.resolve(sock) : opening || (opening = freshUrl().then((url) => new Promise((res, rej) => {
+        const w = new WebSocket(url); w.binaryType = 'arraybuffer';
         w.onopen = () => { sock = w; opening = null; res(w); };
         w.onerror = () => { opening = null; rej(new TypeError('proxy socket failed')); };
         w.onclose = () => { sock = null; for (const [, p] of pend) p.fail('proxy socket closed'); pend.clear(); };
@@ -220,7 +221,7 @@
           else if (type === 2) { pend.delete(id); try { p.ctl?.close(); } catch {} }
           else { pend.delete(id); p.fail(new TextDecoder().decode(new Uint8Array(ev.data, 5))); }
         };
-      }));
+      })).catch((e) => { opening = null; throw e; }));
       return {
         ready: false,
         async init() { await epoxy.init(); this.ready = true; },
