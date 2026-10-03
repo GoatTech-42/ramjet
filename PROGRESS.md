@@ -894,3 +894,4 @@ Hub layouts (list, home-screen grid, desktop+dock with status widgets) via rj-la
 
 ## Overnight changelog (Luke signed off 9:19 PM; morning report only)
 - 9:18 PM Browse downloads panel shipped (a87f1a8). Untested: cancel mid-download, iPhone Safari.
+- 10:01 PM Browse new-tab recent sites row already existed (verified 390). Hardened: corrupt rj-browse-recent in localStorage no longer blanks the page.
