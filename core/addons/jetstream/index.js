@@ -640,7 +640,7 @@ try { mkdirSync(CACHE_DIR, { recursive: true }); } catch {}
 const THUMB_DIR = fileURLToPath(new URL('../../../data/thumb-cache', import.meta.url));
 try { mkdirSync(THUMB_DIR, { recursive: true }); } catch {}
 const THUMB_CAP = 128 * 1024 * 1024;
-const thumbPath = (id) => THUMB_DIR + '/' + id + '.jpg';
+const thumbPath = (id, lite) => THUMB_DIR + '/' + id + (lite ? '.l' : '') + '.jpg';
 const thumbInflight = new Map(); // id -> Promise<buf|null>, dedupes parallel cold misses
 let thumbEvictTimer = null;
 function evictThumbs() {
@@ -665,8 +665,8 @@ function evictThumbs() {
 // best poster available: maxres (1280) -> sd (640) -> hq (480) -> mq (320).
 // a 320x180 thumb stretched over a phone screen reads as "the app is
 // blurry" even when the stream behind it is true 1080p.
-async function fetchThumbBuffer(id) {
-  for (const name of ['maxresdefault', 'sddefault', 'hqdefault', 'mqdefault']) {
+async function fetchThumbBuffer(id, lite) {
+  for (const name of (lite ? ['hqdefault', 'mqdefault'] : ['maxresdefault', 'sddefault', 'hqdefault', 'mqdefault'])) {
     try {
       const r = await fetch(`https://i.ytimg.com/vi/${id}/${name}.jpg`, { signal: AbortSignal.timeout(8000) });
       if (!r.ok) continue;
@@ -677,27 +677,28 @@ async function fetchThumbBuffer(id) {
   }
   return null;
 }
-function getThumb(id) {
-  if (thumbInflight.has(id)) return thumbInflight.get(id);
+function getThumb(id, lite) {
+  const ik = lite ? id + ':l' : id;
+  if (thumbInflight.has(ik)) return thumbInflight.get(ik);
   const p = (async () => {
     try {
-      const buf = await fetchThumbBuffer(id);
+      const buf = await fetchThumbBuffer(id, lite);
       if (buf) {
         try {
-          const tmp = thumbPath(id) + '.part';
+          const tmp = thumbPath(id, lite) + '.part';
           const fh = await fsOpen(tmp, 'w');
           await fh.writeFile(buf);
           await fh.close();
-          await fsRename(tmp, thumbPath(id));
+          await fsRename(tmp, thumbPath(id, lite));
           evictThumbs();
         } catch {}
       }
       return buf;
     } finally {
-      thumbInflight.delete(id);
+      thumbInflight.delete(ik);
     }
   })();
-  thumbInflight.set(id, p);
+  thumbInflight.set(ik, p);
   return p;
 }
 // fire-and-forget warmer: feed builds and scroll-ahead pings warm posters
@@ -2000,7 +2001,8 @@ export async function register(req, res, ctx) {
     if (!/^[A-Za-z0-9_-]{11}$/.test(id)) return sendJson(res, 400, { ok: false, error: 'bad id' });
     // disk first: a cached poster serves in milliseconds even when the
     // upstream image host is slow; cold misses fetch, cache, then serve.
-    const tp = thumbPath(id);
+    const lite = url.searchParams.get('lite') === '1';
+    const tp = thumbPath(id, lite);
     if (existsSync(tp)) {
       const now = new Date();
       try { utimesSync(tp, now, now); } catch {} // lru touch
@@ -2008,7 +2010,7 @@ export async function register(req, res, ctx) {
       res.writeHead(200, { 'content-type': 'image/jpeg', 'cache-control': 'public, max-age=86400' });
       return createReadStream(tp).pipe(res);
     }
-    const buf = await getThumb(id);
+    const buf = await getThumb(id, lite);
     if (!buf) return sendJson(res, 502, { ok: false, error: 'no thumb' });
     guard.trackBytes(session.user, buf.length);
     res.writeHead(200, { 'content-type': 'image/jpeg', 'cache-control': 'public, max-age=86400' });

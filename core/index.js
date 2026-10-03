@@ -248,7 +248,14 @@ a { color: inherit; text-decoration: none; }
 .recent a, .recent button { background: var(--rj-surface); border: 1px solid var(--rj-border); color: var(--rj-text-dim); border-radius: var(--rj-pill); padding: 7px 14px; font: inherit; font-size: 13.5px; cursor: pointer; }
 .recent a:hover { color: var(--rj-text); }
 .framed .back, .framed .mark { display: none; }
-.framed .bar { padding-top: 10px; }
+.framed .bar { display: none; }
+.strip { list-style: none; margin: 4px 0 22px; padding: 0; }
+.strip-row { display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none; padding-bottom: 2px; }
+.strip-row::-webkit-scrollbar { display: none; }
+.strip-row a { flex: 0 0 auto; width: 118px; height: 118px; border-radius: calc(var(--rj-radius) - 2px); overflow: hidden; background: var(--rj-surface); }
+.strip-row img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.strip-more { display: inline-block; margin-top: 8px; color: var(--rj-text-dim); font-size: 13px; text-decoration: none; }
+.strip-more:hover { color: var(--rj-text); }
 .foot { margin-top: 44px; color: var(--rj-text-faint); font-size: 11.5px; }
 html[data-skin=glass] .hit { background: var(--rj-surface); border: 1px solid var(--rj-border); margin: 0; padding: 14px 16px; -webkit-backdrop-filter: blur(var(--rj-g-blur, 18px)); backdrop-filter: blur(var(--rj-g-blur, 18px)); }
 html[data-skin=glass] .hits { gap: 10px; }
@@ -275,8 +282,11 @@ const SX_JS = `
   /*rjimgfb*/ document.addEventListener('error', function (e) { var t = e.target; if (!t || t.tagName !== 'IMG') return; var a = t.getAttribute('data-alt'); if (a) { t.removeAttribute('data-alt'); t.src = a; } else { var li = t.closest('li.tile'); if (li) li.style.display = 'none'; else t.style.visibility = 'hidden'; } }, true);
   var K = 'rj-browse-searches', de = document.documentElement;
   try { if (window.parent !== window) de.classList.add('framed'); } catch (e) { de.classList.add('framed'); }
-  function read() { try { var a = JSON.parse(localStorage.getItem(K) || '[]'); return Array.isArray(a) ? a.slice(0, 12) : []; } catch (e) { return []; } }
-  function add(q) { q = String(q || '').trim().slice(0, 120); if (!q) return; var n = [q].concat(read().filter(function (x) { return x.toLowerCase() !== q.toLowerCase(); })).slice(0, 12); try { localStorage.setItem(K, JSON.stringify(n)); } catch (e) {} }
+  function lite() { try { var ds = localStorage.getItem('rj-datasaver'); if (ds === 'on') return true; if (ds === 'off') return false; var c = navigator.connection; if (c) { if (c.saveData || c.type === 'cellular') return true; if (c.type === 'wifi' || c.type === 'ethernet') return false; return /^(slow-2g|2g|3g)$/.test(c.effectiveType || ''); } return /iPhone|Android.*Mobile/.test(navigator.userAgent); } catch (e) { return false; } }
+  if (!lite()) document.querySelectorAll('img[data-full]').forEach(function (im) { var f = im.getAttribute('data-full'); var t = new Image(); t.onload = function () { im.src = f; im.removeAttribute('data-alt'); }; t.referrerPolicy = 'no-referrer'; t.src = f; });
+  function on() { try { return localStorage.getItem('rj-save-searches') === 'on'; } catch (e) { return false; } }
+  function read() { if (!on()) return []; try { var a = JSON.parse(localStorage.getItem(K) || '[]'); return Array.isArray(a) ? a.slice(0, 12) : []; } catch (e) { return []; } }
+  function add(q) { q = String(q || '').trim().slice(0, 120); if (!q || !on()) return; var n = [q].concat(read().filter(function (x) { return x.toLowerCase() !== q.toLowerCase(); })).slice(0, 12); try { localStorage.setItem(K, JSON.stringify(n)); } catch (e) {} }
   var f = document.querySelector('form.box'); var i = f && f.querySelector('input[name=q]');
   if (i && i.value) add(i.value);
   if (f) f.addEventListener('submit', function () { if (i) add(i.value); });
@@ -292,7 +302,7 @@ const SX_JS = `
 })();
 `;
 function sxHost(u) { try { return new URL(u).hostname; } catch { return ''; } }
-function sxPage(query, page, result, cat, safe) {
+function sxPage(query, page, result, cat, safe, imgRes) {
 	cat = SX_CATS.some((c) => c[0] === cat) ? cat : 'general';
 	safe = [0, 1, 2].includes(safe) ? safe : 0;
 	const qs = (o) => { const m = Object.assign({ q: query, c: cat, s: safe }, o || {}); return '/searx/search?' + Object.entries(m).filter(([k, v]) => v !== '' && v != null && !(k === 'c' && v === 'general')).map(([k, v]) => k + '=' + encodeURIComponent(v)).join('&'); };
@@ -304,6 +314,11 @@ function sxPage(query, page, result, cat, safe) {
 	const corrections = (Array.isArray(data.corrections) ? data.corrections : []).filter(Boolean).slice(0, 1);
 	const total = Number(data.number_of_results) || 0;
 
+	let strip = '';
+	if (cat === 'general' && page === 1 && imgRes && imgRes.data && Array.isArray(imgRes.data.results)) {
+		const ims = imgRes.data.results.map((r) => ({ t: sxHref(r.thumbnail_src || r.thumbnail || '') || sxHref(r.img_src || ''), f: sxHref(r.img_src || ''), a: String(r.title || '') })).filter((x) => x.t).slice(0, 9);
+		if (ims.length >= 4) strip = '<li class="strip"><div class="strip-row">' + ims.map((x) => '<a href="' + sxEsc('/searx/search?q=' + encodeURIComponent(query) + '&c=images') + '"><img loading="lazy" referrerpolicy="no-referrer" alt="' + sxEsc(x.a.slice(0, 80)) + '" src="' + sxEsc(sxImg(x.t)) + '"'  + ' /></a>').join('') + '</div><a class="strip-more" href="' + sxEsc('/searx/search?q=' + encodeURIComponent(query) + '&c=images') + '">more images &rarr;</a></li>';
+	}
 	const cards = [];
 	for (const r of results) {
 		const href = sxHref(r.url);
@@ -314,7 +329,7 @@ function sxPage(query, page, result, cat, safe) {
 		const th = sxHref(r.thumbnail_src || r.thumbnail || '');
 		if (cat === 'images') {
 			const full = sxHref(r.img_src);
-			cards.push('<li class="tile"><a href="' + sxEsc(href) + '" title="' + sxEsc(r.title || '') + '"><img loading="lazy" referrerpolicy="no-referrer" alt="' + sxEsc(r.title || '') + '" src="' + sxEsc(sxImg(th || full)) + '"' + (th && full ? ' data-alt="' + sxEsc(sxImg(full)) + '"' : '') + ' /></a><div class="tile-cap">' + sxEsc(String(r.title || '').slice(0, 60)) + '</div></li>');
+			cards.push('<li class="tile"><a href="' + sxEsc(href) + '" title="' + sxEsc(r.title || '') + '"><img loading="lazy" referrerpolicy="no-referrer" alt="' + sxEsc(r.title || '') + '" src="' + sxEsc(sxImg(th || full)) + '"' + (th && full ? ' data-alt="' + sxEsc(sxImg(full)) + '"' : '') + (th && full ? ' data-full="' + sxEsc(sxImg(full)) + '"' : '') + ' /></a><div class="tile-cap">' + sxEsc(String(r.title || '').slice(0, 60)) + '</div></li>');
 			continue;
 		}
 		const thumbHtml = (th && (cat === 'videos' || cat === 'news')) ? '<img class="hit-th ' + cat + '" loading="lazy" referrerpolicy="no-referrer" alt="" src="' + sxEsc(sxImg(th)) + '" />' : '';
@@ -346,6 +361,7 @@ function sxPage(query, page, result, cat, safe) {
 	}
 	if (cards.length) {
 		body += '<div class="count">' + (total ? 'about ' + total.toLocaleString('en-US') + ' results' : cards.length + ' results') + '</div>';
+		if (strip) cards.splice(Math.min(2, cards.length), 0, strip);
 		body += '<ol class="' + (cat === 'images' ? 'grid' : 'hits') + '">' + cards.join('') + '</ol>';
 		body += '<div class="pager">';
 		if (page > 1) body += '<a class="pill" href="' + qs({ p: page - 1 }) + '">&larr; back</a>';
@@ -423,11 +439,14 @@ async function proxySearx(req, res, session, restUrl) {
 	const ck = parseCookies(req).rjss;
 	let safe = u.searchParams.has('s') ? parseInt(u.searchParams.get('s'), 10) : (ck != null ? parseInt(ck, 10) : 0);
 	if (![0, 1, 2].includes(safe)) safe = 0;
+	const wantImgs = q && cat === 'general' && page === 1;
+	const imgP = wantImgs ? Promise.race([sxFetch(q, 1, 'images', safe), new Promise((r) => setTimeout(() => r(null), 4000))]).catch(() => null) : null;
 	const result = q ? await sxFetch(q, page, cat, safe) : null;
+	const imgRes = imgP ? await imgP : null;
 	const hd = { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' };
 	if (u.searchParams.has('s')) hd['set-cookie'] = 'rjss=' + safe + '; Path=/searx; Max-Age=31536000; SameSite=Lax; HttpOnly';
 	res.writeHead(200, hd);
-	res.end(sxPage(q, page, result, cat, safe));
+	res.end(sxPage(q, page, result, cat, safe, imgRes));
 }
 
 // accounts (Luke 1:51 PM "add multiple accounts and the approval system"):

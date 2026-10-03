@@ -329,7 +329,7 @@
       <div class="cols">
       <section class="card"><h3>jetstream</h3>
         <div class="row"><span class="rt"><b>save watch history</b><small>{jsCount ? jsCount + ' saved' : 'nothing saved'}. off stops new recordings</small></span><button class="sw2" role="switch" aria-checked={!jsPaused} aria-label="save watch history" onclick={toggleJsPause}><i></i></button></div>
-        <div class="row"><span class="rt"><b>data saver</b><small>auto uses 720p on phones</small></span>
+        <div class="row"><span class="rt"><b>data saver</b><small>on = smaller video and thumbnails. auto: phones and metered or cellular connections. off = full quality. iPhone cant tell wifi from cellular, so set it to off for full-res on wifi.</small></span>
           <div class="seg sm">{#each ['auto', 'on', 'off'] as v}<button class:on={saver === v} onclick={() => setSaver(v)}>{v}</button>{/each}</div></div>
         {#if jsMsg}<p class="msg ok" role="status">{jsMsg}</p>{/if}
         <button class="dngb" class:armed={jsConfirm} onclick={clearJsHistory}>{jsConfirm ? 'tap again to clear' : 'clear watch history'}</button></section>
