@@ -588,4 +588,11 @@
   .ov-menu .dng { color: #ff6b6b; }
   @keyframes ovf { from { opacity: 0; } to { opacity: 1; } }
   @keyframes ovp { from { opacity: 0; transform: scale(.9); } to { opacity: 1; transform: none; } }
+  /* banter wide v2 */
+  @media (min-width: 1100px) {
+    .chat .list { padding-left: max(24px, calc((100% - 940px) / 2)); padding-right: max(24px, calc((100% - 940px) / 2)); }
+    .chat .composer, .chat .replychip { width: 100%; max-width: 940px; margin-left: auto; margin-right: auto; }
+    .chat .bub { max-width: 620px; font-size: 15.5px; }
+  }
+  @media (min-width: 1600px) { .app { grid-template-columns: 380px 1fr; } }
 </style>
