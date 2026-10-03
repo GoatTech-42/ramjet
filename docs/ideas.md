@@ -42,3 +42,14 @@ Grounded in: what shipped this week (playlists, restricted pre-check, overlay, B
 5. **hub: one-line status for every app** (Arc-style start page). Banter and jetstream already report; add amp (now playing) and sage (last chat) the same way.
 
 Order I would pick: 1, 2, 4. All wait for Luke. Nothing here is built.
+
+## Sat Oct 3 - thinking hour (2 AM)
+
+Grounded in: what shipped since the last list (downloads panel, uBlock Origin lists, terminal tint, recents, history, audio-only, reader, quality picker) and tonight smoke sweep. Reveal is at 1 PM, so none of this is for before then. Nothing is built.
+
+1. **browse: per-site "allow ads" switch** (Brave shields, uBlock per-site). The bigger uBO list now triggers anti-adblock walls on some sites (rd.com showed one in QA). One tap in the toolbar to let a site through, remembered per device. Fixes the one new downside of the list Luke asked for.
+2. **command palette** (Arc, Linear, Spotlight). Ctrl/Cmd-K from any app: jump to an app, a Browse tab, a recent search, or a setting. His layouts already differ per mode; the palette is the one thing that is the same everywhere.
+3. **search: bangs** (Kagi/DDG). Still unbuilt from the Oct 1 list. "!w cats" goes straight to the site, which makes the search box the front door of the proxy.
+4. **banter: reactions** (iMessage/Discord). Still unbuilt from the Oct 2 list. Reply, delete and unread exist, so reactions are the next missing basic.
+
+Order I would pick: 1, 2, 4. All wait for Luke.
