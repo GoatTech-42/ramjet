@@ -29,6 +29,8 @@
   }
   // per-site "allow ads" (Luke 9:17 AM): the block list stays on everywhere
   // else. the choice is per device, kept in localStorage rj-ads-allow.
+  let menuOpen = $state(false);
+  $effect(() => { if (ready && !surfing && typeof matchMedia === 'function' && matchMedia('(pointer: fine)').matches) document.getElementById('br-omni')?.focus(); });
   let adAllow = $state((() => { try { const v = JSON.parse(localStorage.getItem('rj-ads-allow') || '[]'); return Array.isArray(v) ? v.filter((x) => typeof x === 'string').slice(0, 200) : []; } catch { return []; } })());
   function siteOf(t) {
     const p = hostOf(t).split('.').filter(Boolean);
@@ -571,29 +573,40 @@
 </script>
 
 <div class="shell" class:surfing>
+  <div class="chrome">
   <header>
     <a class="back" href="/" title="back to ramjet" aria-label="back to ramjet"><svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7" /></svg></a>
-    <span class="brand">browse</span>
-    <div class="navbtns">
+    <div class="navbtns dnav">
       <button onclick={() => cur()?.frame.back()} title="back" aria-label="back"><svg viewBox="0 0 24 24"><path d="M19 12H5m0 0 6-6m-6 6 6 6" /></svg></button>
       <button onclick={() => cur()?.frame.forward()} title="forward" aria-label="forward"><svg viewBox="0 0 24 24"><path d="M5 12h14m0 0-6-6m6 6-6 6" /></svg></button>
       <button onclick={() => cur()?.frame.reload()} title="reload" aria-label="reload"><svg viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.3-5.7M20 4v4h-4" /></svg></button>
-      <button onclick={toggleCloak} title={cloaked ? 'uncloak this tab' : 'cloak this tab'} aria-label={cloaked ? 'uncloak this tab' : 'cloak this tab'} class:on={cloaked}><svg viewBox="0 0 24 24"><path d="M12 4c-5 0-9 4-10 9 1-5 5-8 10-8s9 3 10 8c-1-5-5-9-10-9zm0 5a4 4 0 1 0 4 4 4 4 0 0 0-4-4zm0 2a2 2 0 1 1-2 2 2 2 0 0 1 2-2z" /></svg></button>
-      <button onclick={() => (dlOpen = !dlOpen)} title="downloads" aria-label="downloads" class:on={dlOpen} class="dlb"><svg viewBox="0 0 24 24"><path d="M12 4v11m0 0-4-4m4 4 4-4M5 20h14" /></svg>{#if dlActive}<i class="dlbadge">{dlActive}</i>{/if}</button>
-      {#if surfing}
-        {#if adCanToggle}<button onclick={toggleAds} class="adb" class:on={adOk} title={adOk ? 'ads are allowed on ' + adSite + ' - tap to block them again' : 'ads are blocked - tap to allow them on ' + adSite} aria-label={adOk ? 'block ads on this site again' : 'allow ads on this site'} aria-pressed={adOk}><svg viewBox="0 0 24 24"><path d="M12 3l7 3v5c0 4.5-3 8-7 10-4-2-7-5.5-7-10V6z" />{#if adOk}<path d="M9 12l2 2 4-4" />{:else}<path d="M9 9l6 6M15 9l-6 6" />{/if}</svg></button>{/if}
-        {#if ytCur}<button onclick={openJetstream} title="open in jetstream" aria-label="open in jetstream" class="jsb"><svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z" /></svg></button>{/if}
-        <button onclick={toggleFind} title="find in page (alt+f)" aria-label="find in page" class:on={findOpen}><svg viewBox="0 0 24 24"><path d="M10.5 4a6.5 6.5 0 1 0 4 11.6l4.6 4.6 1.4-1.4-4.6-4.6A6.5 6.5 0 0 0 10.5 4z" /></svg></button>
-        <button onclick={() => { histOpen = true; histQ = ''; }} title="history and recently closed (alt+y)" aria-label="history" class:on={histOpen}><svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7M3 4v5h5M12 7v5l3 2" /></svg></button>
-        <button onclick={openReader} title="reader mode" aria-label="reader mode"><svg viewBox="0 0 24 24"><path d="M4 5h16M4 10h16M4 15h10M4 20h7" /></svg></button>
-        <button onclick={star} title="bookmark this page" aria-label="bookmark this page"><svg viewBox="0 0 24 24"><path d="M12 3l2.7 5.6 6.1.8-4.5 4.3 1.1 6-5.4-2.9-5.4 2.9 1.1-6L3.2 9.4l6.1-.8z" /></svg></button>
-      {/if}
     </div>
-    <form onsubmit={go}>
-      <input bind:value={address} list="br-recent-q" placeholder="search or type an address" autocomplete="off" autocapitalize="off" spellcheck="false" />
+    <form class="omni" onsubmit={go}>
+      <input id="br-omni" bind:value={address} list="br-recent-q" placeholder="search or type a site" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="search or type an address" />
       <datalist id="br-recent-q">{#each recentQ as r}<option value={r}></option>{/each}</datalist>
       <button class="go" type="submit" disabled={!ready}>go</button>
     </form>
+    <button class="menub" class:on={menuOpen || dlActive} onclick={() => (menuOpen = !menuOpen)} aria-label="more" aria-expanded={menuOpen} title="more"><svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.8" /><circle cx="12" cy="12" r="1.8" /><circle cx="19" cy="12" r="1.8" /></svg>{#if dlActive}<i class="dlbadge">{dlActive}</i>{/if}</button>
+    {#if menuOpen}
+      <button class="menuscrim" aria-label="close menu" onclick={() => (menuOpen = false)}></button>
+      <div class="menu" role="menu">
+        <div class="mnav">
+          <button onclick={() => cur()?.frame.back()} aria-label="back"><svg viewBox="0 0 24 24"><path d="M19 12H5m0 0 6-6m-6 6 6 6" /></svg></button>
+          <button onclick={() => cur()?.frame.forward()} aria-label="forward"><svg viewBox="0 0 24 24"><path d="M5 12h14m0 0-6-6m6 6-6 6" /></svg></button>
+          <button onclick={() => cur()?.frame.reload()} aria-label="reload"><svg viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.3-5.7M20 4v4h-4" /></svg></button>
+        </div>
+        <button class="mi" onclick={() => { menuOpen = false; dlOpen = true; }}><svg viewBox="0 0 24 24"><path d="M12 4v11m0 0-4-4m4 4 4-4M5 20h14" /></svg><span>downloads</span>{#if dlActive}<i class="mcount">{dlActive}</i>{/if}</button>
+        <button class="mi" onclick={() => { menuOpen = false; histOpen = true; histQ = ''; }}><svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7M3 4v5h5M12 7v5l3 2" /></svg><span>history</span></button>
+        {#if surfing}
+          <button class="mi" onclick={() => { menuOpen = false; toggleFind(); }}><svg viewBox="0 0 24 24"><path d="M10.5 4a6.5 6.5 0 1 0 4 11.6l4.6 4.6 1.4-1.4-4.6-4.6A6.5 6.5 0 0 0 10.5 4z" /></svg><span>find in page</span></button>
+          <button class="mi" onclick={() => { menuOpen = false; openReader(); }}><svg viewBox="0 0 24 24"><path d="M4 5h16M4 10h16M4 15h10M4 20h7" /></svg><span>reader mode</span></button>
+          <button class="mi" onclick={() => { menuOpen = false; star(); }}><svg viewBox="0 0 24 24"><path d="M12 3l2.7 5.6 6.1.8-4.5 4.3 1.1 6-5.4-2.9-5.4 2.9 1.1-6L3.2 9.4l6.1-.8z" /></svg><span>bookmark this page</span></button>
+          {#if adCanToggle}<button class="mi" class:on={adOk} onclick={() => { menuOpen = false; toggleAds(); }}><svg viewBox="0 0 24 24"><path d="M12 3l7 3v5c0 4.5-3 8-7 10-4-2-7-5.5-7-10V6z" />{#if adOk}<path d="M9 12l2 2 4-4" />{:else}<path d="M9 9l6 6M15 9l-6 6" />{/if}</svg><span>ads on this site</span><i class="mstate">{adOk ? 'allowed' : 'blocked'}</i></button>{/if}
+          {#if ytCur}<button class="mi" onclick={() => { menuOpen = false; openJetstream(); }}><svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z" /></svg><span>open in jetstream</span></button>{/if}
+        {/if}
+        <button class="mi" class:on={cloaked} onclick={() => { menuOpen = false; toggleCloak(); }}><svg viewBox="0 0 24 24"><path d="M12 4c-5 0-9 4-10 9 1-5 5-8 10-8s9 3 10 8c-1-5-5-9-10-9zm0 5a4 4 0 1 0 4 4 4 4 0 0 0-4-4zm0 2a2 2 0 1 1-2 2 2 2 0 0 1 2-2z" /></svg><span>{cloaked ? 'uncloak this tab' : 'cloak this tab'}</span></button>
+      </div>
+    {/if}
   </header>
 
   {#if ready}
@@ -609,6 +622,7 @@
       <button class="tplus" onclick={() => newTab()} aria-label="new tab" title="new tab (alt+t)" disabled={tabs.length >= 12}><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" /></svg></button>
     </div>
   {/if}
+  </div>
 
   {#if failed}
     <div class="center"><p class="dim">{failed}</p></div>
@@ -616,7 +630,6 @@
     <div class="center home">
       <h1>browse</h1>
       <p class="dim">{boot || 'the open web, through ramjet'}</p>
-      <form class="hero" onsubmit={go}><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg><input bind:value={address} list="br-recent-q" placeholder="search or type an address" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="search or type an address" /><button class="go" type="submit" disabled={!ready}>go</button></form>
       <div class="chips">
         {#each quick as s}
           <button class="chip" onclick={() => open(s)} disabled={!ready}>{s.name}</button>
@@ -839,4 +852,49 @@
     .hero { height: 52px; }
   }
   @media (max-width: 520px) { .hero { padding-left: 14px; gap: 8px; } .hero .go { padding: 0 18px; } .hero input { font-size: 16px; } }
+
+  /* one chrome: bar + tabs share a surface, the active tab is the page's own colour, one overflow menu replaces the row of icon buttons */
+  .chrome { position: relative; z-index: 20; background: var(--rj-surface); border-bottom: 1px solid var(--rj-border); }
+  .surfing header { border-bottom: 0; }
+  header { position: relative; flex-wrap: nowrap; row-gap: 0; gap: 8px; padding: 10px 12px 8px; }
+  header form, header form.omni { order: 0; flex: 1 1 auto; gap: 0; align-items: center; background: var(--rj-bg); border: 1px solid var(--rj-border); border-radius: var(--rj-pill); padding: 3px 3px 3px 4px; min-width: 0; }
+  header form:focus-within { border-color: var(--rj-accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--rj-accent) 22%, transparent); }
+  header form input, header form input:focus { background: none; border: 0; box-shadow: none; padding: 7px 14px; height: 36px; font-size: 16px; }
+  header form .go { height: 34px; padding: 0 16px; font-size: 13px; }
+  .navbtns { margin-left: 0; flex: none; }
+  .navbtns button { background: transparent; border-color: transparent; }
+  .navbtns button:hover { background: var(--rj-surface-2); }
+  .menub { position: relative; flex: none; width: 36px; height: 36px; display: grid; place-items: center; border-radius: 50%; background: transparent; border: 0; color: var(--rj-text-dim); }
+  .menub svg { width: 20px; height: 20px; fill: currentColor; }
+  .menub:hover, .menub.on { background: var(--rj-surface-2); color: var(--rj-text); }
+  .menuscrim { position: fixed; inset: 0; z-index: 40; background: transparent; border: 0; padding: 0; }
+  .menu { position: absolute; z-index: 41; right: 10px; top: calc(100% - 2px); width: min(268px, calc(100vw - 20px)); padding: 6px; display: flex; flex-direction: column; gap: 1px; background: linear-gradient(var(--rj-surface-2), var(--rj-surface-2)), #101012; border: 1px solid var(--rj-border); border-radius: calc(var(--rj-radius) - 2px); box-shadow: 0 16px 44px rgba(0,0,0,.55); }
+  .mnav { display: none; justify-content: space-between; padding: 2px 2px 6px; margin-bottom: 4px; border-bottom: 1px solid var(--rj-border); }
+  .mnav button { flex: 1; height: 40px; display: grid; place-items: center; background: none; border: 0; border-radius: 10px; color: var(--rj-text); }
+  .mnav button:active { background: var(--rj-surface); }
+  .mnav svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  .mi { position: relative; display: flex; align-items: center; gap: 12px; width: 100%; height: 42px; padding: 0 12px; border: 0; border-radius: 10px; background: none; color: var(--rj-text); font-size: 15px; text-align: left; }
+  .mi:hover, .mi:active { background: var(--rj-surface); }
+  .mi svg { width: 18px; height: 18px; flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; color: var(--rj-text-dim); }
+  .mi.on svg, .mi.on .mstate { color: var(--rj-accent); }
+  .mi span { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .mstate { font-style: normal; font-size: 12px; color: var(--rj-text-faint); }
+  .mcount { font-style: normal; min-width: 18px; height: 18px; border-radius: 9px; background: var(--rj-accent); color: var(--rj-accent-ink); font-size: 11px; font-weight: 800; display: grid; place-items: center; padding: 0 5px; }
+  .tabbar { padding: 0 12px; }
+  .tab { height: 36px; }
+  .tab.cur { background: var(--rj-bg); }
+  .tab.cur::after { display: none; }
+  .tab:hover:not(.cur) { background: rgba(255,255,255,.06); }
+  .home { gap: 10px; }
+  .home h1 { font-size: 34px; }
+  .findbar { top: 104px; }
+  @media (max-width: 700px) {
+    header { flex-wrap: nowrap; padding: 8px 10px 6px; gap: 6px; }
+    header form { order: 0; flex: 1 1 auto; }
+    .dnav { display: none; }
+    .mnav { display: flex; }
+    header form input { height: 38px; }
+    .tabbar { padding: 0 10px; }
+    .findbar { top: 100px; }
+  }
 </style>
