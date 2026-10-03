@@ -21,6 +21,7 @@
   root.innerHTML = '<div class="c"><div class="q">' + mag + '<input type="text" placeholder="go anywhere, or search..." autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="command palette"></div><div class="l"></div><div class="f"><span>&uarr;&darr; move</span><span>enter open</span><span>esc close</span></div></div>';
   document.body.appendChild(root);
   var inp = root.querySelector('input'), list = root.querySelector('.l'), items = [], sel = 0;
+  function saving() { try { return localStorage.getItem('rj-save-searches') === 'on'; } catch (e) { return false; } }
   function jget(k) { try { return JSON.parse(localStorage.getItem(k) || '[]'); } catch (e) { return []; } }
   function openIn(path, key, val) { try { if (key) sessionStorage.setItem(key, val); } catch (e) {} location.href = path; }
   function build(q) {
@@ -28,7 +29,7 @@
     var here = location.pathname.replace(/\/$/, '') || '/';
     function has(s) { return !lo || s.toLowerCase().indexOf(lo) >= 0; }
     if (t) {
-      out.push({ g: 'search', n: 'search the web for "' + t + '"', d: 'browse', run: function () { try { var a = jget('rj-browse-searches'); a.unshift(t); localStorage.setItem('rj-browse-searches', JSON.stringify(a.filter(function (x, i) { return a.indexOf(x) === i; }).slice(0, 12))); } catch (e) {} openIn('/browse', 'rj-open', t); } });
+      out.push({ g: 'search', n: 'search the web for "' + t + '"', d: 'browse', run: function () { try { if (!saving()) throw 0; var a = jget('rj-browse-searches'); a.unshift(t); localStorage.setItem('rj-browse-searches', JSON.stringify(a.filter(function (x, i) { return a.indexOf(x) === i; }).slice(0, 12))); } catch (e) {} openIn('/browse', 'rj-open', t); } });
       out.push({ g: 'search', n: 'search videos for "' + t + '"', d: 'jetstream', run: function () { location.href = '/jetstream?q=' + encodeURIComponent(t); } });
       out.push({ g: 'search', n: 'ask sage: "' + t + '"', d: 'sage', run: function () { openIn('/sage', 'rj-ask', t); } });
     }
@@ -36,7 +37,7 @@
     LAYOUTS.forEach(function (l) { if (has('layout ' + l)) out.push({ g: 'home layout', n: 'layout: ' + l, d: 'switch the home page', run: function () { try { localStorage.setItem('rj-layout', l); } catch (e) {} location.href = '/'; } }); });
     if (has('log out sign out')) out.push({ g: 'account', n: 'log out', d: '', run: function () { fetch('/api/auth/logout', { method: 'POST' }).catch(function () {}).then(function () { location.href = '/login'; }); } });
     var seen = {}, rec = [];
-    jget('rj-browse-searches').slice(0, 8).forEach(function (s) { if (typeof s === 'string' && s && !seen[s] && has(s)) { seen[s] = 1; rec.push({ g: 'recent', n: s, d: 'search again', run: function () { openIn('/browse', 'rj-open', s); } }); } });
+    (saving() ? jget('rj-browse-searches') : []).slice(0, 8).forEach(function (s) { if (typeof s === 'string' && s && !seen[s] && has(s)) { seen[s] = 1; rec.push({ g: 'recent', n: s, d: 'search again', run: function () { openIn('/browse', 'rj-open', s); } }); } });
     jget('rj-browse-recent').slice(0, 8).forEach(function (r) { var u = typeof r === 'string' ? r : (r && (r.url || r.address || r.host)) || ''; var nm = typeof r === 'object' && r && r.title ? r.title : u; if (u && !seen[u] && (has(u) || has(nm))) { seen[u] = 1; rec.push({ g: 'recent', n: String(nm).slice(0, 60), d: String(u).replace(/^https?:\/\//, '').slice(0, 40), run: function () { openIn('/browse', 'rj-open', u); } }); } });
     out = out.concat(rec.slice(0, 6));
     return out.slice(0, 40);

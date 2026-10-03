@@ -1,5 +1,7 @@
 <script>
-  import { readSearches, addSearch } from '../../lib/searchhist.js';
+  import { readSearches, addSearch, clearSearches } from '../../lib/searchhist.js';
+  import Recent from '../../lib/Recent.svelte';
+  let qf = $state(false);
   import '../../tokens.css';
   import { onMount, tick } from "svelte";
   import { api } from '../../lib/api.js';
@@ -1277,8 +1279,8 @@
   </header>
 
   <form class="bar" onsubmit={search}>
-    <input bind:value={q} list="js-recent-q" placeholder="search anything" enterkeyhint="search" autocapitalize="off" />
-    <datalist id="js-recent-q">{#each recentQ as r}<option value={r}></option>{/each}</datalist>
+    <input bind:value={q} onfocus={() => (qf = true)} onblur={() => setTimeout(() => (qf = false), 150)} placeholder="search anything" enterkeyhint="search" autocapitalize="off" autocomplete="off" />
+    <Recent items={recentQ} query={q} focused={qf} onpick={(r) => { q = r; qf = false; search({ preventDefault() {} }); }} onclear={() => (recentQ = clearSearches('js-searches'))} />
     <button type="submit" disabled={busy}>{busy ? '...' : 'go'}</button>
   </form>
 
@@ -2019,4 +2021,5 @@ network {stats.net} · ready {stats.ready}</pre>
   .player .hdnote { margin: 0 4px 12px; padding: 10px 14px; border-radius: calc(var(--rj-radius) - 4px); background: var(--rj-surface); color: var(--rj-text-dim); font-size: 13px; }
   .player .uplabel { margin: 18px 4px 8px; font-size: 13px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--rj-text-faint); }
   @media (min-width: 1000px) { .player h1 { font-size: 22px; } .player .wactions { flex-wrap: wrap; overflow: visible; } }
+  form.bar { position: relative; }
 </style>
