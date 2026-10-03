@@ -113,11 +113,20 @@
   const clockAp = $derived((clockT.match(/(AM|PM)$/i) || [''])[0].toLowerCase());
   const clockDate = $derived(now.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' }));
   let sq = $state(''); let smode = $state('web');
+  import { readSearches, addSearch, clearSearches } from '../../lib/searchhist.js';
+  let sfocus = $state(false), recentS = $state([]), recentSites = $state([]);
+  function openDrop() {
+    recentS = smode === 'web' ? readSearches('rj-browse-searches') : [];
+    try { recentSites = smode === 'web' ? JSON.parse(localStorage.getItem('rj-browse-recent') || '[]').slice(0, 6) : []; } catch { recentSites = []; }
+    sfocus = true;
+  }
+  function webGo(e) { e.preventDefault(); const v = sq.trim(); if (!v) return; try { addSearch('rj-browse-searches', v); sessionStorage.setItem('rj-open', v); } catch {} window.location.href = '/browse'; }
+  function pickS(v) { sq = v; sfocus = false; if (smode === 'web') webGo({ preventDefault() {} }); else doSearch({ preventDefault() {} }); }
   function doSearch(e) {
     e.preventDefault();
     const v = sq.trim(); if (!v) return;
     try {
-      if (smode === 'web') { sessionStorage.setItem('rj-open', v); window.location.href = '/browse'; }
+      if (smode === 'web') { addSearch('rj-browse-searches', v); sessionStorage.setItem('rj-open', v); window.location.href = '/browse'; }
       else if (smode === 'video') window.location.href = '/jetstream?q=' + encodeURIComponent(v);
       else { sessionStorage.setItem('rj-ask', v); window.location.href = '/sage'; }
     } catch {}
@@ -155,6 +164,16 @@
   }
 </script>
 
+{#snippet drop()}
+              {#if sfocus && (recentS.length || recentSites.length)}
+                <div class="sdrop" role="listbox">
+                  {#if recentS.length}<p class="sdh">recent searches <button type="button" onmousedown={(e) => { e.preventDefault(); recentS = clearSearches('rj-browse-searches'); }}>clear</button></p>
+                    {#each recentS.filter((r) => !sq || r.toLowerCase().includes(sq.toLowerCase())).slice(0, 6) as r}<button type="button" class="sdi" onmousedown={(e) => { e.preventDefault(); pickS(r); }}><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>{r}</button>{/each}{/if}
+                  {#if recentSites.length && !sq}<p class="sdh">recent sites</p>
+                    {#each recentSites as st}<button type="button" class="sdi" onmousedown={(e) => { e.preventDefault(); openSite(st); }}><b class="sdl">{siteLetter(st)}</b>{st.name}</button>{/each}{/if}
+                </div>
+              {/if}
+{/snippet}
 <main class="lay-{layout}" class:glass={skin === 'glass'}>
   {#if false && skin === 'glass' && layout === 'dock'}
     <nav class="menubar"><span class="mb-l"><b>ramjet</b>{#each apps as a}<a href={a.path}>{a.name}</a>{/each}</span><span class="mb-r"><span>{now.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })} {clockT}</span><a href="/settings">{user}</a><button onclick={logout}>log out</button></span></nav>
@@ -170,7 +189,7 @@
 
   {#if user}<p class="hello">{hello}, {user}</p>{/if}
   {#if layout === 'list'}
-  <form class="lsearch" onsubmit={(e) => { e.preventDefault(); const v = sq.trim(); if (v) { sessionStorage.setItem('rj-open', v); window.location.href = '/browse'; } }}><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg><input bind:value={sq} placeholder="search the web or type a site" aria-label="search the web" autocomplete="off" /></form>
+  <form class="lsearch" onsubmit={webGo}><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg><input bind:value={sq} placeholder="search the web or type a site" aria-label="search the web" autocomplete="off" onfocus={openDrop} onblur={() => setTimeout(() => (sfocus = false), 160)} />{@render drop()}</form>
   {/if}
 
   {#if layout === 'dock'}
@@ -189,8 +208,9 @@
             <p class="cdate">{clockDate}</p>
           {:else if id === 'search'}
             <form class="sform" onsubmit={doSearch}>
-              <input bind:value={sq} placeholder={smode === 'web' ? 'search the web or type a site' : smode === 'video' ? 'search videos' : 'ask sage anything'} autocomplete="off" />
+              <input bind:value={sq} placeholder={smode === 'web' ? 'search the web or type a site' : smode === 'video' ? 'search videos' : 'ask sage anything'} autocomplete="off" onfocus={openDrop} onblur={() => setTimeout(() => (sfocus = false), 160)} />
               <button class="go" aria-label="go">&#8594;</button>
+              {@render drop()}
             </form>
             <div class="chips">{#each [['web', 'web'], ['video', 'videos'], ['ask', 'ask sage']] as [k, n]}<button class="chip" class:on={smode === k} onclick={() => (smode = k)}>{n}</button>{/each}</div>
           {:else if id === 'continue'}
@@ -268,9 +288,10 @@
     </section>
   {/if}
   {#if layout === 'grid'}
-    <form class="hs-search" onsubmit={(e) => { e.preventDefault(); const v = sq.trim(); if (v) { sessionStorage.setItem('rj-open', v); window.location.href = '/browse'; } }}>
+    <form class="hs-search" onsubmit={webGo}>
       <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>
-      <input bind:value={sq} placeholder="search" aria-label="search the web" autocomplete="off" />
+      <input bind:value={sq} placeholder="search" aria-label="search the web" autocomplete="off" onfocus={openDrop} onblur={() => setTimeout(() => (sfocus = false), 160)} />
+      {@render drop()}
     </form>
   {/if}
 
@@ -466,4 +487,15 @@
   :global(html[data-tiles=mono]) .lay-grid .row[data-app] .tile svg { stroke: var(--rj-accent); filter: none; }
   :global(html[data-tiles=accent]) .lay-grid .row[data-app] .tile { background: linear-gradient(180deg, var(--rj-accent), color-mix(in srgb, var(--rj-accent) 62%, #000)); }
   :global(html[data-tiles=accent]) .lay-grid .row[data-app] .tile svg { stroke: var(--rj-accent-ink, #14170a); filter: none; }
+  .sform { position: relative; }
+  .sdrop { position: absolute; z-index: 40; left: 0; right: 0; top: calc(100% + 6px); background: var(--rj-surface-2, var(--rj-surface)); border: 1px solid var(--rj-border); border-radius: calc(var(--rj-radius) + 2px); padding: 6px; box-shadow: 0 14px 40px rgba(0,0,0,.5); -webkit-backdrop-filter: blur(var(--rj-g-blur, 0px)); backdrop-filter: blur(var(--rj-g-blur, 0px)); text-align: left; }
+  .sdh { display: flex; justify-content: space-between; margin: 6px 10px 2px; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--rj-text-faint); }
+  .sdh button { background: none; border: 0; color: var(--rj-text-dim); font: inherit; font-size: 11px; text-transform: lowercase; }
+  .sdi { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 42px; padding: 0 10px; border: 0; background: none; color: var(--rj-text); font: inherit; font-size: 15px; border-radius: calc(var(--rj-radius) - 4px); text-align: left; }
+  .sdi:hover, .sdi:active { background: var(--rj-hover); }
+  .sdi svg { width: 16px; height: 16px; fill: none; stroke: var(--rj-text-dim); stroke-width: 2; stroke-linecap: round; flex: none; }
+  .sdl { width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; font-size: 11px; background: var(--rj-accent); color: var(--rj-accent-ink); text-transform: uppercase; flex: none; }
+  .lsearch, .hs-search { position: relative; }
+  .hs-search .sdrop { text-align: left; top: auto; bottom: calc(100% + 6px); }
+  .w:has(.sdrop) { overflow: visible !important; z-index: 30; position: relative; }
 </style>

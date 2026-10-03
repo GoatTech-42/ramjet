@@ -880,3 +880,4 @@ Hub layouts (list, home-screen grid, desktop+dock with status widgets) via rj-la
 - 4:57 PM /searx results page rebuilt on theme vars (theme-boot, wallpapers, glass), Google-style tabs, favicon letters, recent searches synced via rj-browse-searches, back chevron, framed mode inside Browse.
 - 4:58 PM per-app QA pass at 390 in terminal/paper/glass: jetstream, amp, sage, banter, browse, settings all follow theme vars; no unstyled elements seen on first screens. Deeper states (modals, empty states, players) still to check. Next: hub/browse search dropdown (recent searches + sites), jetstream channel infinite scroll, command palette.
 - 5:05 PM Banter wide: thread column centered max 940, 380px sidebar at 1600+.
+- 5:24 PM hub search (widget, list pill, home-screen pill): designed dropdown with recent searches (synced key) + recent sites; web searches now recorded.
