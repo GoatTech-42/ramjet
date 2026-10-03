@@ -898,3 +898,4 @@ Hub layouts (list, home-screen grid, desktop+dock with status widgets) via rj-la
 - 11:02 PM Browse -> search -> images tab -> tile click verified end to end at 390: stays in the Browse tab, themed results, thumbnails load, address bar updates to the page. Note: rd.com showed its own anti-adblock wall (site behavior with the bigger uBO list); screenshots /downloads/bi-1.png bi-2.png on the sandbox.
 - 12:02 AM Downloads: cancel mid-download verified (1 GB file, cancelled after ~10 MB, browser reports canceled, panel says cancelled); normal 10 MB download still byte-exact. Screenshots dc-1.png dc-2.png (sandbox /downloads). iPhone Safari still unverified.
 - 1:02 AM terminal tint checked on home-screen grid and list layouts at 390 (looks right); amp, jetstream, sage, banter, settings checked at 390 earlier.
+- 3:02 AM smoke sweep (4 themes x 390/1280 x 7 pages): 0 page errors, 0 failed requests (excluding qa-only sync 403), 0 horizontal overflow. Script /tmp/er.mjs.
