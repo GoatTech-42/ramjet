@@ -53,3 +53,5 @@ Grounded in: what shipped since the last list (downloads panel, uBlock Origin li
 Order I would pick: 1, 2.
 
 Reconciled against the shipped log: banter reactions (overlay shipped Fri Oct 2) and search bangs (in the SearXNG page) are already built, so they are dropped from this list. Earlier lists also had audio-only and browse history, which have since shipped.
+
+## Sat Oct 3 9:25 AM: both ideas shipped (allow-ads switch, command palette).

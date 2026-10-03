@@ -906,3 +906,4 @@ Hub layouts (list, home-screen grid, desktop+dock with status widgets) via rj-la
 - 7:02 AM: frozen, no code changes since gate.
 - 8:02 AM: frozen, idle.
 - 9:02 AM: frozen, idle.
+- 9:25 AM: shipped Browse per-site allow-ads shield button (rj-ads-allow, per device) and command palette (ctrl/cmd-K all app pages, button on home for phones). Smoke 4 themes x 390/1280/1920 x 7 pages: 0 flagged. No restart.

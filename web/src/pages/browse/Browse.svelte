@@ -27,6 +27,24 @@
       v.el.style.display = k === activeId && t?.surfing ? 'block' : 'none';
     }
   }
+  // per-site "allow ads" (Luke 9:17 AM): the block list stays on everywhere
+  // else. the choice is per device, kept in localStorage rj-ads-allow.
+  let adAllow = $state((() => { try { const v = JSON.parse(localStorage.getItem('rj-ads-allow') || '[]'); return Array.isArray(v) ? v.filter((x) => typeof x === 'string').slice(0, 200) : []; } catch { return []; } })());
+  function siteOf(t) {
+    const p = hostOf(t).split('.').filter(Boolean);
+    if (p.length <= 2) return p.join('.');
+    const n = /^(co|com|org|net|gov|ac|edu)$/.test(p[p.length - 2]) && p[p.length - 1].length === 2 ? 3 : 2;
+    return p.slice(-n).join('.');
+  }
+  const adSite = $derived(active && active.surfing ? siteOf(active) : '');
+  const adOk = $derived(!!adSite && adAllow.includes(adSite));
+  const adCanToggle = $derived(!!adSite && localStorage.getItem('rj-adblock') !== 'off' && (localStorage.getItem('rj-transport') || 'ws') === 'ws');
+  function toggleAds() {
+    if (!adSite) return;
+    adAllow = adAllow.includes(adSite) ? adAllow.filter((x) => x !== adSite) : [...adAllow, adSite];
+    try { localStorage.setItem('rj-ads-allow', JSON.stringify(adAllow)); } catch {}
+    setTimeout(() => cur()?.frame.reload(), 60);
+  }
   function hostOf(t) {
     try { return new URL(/^[a-z]+:\/\//i.test(t.address || '') ? t.address : 'https://' + t.address).hostname.replace(/^www\./, ''); } catch { return ''; }
   }
@@ -245,7 +263,7 @@
             };
             pend.set(id, rec);
             if (signal) signal.addEventListener('abort', () => { pend.delete(id); try { w.send(JSON.stringify({ id, cancel: true })); } catch {} rec.fail('aborted'); }, { once: true });
-            w.send(JSON.stringify({ id, url: remote.href, method, headers, body: b, ab }));
+            w.send(JSON.stringify({ id, url: remote.href, method, headers, body: b, ab: ab && !adOk }));
           });
         },
       };
@@ -563,6 +581,7 @@
       <button onclick={toggleCloak} title={cloaked ? 'uncloak this tab' : 'cloak this tab'} aria-label={cloaked ? 'uncloak this tab' : 'cloak this tab'} class:on={cloaked}><svg viewBox="0 0 24 24"><path d="M12 4c-5 0-9 4-10 9 1-5 5-8 10-8s9 3 10 8c-1-5-5-9-10-9zm0 5a4 4 0 1 0 4 4 4 4 0 0 0-4-4zm0 2a2 2 0 1 1-2 2 2 2 0 0 1 2-2z" /></svg></button>
       <button onclick={() => (dlOpen = !dlOpen)} title="downloads" aria-label="downloads" class:on={dlOpen} class="dlb"><svg viewBox="0 0 24 24"><path d="M12 4v11m0 0-4-4m4 4 4-4M5 20h14" /></svg>{#if dlActive}<i class="dlbadge">{dlActive}</i>{/if}</button>
       {#if surfing}
+        {#if adCanToggle}<button onclick={toggleAds} class="adb" class:on={adOk} title={adOk ? 'ads are allowed on ' + adSite + ' - tap to block them again' : 'ads are blocked - tap to allow them on ' + adSite} aria-label={adOk ? 'block ads on this site again' : 'allow ads on this site'} aria-pressed={adOk}><svg viewBox="0 0 24 24"><path d="M12 3l7 3v5c0 4.5-3 8-7 10-4-2-7-5.5-7-10V6z" />{#if adOk}<path d="M9 12l2 2 4-4" />{:else}<path d="M9 9l6 6M15 9l-6 6" />{/if}</svg></button>{/if}
         {#if ytCur}<button onclick={openJetstream} title="open in jetstream" aria-label="open in jetstream" class="jsb"><svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z" /></svg></button>{/if}
         <button onclick={toggleFind} title="find in page (alt+f)" aria-label="find in page" class:on={findOpen}><svg viewBox="0 0 24 24"><path d="M10.5 4a6.5 6.5 0 1 0 4 11.6l4.6 4.6 1.4-1.4-4.6-4.6A6.5 6.5 0 0 0 10.5 4z" /></svg></button>
         <button onclick={() => { histOpen = true; histQ = ''; }} title="history and recently closed (alt+y)" aria-label="history" class:on={histOpen}><svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7M3 4v5h5M12 7v5l3 2" /></svg></button>
@@ -688,6 +707,7 @@
 
 <style>
   .jsb { color: var(--rj-accent); }
+  .adb.on { color: var(--rj-accent); }
   .findbar { position: fixed; z-index: 30; right: 12px; top: 108px; display: flex; gap: 4px; align-items: center; padding: 6px; background: var(--rj-surface-2); border: 1px solid var(--rj-border); border-radius: 12px; box-shadow: 0 8px 28px rgba(0,0,0,.5); max-width: calc(100vw - 24px); }
   .findbar input { width: 190px; min-width: 0; font-size: 16px; background: transparent; border: 0; outline: 0; color: var(--rj-text); padding: 6px 8px; }
   @media (max-width: 640px) { .findbar { top: 146px; } }
