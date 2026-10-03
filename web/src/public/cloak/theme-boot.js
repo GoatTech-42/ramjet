@@ -23,8 +23,8 @@
     if (glass) {
       root.setAttribute('data-skin', 'glass');
       if (!document.getElementById('rj-glass-css')) {
-        if (document.readyState === 'loading') document.write('<link id="rj-glass-css" rel="stylesheet" href="/cloak/glass.css?v=8">');
-        else { var l = document.createElement('link'); l.id = 'rj-glass-css'; l.rel = 'stylesheet'; l.href = "/cloak/glass.css?v=8"; document.head.appendChild(l); }
+        if (document.readyState === 'loading') document.write('<link id="rj-glass-css" rel="stylesheet" href="/cloak/glass.css?v=9">');
+        else { var l = document.createElement('link'); l.id = 'rj-glass-css'; l.rel = 'stylesheet'; l.href = "/cloak/glass.css?v=9"; document.head.appendChild(l); }
       }
     } else root.removeAttribute('data-skin');
     root.setAttribute('data-tiles', (c && c.tiles) || 'color');
@@ -45,6 +45,20 @@
     } else {
       for (var i = 0; i < 4; i++) { if (b) s.setProperty(props[i], b[i]); else s.removeProperty(props[i]); }
       for (var j = 0; j < GLASS_PROPS.length; j++) s.removeProperty(GLASS_PROPS[j]);
+    }
+    var term = !glass && !!(c && c.font === 'mono');
+    if (term) root.setAttribute('data-term', '1'); else root.removeAttribute('data-term');
+    if (term) {
+      // terminal: phosphor tint. text leans toward the accent, surfaces are near-black with an accent cast, borders glow faintly
+      var A = (c && /^#[0-9a-f]{6}$/i.test(c.accent || '')) ? c.accent : '#4be3b0';
+      s.setProperty('--rj-bg', '#000000');
+      s.setProperty('--rj-surface', 'color-mix(in srgb, ' + A + ' 7%, #020403)');
+      s.setProperty('--rj-surface-2', 'color-mix(in srgb, ' + A + ' 13%, #020403)');
+      s.setProperty('--rj-hover', 'color-mix(in srgb, ' + A + ' 18%, #020403)');
+      s.setProperty('--rj-border', 'color-mix(in srgb, ' + A + ' 38%, transparent)');
+      s.setProperty('--rj-text', 'color-mix(in srgb, ' + A + ' 22%, #ffffff)');
+      s.setProperty('--rj-text-dim', 'color-mix(in srgb, ' + A + ' 62%, #ffffff)');
+      s.setProperty('--rj-text-faint', 'color-mix(in srgb, ' + A + ' 55%, #6f7a74)');
     }
     if (c && /^#[0-9a-f]{6}$/i.test(c.accent || '')) { s.setProperty('--rj-accent', c.accent); s.setProperty('--rj-accent-ink', ink(c.accent)); }
     else { s.removeProperty('--rj-accent'); s.removeProperty('--rj-accent-ink'); }
