@@ -59,21 +59,21 @@ async function rjdlSay(msg) {
 function trackDownload(r, dl) {
   const id = Math.random().toString(36).slice(2, 10);
   const reader = r.body.getReader();
-  let got = 0, last = 0, ctrl;
+  let got = 0, last = 0, ctrl, dead = false;
   const stream = new ReadableStream({
     start(c) { ctrl = c; },
     async pull(c) {
       try {
         const { done, value } = await reader.read();
-        if (done) { rjdlCancels.delete(id); rjdlSay({ id, state: "done", got }); c.close(); return; }
+        if (done) { rjdlCancels.delete(id); if (!dead) rjdlSay({ id, state: "done", got }); try { c.close(); } catch {} return; }
         got += value.byteLength; c.enqueue(value);
         const now = Date.now();
         if (now - last > 250) { last = now; rjdlSay({ id, state: "active", got }); }
-      } catch (err) { rjdlCancels.delete(id); rjdlSay({ id, state: "error", got }); try { c.error(err); } catch {} }
+      } catch (err) { rjdlCancels.delete(id); if (!dead) rjdlSay({ id, state: "error", got }); try { c.error(err); } catch {} }
     },
-    cancel() { rjdlCancels.delete(id); try { reader.cancel(); } catch {} rjdlSay({ id, state: "cancelled", got }); },
+    cancel() { dead = true; rjdlCancels.delete(id); try { reader.cancel(); } catch {} rjdlSay({ id, state: "cancelled", got }); },
   });
-  rjdlCancels.set(id, () => { try { reader.cancel(); } catch {} try { ctrl.error(new TypeError("cancelled")); } catch {} rjdlCancels.delete(id); rjdlSay({ id, state: "cancelled", got }); });
+  rjdlCancels.set(id, () => { dead = true; try { reader.cancel(); } catch {} try { ctrl.error(new TypeError("cancelled")); } catch {} rjdlCancels.delete(id); rjdlSay({ id, state: "cancelled", got }); });
   rjdlSay({ id, state: "active", got: 0, name: dl.name, size: dl.size, ts: Date.now() });
   const h = new Headers(r.headers);
   if (!dl.att) h.set("content-disposition", 'attachment; filename="' + dl.name.replace(/"/g, "") + '"');
