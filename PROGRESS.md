@@ -912,3 +912,4 @@ Hub layouts (list, home-screen grid, desktop+dock with status widgets) via rj-la
 - 11:02 AM: idle, final build 606f4ef plus progress.
 - 12:03 PM: final, no changes since 606f4ef.
 - 1:03 PM: reveal time. Final build 606f4ef live; work-session wake retired.
+- 1:50 PM: no input zoom on touch (16px fields), themed recent-searches dropdown, saving searches OFF by default (switch in settings > privacy)

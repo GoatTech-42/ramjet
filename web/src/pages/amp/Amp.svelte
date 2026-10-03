@@ -1,5 +1,7 @@
 <script>
-  import { readSearches, addSearch } from '../../lib/searchhist.js';
+  import { readSearches, addSearch, clearSearches } from '../../lib/searchhist.js';
+  import Recent from '../../lib/Recent.svelte';
+  let qf = $state(false);
   import '../../tokens.css';
   import { onMount } from 'svelte';
   import { api } from '../../lib/api.js';
@@ -377,8 +379,8 @@
 
   <main class="wrap">
     <form class="search" onsubmit={search}>
-      <input bind:value={q} list="amp-recent-q" placeholder="song, artist, anything" autocomplete="off" />
-      <datalist id="amp-recent-q">{#each recentQ as r}<option value={r}></option>{/each}</datalist>
+      <input bind:value={q} onfocus={() => (qf = true)} onblur={() => setTimeout(() => (qf = false), 150)} placeholder="song, artist, anything" autocomplete="off" />
+      <Recent items={recentQ} query={q} focused={qf} onpick={(r) => { q = r; qf = false; search({ preventDefault() {} }); }} onclear={() => (recentQ = clearSearches('amp-searches'))} />
       <button type="submit" disabled={busy}>{busy ? '...' : 'play'}</button>
     </form>
     <div class="chips">
@@ -692,4 +694,5 @@
     .wrap .list { grid-template-columns: repeat(3, minmax(0, 1fr)); }
     .wrap .pls { grid-template-columns: repeat(4, minmax(0, 1fr)); }
   }
+  form.search { position: relative; }
 </style>

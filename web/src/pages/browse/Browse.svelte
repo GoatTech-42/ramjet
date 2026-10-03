@@ -1,5 +1,7 @@
 <script>
-  import { readSearches, addSearch } from '../../lib/searchhist.js';
+  import { readSearches, addSearch, clearSearches } from '../../lib/searchhist.js';
+  import Recent from '../../lib/Recent.svelte';
+  let qf = $state(false);
   import '../../tokens.css';
   import { onMount } from 'svelte';
   import { api } from '../../lib/api.js';
@@ -582,8 +584,8 @@
       <button onclick={() => cur()?.frame.reload()} title="reload" aria-label="reload"><svg viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.3-5.7M20 4v4h-4" /></svg></button>
     </div>
     <form class="omni" onsubmit={go}>
-      <input id="br-omni" bind:value={address} list="br-recent-q" placeholder="search or type a site" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="search or type an address" />
-      <datalist id="br-recent-q">{#each recentQ as r}<option value={r}></option>{/each}</datalist>
+      <input id="br-omni" bind:value={address} onfocus={() => (qf = true)} onblur={() => setTimeout(() => (qf = false), 150)} placeholder="search or type a site" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="search or type an address" />
+      <Recent items={recentQ} query={address} focused={qf && !surfing || qf && address === ""} onpick={(r) => { address = r; qf = false; go({ preventDefault() {} }); }} onclear={() => (recentQ = clearSearches('rj-browse-searches'))} />
       <button class="go" type="submit" disabled={!ready}>go</button>
     </form>
     <button class="menub" class:on={menuOpen || dlActive} onclick={() => (menuOpen = !menuOpen)} aria-label="more" aria-expanded={menuOpen} title="more"><svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.8" /><circle cx="12" cy="12" r="1.8" /><circle cx="19" cy="12" r="1.8" /></svg>{#if dlActive}<i class="dlbadge">{dlActive}</i>{/if}</button>
@@ -854,6 +856,7 @@
   @media (max-width: 520px) { .hero { padding-left: 14px; gap: 8px; } .hero .go { padding: 0 18px; } .hero input { font-size: 16px; } }
 
   /* one chrome: bar + tabs share a surface, the active tab is the page's own colour, one overflow menu replaces the row of icon buttons */
+  header form.omni { position: relative; }
   .chrome { position: relative; z-index: 20; background: var(--rj-surface); border-bottom: 1px solid var(--rj-border); }
   .surfing header { border-bottom: 0; }
   header { position: relative; flex-wrap: nowrap; row-gap: 0; gap: 8px; padding: 10px 12px 8px; }

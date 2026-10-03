@@ -1,5 +1,6 @@
 <script>
   import { readCfg, writeCfg } from '../../lib/autoclear.js';
+  import { savingOn, setSaving } from '../../lib/searchhist.js';
   const ACCENTS = [['lime', '#d9f24b'], ['sky', '#5cc8ff'], ['coral', '#ff7a6b'], ['violet', '#b69cff'], ['mint', '#4be3b0'], ['amber', '#ffc447']];
   const BASES = [['black', '#000000'], ['graphite', '#121316'], ['midnight', '#0b0f1a'], ['warm', '#14110f']];
   const ROUNDS = ['sharp', 'soft', 'round'];
@@ -91,6 +92,8 @@
   try { cloak = localStorage.getItem('rj-cloak') !== '0'; } catch {}
   function toggleCloak() { cloak = !cloak; setCloak(cloak); }
   // ad blocker: on by default, device-local. applies the next time browse opens.
+  let saveS = $state(savingOn());
+  function toggleSaveS() { saveS = !saveS; setSaving(saveS); }
   let adblock = $state(true);
   let adInfo = $state(null);
   try { adblock = localStorage.getItem('rj-adblock') !== 'off'; } catch {}
@@ -309,6 +312,7 @@
       <section class="card list">
         <div class="row"><span class="rt"><b>tab cloak</b><small>tab reads as Google Docs. the ` key toggles it</small></span><button class="sw2" role="switch" aria-checked={cloak} aria-label="tab cloak" onclick={toggleCloak}><i></i></button></div>
         <div class="row"><span class="rt"><b>ad blocker</b><small>{adInfo ? adInfo.hosts.toLocaleString() + ' sites blocked list. ' : ''}applies next time browse opens</small></span><button class="sw2" role="switch" aria-checked={adblock} aria-label="ad blocker" onclick={toggleAds}><i></i></button></div>
+        <div class="row"><span class="rt"><b>save my searches</b><small>off by default. when on, recent searches show under the search boxes. turning it off wipes them</small></span><button class="sw2" role="switch" aria-checked={saveS} aria-label="save my searches" onclick={toggleSaveS}><i></i></button></div>
         <div class="row"><span class="rt"><b>clear history when I leave</b><small>wipes watch history, browse history and recent songs after you are away</small></span><button class="sw2" role="switch" aria-checked={ac.on} aria-label="clear history when away" onclick={() => setAc(!ac.on)}><i></i></button></div>
         {#if ac.on}<div class="row"><span class="rt"><b>away for at least</b></span>
           <select bind:value={ac.mins} onchange={saveAc}><option value={5}>5 minutes</option><option value={30}>30 minutes</option><option value={120}>2 hours</option><option value={720}>12 hours</option></select></div>{/if}
