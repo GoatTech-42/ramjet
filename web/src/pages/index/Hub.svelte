@@ -46,7 +46,7 @@
   async function loadSys() { const t0 = performance.now(); const r = await api('/api/sys'); if (r.ok) sys = { ...r.data, rtt: Math.round(performance.now() - t0) }; }
   let unread = $state(0);
   // ---- desk (dock layout): arrangeable widgets ----
-  const WIDGETS = [['clock', 'clock'], ['search', 'quick search'], ['continue', 'continue watching'], ['banter', 'banter'], ['music', 'music'], ['sites', 'sites'], ['sage', 'ask sage'], ['cal', 'calendar'], ['notes', 'notes'], ['todo', 'to do'], ['focus', 'focus timer'], ['system', 'system']];
+  const WIDGETS = [['clock', 'clock'], ['continue', 'continue watching'], ['banter', 'banter'], ['music', 'music'], ['sites', 'sites'], ['sage', 'ask sage'], ['cal', 'calendar'], ['notes', 'notes'], ['todo', 'to do'], ['focus', 'focus timer'], ['system', 'system']];
   const DEF_SIZE = { clock: 's', search: 'm', continue: 'm', banter: 's', music: 's', sites: 'm', sage: 'm', cal: 's', notes: 's', todo: 's', focus: 's', system: 's' };
   const DEF_HIDDEN = ['todo', 'focus'];
   let desk = $state({ order: WIDGETS.map((w) => w[0]), hidden: DEF_HIDDEN.slice(), size: {} });
@@ -188,16 +188,13 @@
   </header>{/if}
 
   {#if user}<p class="hello">{hello}, {user}</p>{/if}
-  {#if layout === 'list'}
-  <form class="lsearch" onsubmit={webGo}><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg><input bind:value={sq} placeholder="search the web or type a site" aria-label="search the web" autocomplete="off" onfocus={openDrop} onblur={() => setTimeout(() => (sfocus = false), 160)} />{@render drop()}</form>
-  {/if}
 
   {#if layout === 'dock'}
     <div class="deskbar">
       <button class="arr" class:on={arranging} onclick={() => (arranging = !arranging)}>{arranging ? 'done' : 'arrange'}</button>
     </div>
     <section class="desk">
-      {#each desk.order.filter((k) => !desk.hidden.includes(k) && (k !== 'system' || techOn())) as id (id)}
+      {#each desk.order.filter((k) => k !== 'search' && !desk.hidden.includes(k) && (k !== 'system' || techOn())) as id (id)}
         <article class="w w-{id} sz-{sz(id)}" class:drag={dragId === id} class:wig={arranging && dragId !== id} data-wid={id}>
           <header class="wh" onpointerdown={(e) => dstart(e, id)} class:grab={arranging}>
             <span>{WIDGETS.find((x) => x[0] === id)[1]}</span>
@@ -286,13 +283,6 @@
         {#each (cont || []).slice(0, 3) as v}<a class="sk" href={'/jetstream?v=' + v.id}><img src={'/api/apps/jetstream/thumb?id=' + v.id} alt="" loading="lazy" /><span class="sk-t"><b>{v.title}</b><i>{v.channel}</i></span></a>{/each}
       </div>
     </section>
-  {/if}
-  {#if layout === 'grid'}
-    <form class="hs-search" onsubmit={webGo}>
-      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>
-      <input bind:value={sq} placeholder="search" aria-label="search the web" autocomplete="off" onfocus={openDrop} onblur={() => setTimeout(() => (sfocus = false), 160)} />
-      {@render drop()}
-    </form>
   {/if}
 
   {#if sys}
@@ -498,4 +488,23 @@
   .lsearch, .hs-search { position: relative; }
   .hs-search .sdrop { text-align: left; top: auto; bottom: calc(100% + 6px); }
   .w:has(.sdrop) { overflow: visible !important; z-index: 30; position: relative; }
+
+  /* hover, press and focus on the app rows (desktop hover only where a real pointer exists) */
+  .row { transition: background .16s ease, transform .18s cubic-bezier(.2,.7,.3,1); outline: none; }
+  .tile { transition: transform .2s cubic-bezier(.2,.7,.3,1), box-shadow .2s ease, background .16s ease; }
+  .chev { transition: transform .18s ease, stroke .16s ease; }
+  .row:focus-visible { box-shadow: 0 0 0 2px var(--rj-accent); }
+  .row:active { transform: scale(.985); }
+  .lay-grid .row:active, .lay-grid .row:active .tile { transform: none; }
+  .lay-grid .row:active .tile { transform: scale(.92); }
+  @media (hover: hover) {
+    .lay-list .row:hover .chev, main:not(.lay-grid):not(.lay-dock) .row:hover .chev { transform: translateX(3px); stroke: var(--rj-text); }
+    .row:hover .tile { transform: translateY(-1px); }
+    .lay-grid .row:hover .tile { transform: translateY(-3px) scale(1.05); box-shadow: inset 0 1px 0 rgba(255,255,255,.4), inset 0 -2px 4px rgba(0,0,0,.18), 0 10px 18px rgba(0,0,0,.4); }
+    .lay-grid .row:hover { background: none; }
+    .lay-grid .row:hover .name { color: var(--rj-accent); }
+    .lay-dock .row:hover .tile { transform: translateY(-2px); }
+    .row:hover .name { color: var(--rj-text); }
+  }
+  @media (prefers-reduced-motion: reduce) { .row, .tile, .chev { transition: none; } .row:hover .tile, .row:hover .chev { transform: none; } }
 </style>
