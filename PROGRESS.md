@@ -905,3 +905,4 @@ Hub layouts (list, home-screen grid, desktop+dock with status widgets) via rj-la
 - 6:10 AM gate: smoke 4 themes x 390/1280/1920 x 7 pages 0 flagged; layout x theme matrix 390+1280 ok; proxy restart mid-session then wikipedia/example/HN loaded; jetstream/amp/sage/banter ok at 390+1280, no overflow.
 - 7:02 AM: frozen, no code changes since gate.
 - 8:02 AM: frozen, idle.
+- 9:02 AM: frozen, idle.
