@@ -910,3 +910,4 @@ Hub layouts (list, home-screen grid, desktop+dock with status widgets) via rj-la
 - 10:02 AM: idle, build 6723e91 final unless Luke asks.
 - 10:34 AM: Browse chrome redo (one bar + tabs surface, overflow menu, single address bar on new tab). regression: smoke 0 flagged, proxy load, images flow, downloads+cancel, palette ok.
 - 11:02 AM: idle, final build 606f4ef plus progress.
+- 12:03 PM: final, no changes since 606f4ef.
