@@ -881,3 +881,13 @@ Hub layouts (list, home-screen grid, desktop+dock with status widgets) via rj-la
 - 4:58 PM per-app QA pass at 390 in terminal/paper/glass: jetstream, amp, sage, banter, browse, settings all follow theme vars; no unstyled elements seen on first screens. Deeper states (modals, empty states, players) still to check. Next: hub/browse search dropdown (recent searches + sites), jetstream channel infinite scroll, command palette.
 - 5:05 PM Banter wide: thread column centered max 940, 380px sidebar at 1600+.
 - 5:24 PM hub search (widget, list pill, home-screen pill): designed dropdown with recent searches (synced key) + recent sites; web searches now recorded.
+- 5:37 PM layout x mode matrix (3 layouts x ramjet/terminal/paper/glass, phone + desktop) captured: all 24 render distinct and styled; ramjet vs terminal differ mainly by accent/font/wall.
+
+## Fri Oct 2 evening
+- Proxy flap root cause: browse proxy socket reconnected with an expired one-time wisp ticket (90s, in memory). Now fresh ticket per reconnect + cookie fallback server-side. Proxy static files are no-cache (never immutable).
+- Ad blocking: uBlock Origin lists + EasyList/EasyPrivacy (domain rules only, ~95k hosts) on top of Peter Lowe.
+- Jetstream: quality picker (auto/hd/lite/360), YouTube-style watch layout, clientlog stores why on HD drop. 360p root cause still unproven; no real-device entries in the log yet.
+- Terminal mode: phosphor-tinted text/surfaces/borders (checked on hub only).
+- Searx image tiles: fallback to full image, hide dead tiles, follow redirects.
+- mc-headless push blocked: box keys are per-repo deploy keys.
+- Queue: image flow e2e in Browse, new-tab recent sites, jetstream channel infinite scroll, per-state theme QA, glass realism, widget polish, command palette. Gate: fresh full regression after 6 AM freeze.
