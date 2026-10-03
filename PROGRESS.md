@@ -891,3 +891,6 @@ Hub layouts (list, home-screen grid, desktop+dock with status widgets) via rj-la
 - Searx image tiles: fallback to full image, hide dead tiles, follow redirects.
 - mc-headless push blocked: box keys are per-repo deploy keys.
 - Queue: image flow e2e in Browse, new-tab recent sites, jetstream channel infinite scroll, per-state theme QA, glass realism, widget polish, command palette. Gate: fresh full regression after 6 AM freeze.
+
+## Overnight changelog (Luke signed off 9:19 PM; morning report only)
+- 9:18 PM Browse downloads panel shipped (a87f1a8). Untested: cancel mid-download, iPhone Safari.
