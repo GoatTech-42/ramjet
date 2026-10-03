@@ -914,3 +914,5 @@ Hub layouts (list, home-screen grid, desktop+dock with status widgets) via rj-la
 - 1:03 PM: reveal time. Final build 606f4ef live; work-session wake retired.
 - 1:50 PM: no input zoom on touch (16px fields), themed recent-searches dropdown, saving searches OFF by default (switch in settings > privacy)
 - 3:31 PM: searx page: no search bar when framed in Browse, image strip in web results, full-res thumbs on unmetered (data saver setting overrides), jetstream lite thumbs, searx recents respect save-searches. needs server restart for core changes
+- 3:37 PM: main now = rebuild (merge -s ours of v1 history, no force-push); v1 tagged v1-final
+- 3:45 PM: hub: removed home search bars (palette is the search entry), hover/press/focus animations on app rows
