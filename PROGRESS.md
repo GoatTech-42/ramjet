@@ -899,3 +899,7 @@ Hub layouts (list, home-screen grid, desktop+dock with status widgets) via rj-la
 - 12:02 AM Downloads: cancel mid-download verified (1 GB file, cancelled after ~10 MB, browser reports canceled, panel says cancelled); normal 10 MB download still byte-exact. Screenshots dc-1.png dc-2.png (sandbox /downloads). iPhone Safari still unverified.
 - 1:02 AM terminal tint checked on home-screen grid and list layouts at 390 (looks right); amp, jetstream, sage, banter, settings checked at 390 earlier.
 - 3:02 AM smoke sweep (4 themes x 390/1280 x 7 pages): 0 page errors, 0 failed requests (excluding qa-only sync 403), 0 horizontal overflow. Script /tmp/er.mjs.
+- 4:02 AM: pushed 6647401 to rebuild-v2. Clientlog why entries are only qa headless (no H.264/AAC), no Luke entries; 360p cause still unproven.
+- 5:02 AM: no new changes; feature freeze at 6 AM, fresh regression gate next.
+- 6:02 AM FREEZE. Starting fresh regression gate.
+- 6:10 AM gate: smoke 4 themes x 390/1280/1920 x 7 pages 0 flagged; layout x theme matrix 390+1280 ok; proxy restart mid-session then wikipedia/example/HN loaded; jetstream/amp/sage/banter ok at 390+1280, no overflow.
