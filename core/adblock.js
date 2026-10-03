@@ -14,6 +14,18 @@ const EXTRA = ['ads.pubmatic.com', 'securepubads.g.doubleclick.net', 'doubleclic
 // never block these even if a list ever grows to include them
 const SAFE = new Set(['google.com', 'gstatic.com', 'googleapis.com', 'youtube.com', 'ytimg.com', 'cloudflare.com', 'cloudfront.net', 'jsdelivr.net', 'unpkg.com', 'cdnjs.cloudflare.com', 'github.com', 'githubusercontent.com', 'wikipedia.org', 'wikimedia.org', 'reddit.com', 'redd.it', 'redditstatic.com', 'redditmedia.com']);
 
+const UBO_FILE = fileURLToPath(new URL('../data/ubo-hosts.txt', import.meta.url));
+// uBlock Origin's own default lists (Luke 6:01 PM): pure domain rules only
+// (||host^ with no path or context options), so it is safe at the socket layer.
+const UBO = ['https://ublockorigin.github.io/uAssets/filters/filters.min.txt', 'https://ublockorigin.github.io/uAssets/filters/badware.min.txt', 'https://ublockorigin.github.io/uAssets/filters/privacy.min.txt', 'https://easylist.to/easylist/easylist.txt', 'https://easylist.to/easylist/easyprivacy.txt'];
+function parseUbo(text) {
+  const out = new Set();
+  for (const line of text.split('\n')) {
+    const m = line.trim().toLowerCase().match(/^\|\|([a-z0-9][a-z0-9.-]*\.[a-z]{2,})\^(?:\$(?:third-party|3p|all|important)(?:,(?:third-party|3p|all|important))*)?$/);
+    if (m && !SAFE.has(m[1])) out.add(m[1]);
+  }
+  return out;
+}
 let hosts = new Set();
 function parse(text) {
   const s = new Set(EXTRA);
@@ -25,6 +37,20 @@ function parse(text) {
   return s;
 }
 try { hosts = parse(existsSync(FILE) ? readFileSync(FILE, 'utf8') : ''); } catch { hosts = parse(''); }
+try { if (existsSync(UBO_FILE)) for (const h of readFileSync(UBO_FILE, 'utf8').split('\n')) if (h && !SAFE.has(h)) hosts.add(h); } catch {}
+async function refreshUbo() {
+  try {
+    if (existsSync(UBO_FILE) && Date.now() - statSync(UBO_FILE).mtimeMs < 2 * 86400e3) return;
+    const all = new Set();
+    for (const u of UBO) { try { const r = await fetch(u, { signal: AbortSignal.timeout(30000) }); if (r.ok) for (const h of parseUbo(await r.text())) all.add(h); } catch {} }
+    if (all.size < 5000) return;
+    writeFileSync(UBO_FILE, [...all].join('\n'));
+    for (const h of all) hosts.add(h);
+    console.log(`[adblock] uBlock Origin lists loaded: ${all.size} hosts, ${hosts.size} total`);
+  } catch {}
+}
+refreshUbo();
+setInterval(refreshUbo, 12 * 3600e3).unref();
 
 async function refresh() {
   try {

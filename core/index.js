@@ -59,7 +59,7 @@ function serveStatic(res, urlPath) {
   const ext = extname(safe);
   const headers = {
     'content-type': MIME[ext] || 'application/octet-stream',
-    'cache-control': urlPath.startsWith('/cloak/') ? 'no-cache' : 'public, max-age=31536000, immutable',
+    'cache-control': urlPath.startsWith('/cloak/') || /^\/(browse-sw\.js|scramjet\/|controller\/|epoxy\/|libcurl\/)/.test(urlPath) ? 'no-cache' : 'public, max-age=31536000, immutable',
   };
   let body = readFileSync(safe);
   if (COMPRESSIBLE.has(ext) && body.length > 1024) {
@@ -272,6 +272,7 @@ html[data-skin=glass] .tab.on { color: var(--rj-text); }
 `;
 const SX_JS = `
 (function () {
+  /*rjimgfb*/ document.addEventListener('error', function (e) { var t = e.target; if (!t || t.tagName !== 'IMG') return; var a = t.getAttribute('data-alt'); if (a) { t.removeAttribute('data-alt'); t.src = a; } else { var li = t.closest('li.tile'); if (li) li.style.display = 'none'; else t.style.visibility = 'hidden'; } }, true);
   var K = 'rj-browse-searches', de = document.documentElement;
   try { if (window.parent !== window) de.classList.add('framed'); } catch (e) { de.classList.add('framed'); }
   function read() { try { var a = JSON.parse(localStorage.getItem(K) || '[]'); return Array.isArray(a) ? a.slice(0, 12) : []; } catch (e) { return []; } }
@@ -313,7 +314,7 @@ function sxPage(query, page, result, cat, safe) {
 		const th = sxHref(r.thumbnail_src || r.thumbnail || '');
 		if (cat === 'images') {
 			const full = sxHref(r.img_src);
-			cards.push('<li class="tile"><a href="' + sxEsc(href) + '" title="' + sxEsc(r.title || '') + '"><img loading="lazy" referrerpolicy="no-referrer" alt="' + sxEsc(r.title || '') + '" src="' + sxEsc(sxImg(th || full)) + '" /></a><div class="tile-cap">' + sxEsc(String(r.title || '').slice(0, 60)) + '</div></li>');
+			cards.push('<li class="tile"><a href="' + sxEsc(href) + '" title="' + sxEsc(r.title || '') + '"><img loading="lazy" referrerpolicy="no-referrer" alt="' + sxEsc(r.title || '') + '" src="' + sxEsc(sxImg(th || full)) + '"' + (th && full ? ' data-alt="' + sxEsc(sxImg(full)) + '"' : '') + ' /></a><div class="tile-cap">' + sxEsc(String(r.title || '').slice(0, 60)) + '</div></li>');
 			continue;
 		}
 		const thumbHtml = (th && (cat === 'videos' || cat === 'news')) ? '<img class="hit-th ' + cat + '" loading="lazy" referrerpolicy="no-referrer" alt="" src="' + sxEsc(sxImg(th)) + '" />' : '';
@@ -391,6 +392,7 @@ async function proxySearx(req, res, session, restUrl) {
 		if (!imgGuard) { res.writeHead(400); return res.end(); }
 		const mod = t.protocol === 'https:' ? httpsRequest : httpRequest;
 		const ur = mod(t, { headers: { accept: 'image/*', 'user-agent': 'Mozilla/5.0' }, lookup: safeLookup, timeout: 10000 }, (ir) => {
+			if (ir.statusCode >= 300 && ir.statusCode < 400 && ir.headers.location && (parseInt(u.searchParams.get('h') || '0', 10) < 3)) { ir.resume(); let nx; try { nx = new URL(ir.headers.location, t); } catch { res.writeHead(404); return res.end(); } res.writeHead(302, { location: '/searx/img?h=' + (parseInt(u.searchParams.get('h') || '0', 10) + 1) + '&u=' + encodeURIComponent(nx.href) }); return res.end(); }
 			const ct = String(ir.headers['content-type'] || '');
 			if (ir.statusCode !== 200 || !/^image\/(jpeg|png|webp|gif|avif)/.test(ct)) { ir.resume(); res.writeHead(404); return res.end(); }
 			res.writeHead(200, { 'content-type': ct, 'cache-control': 'private, max-age=86400', 'x-content-type-options': 'nosniff' });
@@ -636,8 +638,10 @@ server.on('upgrade', (req, socket, head) => {
   const pm = req.url.match(/^\/pws-t\/([a-f0-9]{48})/);
   if (pm) {
     const tk = wispTickets.get(pm[1]);
-    if (!tk || tk.exp < Date.now()) { socket.destroy(); return; }
-    return pwsUpgrade(req, socket, head, tk.user, (n) => { try { guard.trackBytes(tk.user, n); } catch {} });
+    let puser = (tk && tk.exp >= Date.now()) ? tk.user : null;
+    if (!puser) { const ps = auth.sessionFromCookies(parseCookies(req)); if (ps) puser = ps.user; }
+    if (!puser) { socket.destroy(); return; }
+    return pwsUpgrade(req, socket, head, puser, (n) => { try { guard.trackBytes(puser, n); } catch {} });
   }
   const tm = req.url.match(/^\/wisp-t\/([a-f0-9]{48})/);
   if (!tm && !req.url.startsWith('/wisp/')) { socket.destroy(); return; }
