@@ -1,4 +1,5 @@
 <script>
+  import { netLite } from '../../lib/netlite.js';
   import { readSearches, addSearch, clearSearches } from '../../lib/searchhist.js';
   import Recent from '../../lib/Recent.svelte';
   let qf = $state(false);
@@ -1263,7 +1264,9 @@
     startFeedAt(Math.min(Math.max(0, i), list.length - 1));
   }
 
+  const lite = netLite();
   const thumb = (id) => `/api/apps/jetstream/thumb?id=${id}`;
+  const lthumb = (id) => `/api/apps/jetstream/thumb?id=${id}${lite ? '&lite=1' : ''}`;
 </script>
 
 <main>
@@ -1388,7 +1391,7 @@ network {stats.net} · ready {stats.ready}</pre>
         <section class="results">
           {#each results.filter((r) => r.id !== watching.id) as v (v.id)}
             <button class="row" onclick={() => watch(v)}>
-              <img src={thumb(v.id)} alt="" loading="lazy" />
+              <img src={lthumb(v.id)} alt="" loading="lazy" />
               <span class="txt">
                 <span class="title">{v.title}</span>
                 <span class="meta">{v.channel}{v.duration ? ` · ${v.duration}` : ''}</span>
@@ -1444,7 +1447,7 @@ network {stats.net} · ready {stats.ready}</pre>
             <section class="results">
               {#each plPage.items as v (v.id)}
                 <button class="row" onclick={() => playPlFrom(v)}>
-                  <img src={thumb(v.id)} alt="" loading="lazy" />
+                  <img src={lthumb(v.id)} alt="" loading="lazy" />
                   <span class="txt">
                     <span class="title">{v.title}</span>
                     <span class="meta">{v.channel}{v.duration ? ` · ${v.duration}` : ''}</span>
@@ -1502,7 +1505,7 @@ network {stats.net} · ready {stats.ready}</pre>
             <section class="results">
               {#each chanPage.videos as v (v.id)}
                 <button class="row" onclick={() => watch(v)}>
-                  <img src={thumb(v.id)} alt="" loading="lazy" />
+                  <img src={lthumb(v.id)} alt="" loading="lazy" />
                   <span class="txt">
                     <span class="title">{v.title}</span>
                     <span class="meta">{v.duration}{v.views ? ` · ${v.views}` : ''}</span>
@@ -1521,7 +1524,7 @@ network {stats.net} · ready {stats.ready}</pre>
           <div class="hist">
             {#each chanPage.playlists as pl (pl.id)}
               <button class="hcard" onclick={() => openPlaylist(pl.id, pl.title, chanPage.name)}>
-                <span class="hthumb">{#if pl.thumbVid}<img src={thumb(pl.thumbVid)} alt="" loading="lazy" />{/if}</span>
+                <span class="hthumb">{#if pl.thumbVid}<img src={lthumb(pl.thumbVid)} alt="" loading="lazy" />{/if}</span>
                 <span class="htitle">{pl.title}</span>
               </button>
             {/each}
@@ -1538,7 +1541,7 @@ network {stats.net} · ready {stats.ready}</pre>
             <div class="hist">
               {#each chanPage.shorts as v, si (v.id)}
                 <button class="hcard scard" onclick={() => scrollChannelShorts(si)}>
-                  <span class="hthumb"><img class="sthumb" src={thumb(v.id)} alt="" loading="lazy" /></span>
+                  <span class="hthumb"><img class="sthumb" src={lthumb(v.id)} alt="" loading="lazy" /></span>
                   <span class="htitle">{v.title}</span>
                 </button>
               {/each}
@@ -1562,7 +1565,7 @@ network {stats.net} · ready {stats.ready}</pre>
         <div class="hist">
           {#each newSubs as v (v.id)}
             <button class="hcard" onclick={() => watch(v)}>
-              <span class="hthumb"><img src={thumb(v.id)} alt="" loading="lazy" /></span>
+              <span class="hthumb"><img src={lthumb(v.id)} alt="" loading="lazy" /></span>
               <span class="htitle">{v.title}</span>
               <span class="hchan">{v.channel}</span>
             </button>
@@ -1575,7 +1578,7 @@ network {stats.net} · ready {stats.ready}</pre>
           {#each later as v (v.id)}
             <button class="hcard" onclick={() => openLater(v)}>
               <span class="hthumb">
-                <img src={thumb(v.id)} alt="" loading="lazy" />
+                <img src={lthumb(v.id)} alt="" loading="lazy" />
                 <span class="hx" role="button" tabindex="-1" aria-label="remove from watch later" onclick={(e) => { e.stopPropagation(); toggleLater(v); }}>x</span>
               </span>
               <span class="htitle">{v.title}</span>
@@ -1590,7 +1593,7 @@ network {stats.net} · ready {stats.ready}</pre>
           {#each history as v (v.id)}
             <button class="hcard" onclick={() => watch(v)}>
               <span class="hthumb">
-                <img src={thumb(v.id)} alt="" loading="lazy" />
+                <img src={lthumb(v.id)} alt="" loading="lazy" />
                 <span class="hx" role="button" tabindex="-1" aria-label="remove from keep watching" onclick={(e) => removeHistory(v, e)}>x</span>
               </span>
               <span class="htitle">{v.title}</span>
@@ -1607,7 +1610,7 @@ network {stats.net} · ready {stats.ready}</pre>
         <div class="hist">
           {#each shorts as v, i (v.id)}
             <button class="hcard scard" onclick={() => openFeed(i)}>
-              <span class="hthumb"><img class="sthumb" src={thumb(v.id)} alt="" loading="lazy" /></span>
+              <span class="hthumb"><img class="sthumb" src={lthumb(v.id)} alt="" loading="lazy" /></span>
               <span class="htitle">{v.title}</span>
             </button>
           {/each}
@@ -1618,7 +1621,7 @@ network {stats.net} · ready {stats.ready}</pre>
         <div class="fygrid">
           {#each forYou as v (v.id)}
             <button class="hcard" onclick={() => watch(v)}>
-              <span class="hthumb"><img src={thumb(v.id)} alt="" loading="lazy" /></span>
+              <span class="hthumb"><img src={lthumb(v.id)} alt="" loading="lazy" /></span>
               <span class="htitle">{v.title}</span>
               <span class="hchan">{v.channel}</span>
             </button>
@@ -1653,7 +1656,7 @@ network {stats.net} · ready {stats.ready}</pre>
         {#if kres.playlist === null}<p class="empty">looking for playlists...</p>{/if}
         {#each kres.playlist || [] as pl (pl.id)}
           <button class="row" onclick={() => openPlaylist(pl.id, pl.title, pl.channel)}>
-            {#if pl.thumbVid}<img src={thumb(pl.thumbVid)} alt="" loading="lazy" />{:else}<span class="avph plph"></span>{/if}
+            {#if pl.thumbVid}<img src={lthumb(pl.thumbVid)} alt="" loading="lazy" />{:else}<span class="avph plph"></span>{/if}
             <span class="txt">
               <span class="title">{pl.title}</span>
               <span class="meta">{pl.channel}{pl.count ? ` · ${pl.count}` : ''}</span>
@@ -1666,7 +1669,7 @@ network {stats.net} · ready {stats.ready}</pre>
     <section class="results">
       {#each results as v (v.id)}
         <button class="row" onclick={() => watch(v)}>
-          <img src={thumb(v.id)} alt="" loading="lazy" />
+          <img src={lthumb(v.id)} alt="" loading="lazy" />
           <span class="txt">
             <span class="title">{v.title}</span>
             <span class="meta">{v.channel}{v.duration ? ` · ${v.duration}` : ''}</span>
