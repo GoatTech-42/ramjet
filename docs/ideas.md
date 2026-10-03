@@ -49,7 +49,7 @@ Grounded in: what shipped since the last list (downloads panel, uBlock Origin li
 
 1. **browse: per-site "allow ads" switch** (Brave shields, uBlock per-site). The bigger uBO list now triggers anti-adblock walls on some sites (rd.com showed one in QA). One tap in the toolbar to let a site through, remembered per device. Fixes the one new downside of the list Luke asked for.
 2. **command palette** (Arc, Linear, Spotlight). Ctrl/Cmd-K from any app: jump to an app, a Browse tab, a recent search, or a setting. His layouts already differ per mode; the palette is the one thing that is the same everywhere.
-3. **search: bangs** (Kagi/DDG). Still unbuilt from the Oct 1 list. "!w cats" goes straight to the site, which makes the search box the front door of the proxy.
-4. **banter: reactions** (iMessage/Discord). Still unbuilt from the Oct 2 list. Reply, delete and unread exist, so reactions are the next missing basic.
 
-Order I would pick: 1, 2, 4. All wait for Luke.
+Order I would pick: 1, 2.
+
+Reconciled against the shipped log: banter reactions (overlay shipped Fri Oct 2) and search bangs (in the SearXNG page) are already built, so they are dropped from this list. Earlier lists also had audio-only and browse history, which have since shipped.
