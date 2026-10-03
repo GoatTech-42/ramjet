@@ -376,6 +376,19 @@
   try { hist = JSON.parse(localStorage.getItem(HKEY) || '[]'); } catch {}
   let closed = $state([]);
   let histOpen = $state(false), histQ = $state('');
+  // downloads: the service worker streams the file to the browser's own download manager and reports progress here
+  let dlOpen = $state(false);
+  let dls = $state([]);
+  const dlActive = $derived(dls.filter((d) => d.state === 'active').length);
+  function fmtSize(n) { if (!n) return ''; const u = ['B', 'KB', 'MB', 'GB']; let i = 0; while (n >= 1024 && i < 3) { n /= 1024; i++; } return (n >= 100 || i === 0 ? Math.round(n) : n.toFixed(1)) + ' ' + u[i]; }
+  function onDl(m) {
+    if (!m || !m.id) return;
+    const i = dls.findIndex((d) => d.id === m.id);
+    if (i < 0) { dls = [{ id: m.id, name: m.name || 'download', size: m.size || 0, got: m.got || 0, state: m.state || 'active', ts: m.ts || Date.now() }, ...dls].slice(0, 30); dlOpen = true; const at = tabs.find((x) => x.id === activeId); if (at && at.surfing && !at.title) at.title = m.name || 'download'; }
+    else { const d = dls[i]; d.got = m.got ?? d.got; d.state = m.state || d.state; if (m.state === 'done' && !d.size) d.size = d.got; }
+  }
+  function dlCancel(id) { try { navigator.serviceWorker.controller?.postMessage({ rjdlCancel: id }); } catch {} }
+  function dlClear() { dls = dls.filter((d) => d.state === 'active'); }
   function noteVisit(url, title) {
     if (cloaked) return;
     try {
@@ -453,6 +466,7 @@
     if (!url) return;
     if (/\s/.test(address.trim()) || !address.includes('.')) recentQ = addSearch('rj-browse-searches', address);
     noteRecent(url);
+    try { navigator.serviceWorker.controller?.postMessage({ rjdlHint: url }); } catch {}
     const v = cur();
     const t = active;
     if (!v || !t) return;
@@ -491,6 +505,7 @@
     });
     // the /searx/ results page is same-origin, so its external links message
     // up here instead of navigating - send them through the proxy frame.
+    try { navigator.serviceWorker.addEventListener('message', (e) => onDl(e.data && e.data.rjdl)); } catch {}
     window.addEventListener('message', (e) => {
       if (e.origin !== location.origin) return;
       const u = e.data && e.data.rjBrowseGo;
@@ -546,6 +561,7 @@
       <button onclick={() => cur()?.frame.forward()} title="forward" aria-label="forward"><svg viewBox="0 0 24 24"><path d="M5 12h14m0 0-6-6m6 6-6 6" /></svg></button>
       <button onclick={() => cur()?.frame.reload()} title="reload" aria-label="reload"><svg viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.3-5.7M20 4v4h-4" /></svg></button>
       <button onclick={toggleCloak} title={cloaked ? 'uncloak this tab' : 'cloak this tab'} aria-label={cloaked ? 'uncloak this tab' : 'cloak this tab'} class:on={cloaked}><svg viewBox="0 0 24 24"><path d="M12 4c-5 0-9 4-10 9 1-5 5-8 10-8s9 3 10 8c-1-5-5-9-10-9zm0 5a4 4 0 1 0 4 4 4 4 0 0 0-4-4zm0 2a2 2 0 1 1-2 2 2 2 0 0 1 2-2z" /></svg></button>
+      <button onclick={() => (dlOpen = !dlOpen)} title="downloads" aria-label="downloads" class:on={dlOpen} class="dlb"><svg viewBox="0 0 24 24"><path d="M12 4v11m0 0-4-4m4 4 4-4M5 20h14" /></svg>{#if dlActive}<i class="dlbadge">{dlActive}</i>{/if}</button>
       {#if surfing}
         {#if ytCur}<button onclick={openJetstream} title="open in jetstream" aria-label="open in jetstream" class="jsb"><svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z" /></svg></button>{/if}
         <button onclick={toggleFind} title="find in page (alt+f)" aria-label="find in page" class:on={findOpen}><svg viewBox="0 0 24 24"><path d="M10.5 4a6.5 6.5 0 1 0 4 11.6l4.6 4.6 1.4-1.4-4.6-4.6A6.5 6.5 0 0 0 10.5 4z" /></svg></button>
@@ -610,6 +626,27 @@
     </div>
   {/if}
   {#if bmMsg}<div class="bm-toast">{bmMsg}</div>{/if}
+
+  {#if dlOpen}
+    <div class="hov" role="presentation" onclick={() => (dlOpen = false)}>
+      <div class="hsheet" role="dialog" aria-label="downloads" tabindex="-1" onclick={(e) => e.stopPropagation()}>
+        <div class="hhead"><b>downloads</b><button class="hclose" onclick={() => (dlOpen = false)} aria-label="close">&times;</button></div>
+        <div class="hlist">
+          {#each dls as d (d.id)}
+            <div class="dlrow">
+              <div class="dltop"><span class="ht">{d.name}</span>
+                {#if d.state === 'active'}<button class="dlx" onclick={() => dlCancel(d.id)}>cancel</button>{/if}</div>
+              <div class="dlbar" class:done={d.state === 'done'} class:bad={d.state === 'error' || d.state === 'cancelled'}><i style={'width:' + (d.state === 'done' ? 100 : d.size ? Math.min(100, d.got / d.size * 100) : 40) + '%'} class:ind={d.state === 'active' && !d.size}></i></div>
+              <span class="hu">{d.state === 'active' ? (fmtSize(d.got) + (d.size ? ' of ' + fmtSize(d.size) : '') + ' - saving') : d.state === 'done' ? (fmtSize(d.got) + ' - saved by your browser, check its downloads list') : d.state === 'cancelled' ? 'cancelled' : 'failed - try again'}</span>
+            </div>
+          {:else}
+            <p class="hint">nothing downloaded yet. when a site sends a file, it saves to this device and shows up here.</p>
+          {/each}
+        </div>
+        {#if dls.some((d) => d.state !== 'active')}<button class="hclear" onclick={dlClear}>clear list</button>{/if}
+      </div>
+    </div>
+  {/if}
 
   {#if histOpen}
     <div class="hov" role="presentation" onclick={() => (histOpen = false)}>
@@ -695,6 +732,18 @@
   .chip:disabled { opacity: 0.4; }
   .bms { margin-top: 22px; width: 100%; max-width: 420px; display: flex; flex-direction: column; gap: 6px; }
   .recents { margin-top: 18px; width: 100%; max-width: 420px; }
+  .dlb { position: relative; }
+  .dlbadge { position: absolute; top: -3px; right: -3px; min-width: 16px; height: 16px; border-radius: 8px; background: var(--rj-accent); color: var(--rj-accent-ink); font-size: 10px; font-style: normal; font-weight: 800; display: grid; place-items: center; padding: 0 4px; }
+  .dlrow { display: flex; flex-direction: column; gap: 6px; padding: 10px 6px; border-bottom: 1px solid var(--rj-border); }
+  .dltop { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+  .dltop .ht { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+  .dlx { border: 1px solid var(--rj-border); background: none; color: var(--rj-text-dim); border-radius: 999px; padding: 4px 12px; font-size: 12px; }
+  .dlbar { height: 6px; border-radius: 3px; background: var(--rj-surface-2); overflow: hidden; }
+  .dlbar i { display: block; height: 100%; background: var(--rj-accent); border-radius: 3px; transition: width .25s; }
+  .dlbar.done i { background: var(--rj-accent); opacity: .55; }
+  .dlbar.bad i { background: var(--rj-text-faint); }
+  .dlbar i.ind { animation: dlind 1.1s ease-in-out infinite alternate; }
+  @keyframes dlind { from { margin-left: 0; } to { margin-left: 60%; } }
   .hov { position: fixed; inset: 0; z-index: 50; background: rgba(0,0,0,.6); display: flex; align-items: flex-end; justify-content: center; }
   .hsheet { width: min(560px, 100%); max-height: 82vh; overflow: auto; background: var(--rj-bg, #000); border: 1px solid var(--rj-border); border-radius: 22px 22px 0 0; padding: 16px 16px 24px; display: flex; flex-direction: column; gap: 6px; }
   @media (min-width: 700px) { .hov { align-items: center; } .hsheet { border-radius: 22px; } }
