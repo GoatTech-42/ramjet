@@ -918,3 +918,4 @@ Hub layouts (list, home-screen grid, desktop+dock with status widgets) via rj-la
 - 3:45 PM: hub: removed home search bars (palette is the search entry), hover/press/focus animations on app rows
 - 3:51 PM: searx images lightbox (next/prev, swipe, esc, visit page, open image, load-full when small), strip full-res on unmetered, small-thumb hint in footer. needs server restart
 - 6:32 PM: fixed tap on image tile opening the source site inside Browse (page-level link handler ran first); lightbox now opens
+- 6:37 PM: lightbox scroll bug: overlay was pinned to the page (body entrance animation left a transform), now attached to <html>, body scroll lock + restore, touch-action none
