@@ -529,6 +529,26 @@ const MAX_PENDING = 25;
 const server = createServer(async (req, res) => {
   const url = new URL(req.url, 'http://x');
   const path = url.pathname;
+  // the engine's virtual scramjet.wasm.js is normally answered by the page's service worker.
+  // workers and some nested frames (captcha / bot-check scripts on login pages) are not
+  // controlled by it, so their request fell through to a 404 and the engine died with
+  // "WASM not found in global scope". answer it here too, same payload the worker builds.
+  if (/^\/~\/sj\/[^/]+\/[^/]+\/scramjet\.wasm\.js$/.test(path) && (req.method === 'GET' || req.method === 'HEAD')) {
+    try {
+      if (!global.__rjWasmJs) {
+        const wp = resolve(DIST, './scramjet/scramjet.wasm');
+        const st = statSync(wp);
+        const js = Buffer.from("self.WASM = '" + readFileSync(wp).toString('base64') + "';");
+        global.__rjWasmJs = { js, gz: gzipSync(js, { level: 6 }), etag: 'W/"' + st.size + '-' + Math.round(st.mtimeMs) + '"' };
+      }
+      const w = global.__rjWasmJs;
+      if (req.headers['if-none-match'] === w.etag) { res.writeHead(304, { etag: w.etag }); return res.end(); }
+      const gz = /\bgzip\b/.test(String(req.headers['accept-encoding'] || ''));
+      const body = gz ? w.gz : w.js;
+      res.writeHead(200, { 'content-type': 'text/javascript; charset=utf-8', 'cache-control': 'no-cache', etag: w.etag, vary: 'Accept-Encoding', 'content-length': body.length, ...(gz ? { 'content-encoding': 'gzip' } : {}) });
+      return res.end(req.method === 'HEAD' ? undefined : body);
+    } catch { /* fall through */ }
+  }
   const cookies = parseCookies(req);
   const session = auth.sessionFromCookies(cookies);
 

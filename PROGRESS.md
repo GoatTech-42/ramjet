@@ -919,3 +919,4 @@ Hub layouts (list, home-screen grid, desktop+dock with status widgets) via rj-la
 - 3:51 PM: searx images lightbox (next/prev, swipe, esc, visit page, open image, load-full when small), strip full-res on unmetered, small-thumb hint in footer. needs server restart
 - 6:32 PM: fixed tap on image tile opening the source site inside Browse (page-level link handler ran first); lightbox now opens
 - 6:37 PM: lightbox scroll bug: overlay was pinned to the page (body entrance animation left a transform), now attached to <html>, body scroll lock + restore, touch-action none
+- 2026-10-04 proxy: serve virtual scramjet.wasm.js to uncontrolled workers/frames (DeviantArt login probe: engine WASM-not-found in worker fixed). DA login Next still stalls: PX anti-bot iframe is sandboxed, SW cannot control it.
