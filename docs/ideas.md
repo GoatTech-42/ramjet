@@ -66,3 +66,5 @@ Grounded in: Saturday ideas both shipped, the jetstream client log (last 300 eve
 4. **browse: Cloudflare-aware speed check** (not a feature, a measurement). Streaming and large pages through ramjet.lukeevanson.com are untested. Measure before anyone judges speed, and tune only if it is slower than the srv.us path.
 
 Order I would pick: 4 (free, just measuring), 1, 3. All wait for Luke. Nothing here is built.
+
+Reconciled Sun Oct 4 3:24 AM: idea 3 (amp add-to-playlist) already exists: every result row has a save-to-playlist button with a sheet that can also name a new playlist. Dropped. Idea 1 shipped 3:23 AM (239e664). Idea 4 measured: ramjet.lukeevanson.com ttfb ~0.15s, no regression seen; streaming through Cloudflare still needs a real video test.
