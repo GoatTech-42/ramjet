@@ -118,7 +118,7 @@ async function pipeMedia(up, req, res, opts = {}) {
 // ---------- youtube music ----------
 
 const execFileP = promisify(execFile);
-const YTDLP = '/home/luke/goattech/ramjet-rebuild/bin/yt-dlp';
+const YTDLP = process.env.YTDLP || new URL("../../../bin/yt-dlp", import.meta.url).pathname;
 const ytAudio = new Map(); // videoId -> { url, expires }
 const ytInflight = new Map(); // videoId -> Promise<url>
 

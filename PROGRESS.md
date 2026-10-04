@@ -925,3 +925,6 @@ Hub layouts (list, home-screen grid, desktop+dock with status widgets) via rj-la
 
 ## searxng folded in (Oct 4)
 Search backend now runs as a child process of ramjet (core/searxng.js, searxng/). Localhost 8888 only, no public route. Fresh checkout: run searxng/setup.sh once. Cosmos searxng container removed.
+
+## containerized (Oct 4)
+Ramjet now runs as the docker container ramjet (Dockerfile + docker-compose.yml): core, addons, built UI and the local search backend in one image. Data stays on the host in ./data (bind mount). Published on 127.0.0.1:14224 only, restart always, 3 GB / 2 CPU caps. Update: docker compose up -d --build. Rollback: docker compose down; bash /tmp/rs4.sh style host start (node core/index.js with RJ_HOST=127.0.0.1).

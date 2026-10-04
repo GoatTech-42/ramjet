@@ -1,0 +1,14 @@
+services:
+  ramjet:
+    build: .
+    image: ramjet2:latest
+    container_name: ramjet
+    restart: always
+    ports:
+      - "127.0.0.1:${RJ_PUBLISH_PORT:-14224}:14224"
+    volumes:
+      - ${RJ_DATA_DIR:-./data}:/app/data
+    mem_limit: 3g
+    cpus: 2
+    labels:
+      - "cosmos-stack=ramjet"

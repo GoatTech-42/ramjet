@@ -415,7 +415,7 @@ function pickHd(adaptive) {
 }
 
 const execFileP = promisify(execFile);
-const YTDLP = '/home/luke/goattech/ramjet-rebuild/bin/yt-dlp';
+const YTDLP = process.env.YTDLP || new URL("../../../bin/yt-dlp", import.meta.url).pathname;
 const inflight = new Map(); // id -> Promise<entry>; dedupes concurrent resolves
 
 // Tue 7:30 AM: InnerTube ANDROID URLs are head-capped (audio 403s past ~2MB,
