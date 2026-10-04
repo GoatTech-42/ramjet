@@ -502,6 +502,11 @@ async function resolveViaYtdlp(id) {
     hdVp9: vpick && audio ? { videoUrl: vpick.url, audioUrl: audio.url, quality: vpick.format_note || `${vpick.height}p` } : null,
     hdL: lvideo && audio ? { videoUrl: lvideo.url, audioUrl: audio.url, quality: lvideo.format_note || `${lvideo.height}p` } : null,
     hdLVp9: lvpick && audio ? { videoUrl: lvpick.url, audioUrl: audio.url, quality: lvpick.format_note || `${lvpick.height}p` } : null,
+    duration: Number(data.duration) || 0,
+    lite: {
+      v: videos.map((f) => ({ h: eff(f), fps: f.fps || 30, url: f.url, size: f.filesize || f.filesize_approx || 0, tbr: f.tbr || 0 })).slice(0, 12),
+      a: audios.map((f) => ({ abr: f.abr || 0, url: f.url, size: f.filesize || f.filesize_approx || 0 })).slice(0, 3),
+    },
     expires: Date.now() + 10 * 60 * 1000,
   };
   // feed the taste model: this resolve already paid for the full metadata
@@ -2019,3 +2024,104 @@ export async function register(req, res, ctx) {
 
   return sendJson(res, 404, { ok: false, error: 'unknown jetstream call' });
 }
+
+
+// ---- lite api (core/lite.js) ------------------------------------------------
+// everything below is only used by /api/lite/*: a phone shortcut downloads a
+// finished, single-file H.264+AAC mp4 (Quick Look cannot play vp9/av1/opus).
+// video-only and audio-only avc1/m4a urls from the resolver are pulled to disk
+// in 4MB hops (same trick as downloadToCache), then muxed with ffmpeg stream
+// copy. one mux at a time, temp files removed, result lives in the stream cache.
+let liteChain = Promise.resolve();
+function liteSerial(fn) {
+  const run = liteChain.then(fn, fn);
+  liteChain = run.catch(() => {});
+  return run;
+}
+async function liteHop(url, dest, cap) {
+  const pr = await fetch(url, { headers: { 'user-agent': GV_UA, range: 'bytes=0-0' }, redirect: 'follow', signal: AbortSignal.timeout(30000) });
+  const crm = /\/(\d+)\s*$/.exec(pr.headers.get('content-range') || '');
+  try { pr.body?.cancel()?.catch(() => {}); } catch {}
+  if (pr.status !== 206 && pr.status !== 200) throw new Error('probe ' + pr.status);
+  const size = crm ? parseInt(crm[1], 10) : 0;
+  if (!size || !Number.isSafeInteger(size)) throw new Error('no size');
+  if (size > cap) throw new Error('too big');
+  const CHUNK = 4 << 20;
+  const fh = await fsOpen(dest, 'w');
+  try {
+    let off = 0;
+    while (off < size) {
+      const last = Math.min(off + CHUNK, size) - 1;
+      let ok = false;
+      for (let a = 0; a < 3 && !ok; a++) {
+        try {
+          const r = await fetch(url, { headers: { 'user-agent': GV_UA, range: 'bytes=' + off + '-' + last }, redirect: 'follow', signal: AbortSignal.timeout(45000) });
+          if (r.status !== 206 && r.status !== 200) { try { r.body?.cancel()?.catch(() => {}); } catch {} await new Promise((d) => setTimeout(d, 400 * (a + 1))); continue; }
+          const buf = Buffer.from(await r.arrayBuffer());
+          await fh.write(buf, 0, buf.length, off);
+          off += buf.length;
+          ok = true;
+        } catch { await new Promise((d) => setTimeout(d, 400 * (a + 1))); }
+      }
+      if (!ok) throw new Error('chunk failed');
+    }
+  } finally { await fh.close().catch(() => {}); }
+  return size;
+}
+const LITE_MAX_BYTES = 150 * 1024 * 1024;
+const LITE_MAX_SECS = 15 * 60;
+// pick the formats for a quality: biggest avc1 video at or under q (short side), m4a audio.
+function litePlan(entry, q) {
+  const L = entry.lite || { v: [], a: [] };
+  const vids = L.v.filter((f) => f.h && f.h <= q).sort((a, b) => b.h - a.h || a.fps - b.fps);
+  const top = vids[0];
+  const pick = top ? (vids.find((f) => f.h === top.h && f.fps <= 30) || top) : null;
+  const aud = L.a.slice().sort((a, b) => b.abr - a.abr)[0];
+  const secs = entry.duration || 0;
+  if (pick && aud) {
+    const est = (pick.size || (pick.tbr * 125 * secs)) + (aud.size || (aud.abr * 125 * secs));
+    return { mode: 'mux', v: pick, a: aud, height: pick.h, secs, est: Math.round(est) };
+  }
+  return { mode: 'itag18', secs, height: 360, est: Math.round(60 * 1024 * secs) };
+}
+async function liteMakeVideo(id, q, entry) {
+  const out = cachePath(id, 'lite' + q);
+  if (existsSync(out)) { try { utimesSync(out, new Date(), new Date()); } catch {} return out; }
+  const plan = litePlan(entry, q);
+  return liteSerial(async () => {
+    if (existsSync(out)) return out;
+    const tmpv = cachePath(id, 'lite' + q + 'v.part'), tmpa = cachePath(id, 'lite' + q + 'a.part'), tmpo = cachePath(id, 'lite' + q + 'o.part');
+    const rm = () => { for (const f of [tmpv, tmpa, tmpo]) { try { unlinkSync(f); } catch {} } };
+    try {
+      if (plan.mode === 'itag18') {
+        const u = await muxUrl(entry);
+        if (!u) throw new Error('no playable stream for this one');
+        await liteHop(u, tmpo, LITE_MAX_BYTES);
+        await fsRename(tmpo, out);
+      } else {
+        await liteHop(plan.v.url, tmpv, LITE_MAX_BYTES);
+        await liteHop(plan.a.url, tmpa, LITE_MAX_BYTES);
+        await new Promise((resolve, reject) => {
+          const ff = spawn('nice', ['-n', '10', 'ffmpeg', '-v', 'error', '-y', '-i', tmpv, '-i', tmpa, '-c', 'copy', '-movflags', '+faststart', '-f', 'mp4', tmpo], { stdio: ['ignore', 'ignore', 'pipe'] });
+          let err = ''; ff.stderr.on('data', (c) => { err += c; });
+          const to = setTimeout(() => ff.kill('SIGKILL'), 120000);
+          ff.on('close', (c) => { clearTimeout(to); c === 0 ? resolve() : reject(new Error('mux failed ' + err.slice(0, 120))); });
+          ff.on('error', reject);
+        });
+        await fsRename(tmpo, out);
+      }
+      evictCache();
+      return out;
+    } finally { rm(); }
+  });
+}
+export const liteApi = {
+  async search(q) { return parseSearch(await ytSearch(q)); },
+  resolveStream,
+  litePlan,
+  makeVideo: liteMakeVideo,
+  serveCached,
+  getThumb,
+  LITE_MAX_BYTES,
+  LITE_MAX_SECS,
+};
