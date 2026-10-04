@@ -14,6 +14,7 @@ import { statSync } from 'node:fs';
 import { mkdtemp, writeFile, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import nodePath from 'node:path';
+import { renderSheet } from './sheet.mjs';
 import { parseDocument } from 'htmlparser2';
 import * as DU from 'domutils';
 import { clientIp } from './util.js';
@@ -41,26 +42,7 @@ async function makeSheet(items) {
     await Promise.all(items.map(async (it, i) => { try { await writeFile(nodePath.join(dir, 't' + i + '.jpg'), await getThumb(it.thumbSrc || it.id)); ok[i] = true; } catch { ok[i] = false; } }));
     const idx = items.map((_, i) => i).filter((i) => ok[i]);
     if (!idx.length) throw Object.assign(new Error('no thumbnails'), { code: 502 });
-    const F = '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf';
-    const args = ['-v', 'error']; const parts = []; const names = [];
-    for (const [k, i] of idx.entries()) {
-      await writeFile(nodePath.join(dir, 'n' + i + '.txt'), String(i + 1));
-      const t = String(items[i].title || '').replace(/[^\p{L}\p{N} .,!?&'()\-]/gu, ' ').replace(/\s+/g, ' ').trim();
-      let l1 = t, l2 = ''; if (t.length > 27) { let cut = t.lastIndexOf(' ', 27); if (cut < 12) cut = 27; l1 = t.slice(0, cut).trim(); l2 = t.slice(cut).trim(); if (l2.length > 27) l2 = l2.slice(0, 26).trimEnd() + '...'; }
-      await writeFile(nodePath.join(dir, 'a' + i + '.txt'), l1); await writeFile(nodePath.join(dir, 'b' + i + '.txt'), l2);
-      const dur = /^[0-9:]{3,9}$/.test(String(items[i].duration || '')) ? String(items[i].duration) : '';
-      if (dur) await writeFile(nodePath.join(dir, 'd' + i + '.txt'), dur);
-      args.push('-i', nodePath.join(dir, 't' + i + '.jpg'));
-      const d = (f, sz, x, y, col) => `drawtext=fontfile=${F}:textfile=${nodePath.join(dir, f + i + '.txt')}:fontsize=${sz}:fontcolor=${col}:x=${x}:y=${y}`;
-      parts.push(`[${k}:v]scale=320:180:force_original_aspect_ratio=increase,crop=320:180,pad=320:236:0:0:color=0x15151a,drawbox=x=0:y=0:w=64:h=52:color=0xe8452c@0.95:t=fill,${d('n', 40, '(64-text_w)/2', 6, 'white')},${d('a', 20, 8, 186, 'white')},${d('b', 20, 8, 209, 'white')}${dur ? `,drawtext=fontfile=${F}:textfile=${nodePath.join(dir, 'd' + i + '.txt')}:fontsize=22:fontcolor=white:box=1:boxcolor=0x000000@0.78:boxborderw=6:x=w-text_w-12:y=172-text_h` : ''}[v${k}]`);
-      names.push(`[v${k}]`);
-    }
-    const cols = 2, rows = Math.ceil(idx.length / cols);
-    const layout = idx.map((_, k) => `${(k % cols) * 320}_${Math.floor(k / cols) * 236}`).join('|');
-    const fc = parts.join(';') + ';' + (idx.length === 1 ? '[v0]copy[o]' : names.join('') + `xstack=inputs=${idx.length}:layout=${layout}:fill=0x15151a[o]`);
-    args.push('-filter_complex', fc, '-map', '[o]', '-frames:v', '1', '-q:v', '5', '-f', 'mjpeg', nodePath.join(dir, 'out.jpg'));
-    await new Promise((resolve, reject) => { const ff = spawn('nice', ['-n', '10', 'ffmpeg', '-y', ...args], { stdio: ['ignore', 'ignore', 'pipe'] }); let e = ''; ff.stderr.on('data', (d) => { e += d; }); ff.on('close', (c) => c ? reject(new Error('ffmpeg ' + e.slice(0, 200))) : resolve()); setTimeout(() => ff.kill('SIGKILL'), 20000); });
-    return { buf: await readFile(nodePath.join(dir, 'out.jpg')), shown: idx.map((i) => i + 1) };
+    return { buf: await renderSheet(dir, items, idx), shown: idx.map((i) => i + 1) };
   } finally { rm(dir, { recursive: true, force: true }).catch(() => {}); }
 }
 
