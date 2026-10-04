@@ -1020,6 +1020,22 @@
     videoEl.play?.().catch(() => {});
   }
 
+  // three real stalls inside 45s while on HD: step down to 360p instead of leaving the viewer on a spinner.
+  // the existing "hd hiccuped here ... try hd again" note is the way back.
+  let hdStallTimes = [];
+  function noteHdStall() {
+    if (!hdMode || !watchInfo?.stream || watchDirect || videoEl?.seeking) return;
+    const now = Date.now();
+    hdStallTimes = hdStallTimes.filter((t) => now - t < 45000).concat(now);
+    if (hdStallTimes.length >= 3) {
+      hdStallTimes = [];
+      const at = videoEl.currentTime;
+      hdMode = false; hdDropped = true; stalling = false; startFallback();
+      videoEl.addEventListener('loadedmetadata', () => { try { videoEl.currentTime = at; } catch {} }, { once: true });
+      api('/api/apps/jetstream/clientlog', { method: 'POST', body: { kind: 'hd-stall-drop', id: watching?.id || '', vw: 0, vh: 0, hd: true } }).catch(() => {});
+    }
+  }
+
   function onVidError() {
     if (!watchInfo || streamError) return;
     if (watchDirect) { if (hdMode) hdToProxy('video-error'); else muxedToProxy('video-error'); return; }
@@ -1035,6 +1051,7 @@
   }
 
   function toggleQuality() {
+    hdStallTimes = [];
     hdMode = !hdMode;
     if (hdMode) hdDropped = false;
     if (hdMode) startHd(); else startFallback();
@@ -1296,7 +1313,7 @@
           <video bind:this={videoEl} playsinline preload="auto" poster={thumb(watching.id)}
             onloadedmetadata={onMeta} ontimeupdate={() => { onTime(); vTick(); }} ondurationchange={vTick} onplay={() => { onVidPlay(); vSync(); }} onpause={() => { onVidPause(); vSync(); }} onseeked={onSeeked} onended={onVidEnded}
             onerror={onVidError}
-            onwaiting={() => { if (!streamError && videoEl && !videoEl.paused) stalling = true; }}
+            onwaiting={() => { if (!streamError && videoEl && !videoEl.paused) { stalling = true; noteHdStall(); } }}
             onplaying={() => stalling = false} oncanplay={() => stalling = false}></video>
           <div class="vo" class:hide={!vui} role="presentation" onclick={vTap}>
             <div class="vo-top"><span class="vo-title">{watching.title || watchInfo.title || ''}</span></div>
@@ -1359,7 +1376,7 @@ network {stats.net} · ready {stats.ready}</pre>
         </section>
       {/if}
       {#if hdDropped}
-        <p class="hdnote">hd hiccuped here, so this one is playing at 360p. <button class="linkbtn" onclick={() => { hdDropped = false; hdMode = true; startHd(); }}>try hd again</button></p>
+        <p class="hdnote">hd hiccuped here, so this one is playing at 360p. <button class="linkbtn" onclick={() => { const at = videoEl?.currentTime || 0; hdDropped = false; hdMode = true; startHd(); videoEl?.addEventListener('loadedmetadata', () => { try { videoEl.currentTime = at; } catch {} }, { once: true }); }}>try hd again</button></p>
       {/if}
       {#if autoplay}
         <p class="hdnote">autoplaying {autoplay.channelName} - video {autoplay.idx + 1} of {autoplay.items.length}</p>
