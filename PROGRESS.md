@@ -928,3 +928,10 @@ Search backend now runs as a child process of ramjet (core/searxng.js, searxng/)
 
 ## containerized (Oct 4)
 Ramjet now runs as the docker container ramjet (Dockerfile + docker-compose.yml): core, addons, built UI and the local search backend in one image. Data stays on the host in ./data (bind mount). Published on 127.0.0.1:14224 only, restart always, 3 GB / 2 CPU caps. Update: docker compose up -d --build. Rollback: docker compose down; bash /tmp/rs4.sh style host start (node core/index.js with RJ_HOST=127.0.0.1).
+
+## lite api (Oct 4)
+New /api/lite/* for phone shortcuts (core/lite.js, small hook in core/index.js, liteApi export in the jetstream addon). Read-only, GET only, no cookies and no JS.
+- Auth: a Ramjet account login (Authorization: Basic base64(user:pass) or Bearer user:pass), checked by the existing auth.verify. Nothing stored or logged. 60 req/min, 5 at once, 15 min lockout after 10 bad logins.
+- /search?q= (jetstream backend), /page?u= (json, or format=html), /media?u=&kind=image|video, /video?id=&q=360|480|720 (&info=1), /health.
+- Every outbound hop resolves once, pins the ip, and denies private/loopback/link-local/CGNAT/mapped ranges, odd ip encodings, ports other than 80/443; 5 redirects max. Caps: html 2 MB, image 15 MB (downscaled to 1600px jpeg), video 80 MB. Cookies and auth are never sent upstream.
+- /video muxes H.264 + AAC with ffmpeg stream copy into one faststart mp4 (one mux at a time, 150 MB / 15 min cap), kept in the stream cache.

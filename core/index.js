@@ -8,6 +8,7 @@ import { readJson as rjRead, writeJson as rjWrite } from './util.js';
 import { readBody, sendJson, redirect, parseCookies, clientIp } from './util.js';
 import { server as wisp } from '@mercuryworkshop/wisp-js';
 import { readerPage } from './reader.js';
+import { handleLite, setJetstream, setAuth } from './lite.js';
 import { handlePFetch, pwsUpgrade, safeLookup } from './pfetch.js';
 import { makeBlockingSocket, stats as adStats, listSize as adListSize } from './adblock.js';
 const { NodeTCPSocket } = await import(new URL('../node_modules/@mercuryworkshop/wisp-js/src/server/net.mjs', import.meta.url).href);
@@ -549,6 +550,14 @@ const server = createServer(async (req, res) => {
       res.writeHead(200, { 'content-type': 'text/javascript; charset=utf-8', 'cache-control': 'no-cache', etag: w.etag, vary: 'Accept-Encoding', 'content-length': body.length, ...(gz ? { 'content-encoding': 'gzip' } : {}) });
       return res.end(req.method === 'HEAD' ? undefined : body);
     } catch { /* fall through */ }
+  }
+  if (path.startsWith('/api/lite/')) {
+    // bearer-token api for the phone shortcut: outside cookie login, own auth + limits (core/lite.js)
+    try {
+      if (!global.__liteJet) { const j = await import('./addons/jetstream/index.js'); global.__liteJet = true; setJetstream(j.liteApi); }
+      setAuth(auth);
+      return await handleLite(req, res, url);
+    } catch { if (!res.headersSent) { res.writeHead(500, { 'content-type': 'application/json' }); } return res.end('{"ok":false,"error":"failed"}'); }
   }
   const cookies = parseCookies(req);
   const session = auth.sessionFromCookies(cookies);
