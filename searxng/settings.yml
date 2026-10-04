@@ -1,0 +1,37 @@
+# ramjet browse search backend (Luke 8:57 PM - DDG wanted, bing hated)
+use_default_settings: true
+server:
+  secret_key: "ultrasecretkey"  # real key comes from data/searxng-secret at runtime
+  limiter: false
+  image_proxy: true
+search:
+  safe_search: 0
+  autocomplete: "duckduckgo"
+  formats:
+    - html
+    - json
+ui:
+  default_theme: simple
+  query_in_title: true
+engines:
+  - name: google
+    disabled: true
+  # ddg CAPTCHAs this IP (verified 9/29 direct, via proxy, via searxng) - off until it recovers
+  - name: duckduckgo
+    disabled: true
+  - name: duckduckgo images
+    disabled: true
+  - name: qwant
+    disabled: true
+  - name: wikidata
+    disabled: true
+  - name: bing
+    disabled: false
+  - name: brave
+    disabled: false
+  - name: mojeek
+    disabled: false
+  - name: startpage
+    disabled: false
+  - name: wikipedia
+    disabled: false

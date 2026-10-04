@@ -13,6 +13,7 @@ import { makeBlockingSocket, stats as adStats, listSize as adListSize } from './
 const { NodeTCPSocket } = await import(new URL('../node_modules/@mercuryworkshop/wisp-js/src/server/net.mjs', import.meta.url).href);
 wisp.options.dns_result_order = 'ipv4first'; // the box has no ipv6 route
 import { randomBytes } from 'node:crypto';
+import { startSearxng, stopSearxng } from "./searxng.js";
 import { brotliCompressSync, gzipSync, constants as zc } from 'node:zlib';
 
 // short-lived, user-bound tickets so the wisp websocket upgrade authenticates
@@ -783,5 +784,6 @@ server.on('upgrade', (req, socket, head) => {
 });
 
 server.listen(PORT, HOST, () => console.log(`ramjet2 on ${HOST}:${PORT}, data ${DATA}, addons: ${[...addons.keys()].join(', ') || 'none'}`));
-process.on('SIGTERM', () => { guard.flush(); process.exit(0); });
-process.on('SIGINT', () => { guard.flush(); process.exit(0); });
+process.on("SIGTERM", () => { stopSearxng(); guard.flush(); process.exit(0); });
+process.on("SIGINT", () => { stopSearxng(); guard.flush(); process.exit(0); });
+startSearxng();

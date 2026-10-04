@@ -922,3 +922,6 @@ Hub layouts (list, home-screen grid, desktop+dock with status widgets) via rj-la
 - 2026-10-04 proxy: serve virtual scramjet.wasm.js to uncontrolled workers/frames (DeviantArt login probe: engine WASM-not-found in worker fixed). DA login Next still stalls: PX anti-bot iframe is sandboxed, SW cannot control it.
 
 - Sun Oct 4 3:23 AM: jetstream watch page steps down to 360p after 3 stalls inside 45s on HD (keeps position, logs hd-stall-drop), and "try hd again" now keeps position. Measured ramjet.lukeevanson.com: ttfb ~0.15s, 586KB wasm in ~0.17s from outside; streaming through Cloudflare still untested with a real video.
+
+## searxng folded in (Oct 4)
+Search backend now runs as a child process of ramjet (core/searxng.js, searxng/). Localhost 8888 only, no public route. Fresh checkout: run searxng/setup.sh once. Cosmos searxng container removed.

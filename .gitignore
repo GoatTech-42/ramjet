@@ -8,3 +8,5 @@ qa/*.png
 *.log
 .env
 *.secret
+searxng/venv/
+searxng/src/
