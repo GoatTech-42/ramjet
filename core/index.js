@@ -474,61 +474,81 @@ async function proxySearx(req, res, session, restUrl) {
 		const imgGuard = await new Promise((ok) => safeLookup(t.hostname.replace(/^\[|\]$/g, ''), {}, (e) => ok(!e)));
 		if (!imgGuard) { res.writeHead(400); return res.end(); }
 		const mod = t.protocol === 'https:' ? httpsRequest : httpRequest;
-		const ur = mod(t, { headers: { accept: 'image/*', 'user-agent': 'Mozilla/5.0' }, lookup: safeLookup, timeout: 10000 }, (ir) => {
-			if (ir.statusCode >= 300 && ir.statusCode < 400 && ir.headers.location && (parseInt(u.searchParams.get('h') || '0', 10) < 3)) { ir.resume(); let nx; try { nx = new URL(ir.headers.location, t); } catch { res.writeHead(404); return res.end(); } res.writeHead(302, { location: '/searx/img?h=' + (parseInt(u.searchParams.get('h') || '0', 10) + 1) + '&u=' + encodeURIComponent(nx.href) }); return res.end(); }
-			const ct = String(ir.headers['content-type'] || '');
-			if (ir.statusCode !== 200 || !/^image\/(jpeg|png|webp|gif|avif)/.test(ct)) { ir.resume(); res.writeHead(404); return res.end(); }
-			res.writeHead(200, { 'content-type': ct, 'cache-control': 'private, max-age=86400', 'x-content-type-options': 'nosniff' });
-			let n = 0; ir.on('data', (c) => { n += c.length; if (n > 3e6) { ir.destroy(); res.end(); } else res.write(c); });
-			ir.on('end', () => res.end()); ir.on('error', () => res.end());
-		});
-		ur.on('timeout', () => ur.destroy()); ur.on('error', () => { if (!res.headersSent) res.writeHead(502); res.end(); });
-		return ur.end();
-	}
-	if (u.pathname === '/reader') {
-		const tu = u.searchParams.get('u') || '';
-		res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'content-security-policy': "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'" });
-		return res.end(await readerPage(tu));
-	}
-	if (u.pathname !== '/search' && u.pathname !== '/' && u.pathname !== '') {
-		res.writeHead(302, { location: '/searx/search' });
-		return res.end();
-	}
-	const q = (u.searchParams.get('q') || '').trim();
-	const bang = sxBang(q);
-	if (bang) {
-		const j = JSON.stringify(bang).replace(/</g, '\\u003c');
-		res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
-		return res.end('<!doctype html><meta charset=utf-8><title>Opening</title><body style="background:#0b0b0c;color:#aaa;font:15px system-ui;padding:24px">Opening...<script>var u=' + j + ';if(window.parent!==window)parent.postMessage({rjBrowseGo:u},"*");else location.replace(u)</script>');
-	}
-	const page = Math.max(1, parseInt(u.searchParams.get('p') || '1', 10) || 1);
-	const cat = u.searchParams.get('c') || 'general';
-	const ck = parseCookies(req).rjss;
-	let safe = u.searchParams.has('s') ? parseInt(u.searchParams.get('s'), 10) : (ck != null ? parseInt(ck, 10) : 0);
-	if (![0, 1, 2].includes(safe)) safe = 0;
-	const wantImgs = q && cat === 'general' && page === 1;
-	const imgP = wantImgs ? Promise.race([sxFetch(q, 1, 'images', safe), new Promise((r) => setTimeout(() => r(null), 4000))]).catch(() => null) : null;
-	const result = q ? await sxFetch(q, page, cat, safe) : null;
-	const imgRes = imgP ? await imgP : null;
-	const hd = { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' };
-	if (u.searchParams.has('s')) hd['set-cookie'] = 'rjss=' + safe + '; Path=/searx; Max-Age=31536000; SameSite=Lax; HttpOnly';
-	res.writeHead(200, hd);
-	res.end(sxPage(q, page, result, cat, safe, imgRes));
-}
+		const ur = mod(t, { headers: { accept: 'image
 
 
 
 
 
-const ADMIN = process.env.RJ_ADMIN || 'admin';
-const CONFIG_PATH = new URL('../data/config.json', import.meta.url).pathname;
-const getConfig = () => ({ requireApproval: true, ...rjRead(CONFIG_PATH, {}) });
-const RESERVED = new Set(['admin', 'administrator', 'root', 'ramjet', 'support', 'system']);
-const MAX_PENDING = 25;
 
-const server = createServer(async (req, res) => {
-  const url = new URL(req.url, 'http://x');
-  const path = url.pathname;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+ }
+  }
   const cookies = parseCookies(req);
   const session = auth.sessionFromCookies(cookies);
 
