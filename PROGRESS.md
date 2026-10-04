@@ -941,3 +941,5 @@ New /api/lite/* for phone shortcuts (core/lite.js, small hook in core/index.js, 
 - /api/lite/sheet?q=&page= returns one numbered 2x4 JPEG contact sheet of that page.
 - /api/lite/imgsearch?q=&page= (8 images per page, each with image = full-res, image_small, thumb, label, line); /api/lite/imgsheet for a numbered grid.
 - /api/lite/media?kind=image adds &orig=1 (no downscale) and &fb= (Bing thumb fallback when the source blocks hotlinks).
+
+- /api/lite/sheet tiles now carry a duration badge (bottom-right of the thumbnail). (Oct 4, 4:22 PM)

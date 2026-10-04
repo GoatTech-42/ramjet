@@ -48,9 +48,11 @@ async function makeSheet(items) {
       const t = String(items[i].title || '').replace(/[^\p{L}\p{N} .,!?&'()\-]/gu, ' ').replace(/\s+/g, ' ').trim();
       let l1 = t, l2 = ''; if (t.length > 27) { let cut = t.lastIndexOf(' ', 27); if (cut < 12) cut = 27; l1 = t.slice(0, cut).trim(); l2 = t.slice(cut).trim(); if (l2.length > 27) l2 = l2.slice(0, 26).trimEnd() + '...'; }
       await writeFile(nodePath.join(dir, 'a' + i + '.txt'), l1); await writeFile(nodePath.join(dir, 'b' + i + '.txt'), l2);
+      const dur = /^[0-9:]{3,9}$/.test(String(items[i].duration || '')) ? String(items[i].duration) : '';
+      if (dur) await writeFile(nodePath.join(dir, 'd' + i + '.txt'), dur);
       args.push('-i', nodePath.join(dir, 't' + i + '.jpg'));
       const d = (f, sz, x, y, col) => `drawtext=fontfile=${F}:textfile=${nodePath.join(dir, f + i + '.txt')}:fontsize=${sz}:fontcolor=${col}:x=${x}:y=${y}`;
-      parts.push(`[${k}:v]scale=320:180:force_original_aspect_ratio=increase,crop=320:180,pad=320:236:0:0:color=0x15151a,drawbox=x=0:y=0:w=64:h=52:color=0xe8452c@0.95:t=fill,${d('n', 40, '(64-text_w)/2', 6, 'white')},${d('a', 20, 8, 186, 'white')},${d('b', 20, 8, 209, 'white')}[v${k}]`);
+      parts.push(`[${k}:v]scale=320:180:force_original_aspect_ratio=increase,crop=320:180,pad=320:236:0:0:color=0x15151a,drawbox=x=0:y=0:w=64:h=52:color=0xe8452c@0.95:t=fill,${d('n', 40, '(64-text_w)/2', 6, 'white')},${d('a', 20, 8, 186, 'white')},${d('b', 20, 8, 209, 'white')}${dur ? `,drawtext=fontfile=${F}:textfile=${nodePath.join(dir, 'd' + i + '.txt')}:fontsize=22:fontcolor=white:box=1:boxcolor=0x000000@0.78:boxborderw=6:x=w-text_w-12:y=172-text_h` : ''}[v${k}]`);
       names.push(`[v${k}]`);
     }
     const cols = 2, rows = Math.ceil(idx.length / cols);
