@@ -935,3 +935,9 @@ New /api/lite/* for phone shortcuts (core/lite.js, small hook in core/index.js, 
 - /search?q= (jetstream backend), /page?u= (json, or format=html), /media?u=&kind=image|video, /video?id=&q=360|480|720 (&info=1), /health.
 - Every outbound hop resolves once, pins the ip, and denies private/loopback/link-local/CGNAT/mapped ranges, odd ip encodings, ports other than 80/443; 5 redirects max. Caps: html 2 MB, image 15 MB (downscaled to 1600px jpeg), video 80 MB. Cookies and auth are never sent upstream.
 - /video muxes H.264 + AAC with ffmpeg stream copy into one faststart mp4 (one mux at a time, 150 MB / 15 min cap), kept in the stream cache.
+
+## Lite API: search labels, paging, contact sheet, image search (Oct 4, 3:40 PM)
+- /api/lite/search adds label, line ("label||id"), lines[], page, has_more, next_page; &page=N (8 per page).
+- /api/lite/sheet?q=&page= returns one numbered 2x4 JPEG contact sheet of that page.
+- /api/lite/imgsearch?q=&page= (8 images per page, each with image = full-res, image_small, thumb, label, line); /api/lite/imgsheet for a numbered grid.
+- /api/lite/media?kind=image adds &orig=1 (no downscale) and &fb= (Bing thumb fallback when the source blocks hotlinks).
