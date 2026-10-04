@@ -920,3 +920,5 @@ Hub layouts (list, home-screen grid, desktop+dock with status widgets) via rj-la
 - 6:32 PM: fixed tap on image tile opening the source site inside Browse (page-level link handler ran first); lightbox now opens
 - 6:37 PM: lightbox scroll bug: overlay was pinned to the page (body entrance animation left a transform), now attached to <html>, body scroll lock + restore, touch-action none
 - 2026-10-04 proxy: serve virtual scramjet.wasm.js to uncontrolled workers/frames (DeviantArt login probe: engine WASM-not-found in worker fixed). DA login Next still stalls: PX anti-bot iframe is sandboxed, SW cannot control it.
+
+- Sun Oct 4 3:23 AM: jetstream watch page steps down to 360p after 3 stalls inside 45s on HD (keeps position, logs hd-stall-drop), and "try hd again" now keeps position. Measured ramjet.lukeevanson.com: ttfb ~0.15s, 586KB wasm in ~0.17s from outside; streaming through Cloudflare still untested with a real video.

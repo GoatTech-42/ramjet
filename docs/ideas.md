@@ -55,3 +55,14 @@ Order I would pick: 1, 2.
 Reconciled against the shipped log: banter reactions (overlay shipped Fri Oct 2) and search bangs (in the SearXNG page) are already built, so they are dropped from this list. Earlier lists also had audio-only and browse history, which have since shipped.
 
 ## Sat Oct 3 9:25 AM: both ideas shipped (allow-ads switch, command palette).
+
+## Sun Oct 4 - thinking hour (2 AM, ran late)
+
+Grounded in: Saturday ideas both shipped, the jetstream client log (last 300 events: 98 slide-ahead, 81 slide-hd, 55 slide-stalls, 41 slide-proxy-fallback, 25 watch-proxy-fallback), light real usage so far (history 23 entries, 1 like, 1 sub, no amp playlists, 1 bookmark), the new domains (ramjet.lukeevanson.com behind Cloudflare), and what YouTube, Spotify and Arc ship.
+
+1. **jetstream: stall-aware quality drop** (YouTube auto quality). Stalls and proxy fallbacks are the loudest signal in the log. Step down a quality tier after two stalls and offer a one-tap return to HD. Fewer spinners on a phone matters more than a perfect 1080p.
+2. **hub: first-run empty states that teach** (Spotify and Arc start screens). Almost no likes, subs, playlists or bookmarks exist yet, so the apps look empty. A short "pick 3 things" nudge per app fills them, so the personal platform starts to feel like his.
+3. **amp: playlists from search results in one tap** (Spotify add-to-playlist). Zero playlists exist, which says making one has friction. Add a plus on each result that creates or picks a playlist.
+4. **browse: Cloudflare-aware speed check** (not a feature, a measurement). Streaming and large pages through ramjet.lukeevanson.com are untested. Measure before anyone judges speed, and tune only if it is slower than the srv.us path.
+
+Order I would pick: 4 (free, just measuring), 1, 3. All wait for Luke. Nothing here is built.
