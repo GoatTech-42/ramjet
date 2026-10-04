@@ -358,7 +358,7 @@ const SX_JS = `
     r.querySelectorAll('a').forEach(function (a, n) { a.textContent = list[n]; });
     var c = document.getElementById('sxclr'); if (c) c.onclick = function () { try { localStorage.removeItem(K); localStorage.setItem(K, '[]'); } catch (e) {} r.innerHTML = ''; };
   }
-  document.addEventListener('click', function (e) { var a = e.target && e.target.closest ? e.target.closest('a[href]') : null; if (!a) return; var h = a.getAttribute('href') || ''; if (/^https?:\\/\\//i.test(h) && window.parent !== window) { e.preventDefault(); e.stopPropagation(); parent.postMessage({ rjBrowseGo: h }, '*'); } }, true);
+  document.addEventListener('click', function (e) { var a = e.target && e.target.closest ? e.target.closest('a[href]') : null; if (!a) return; if (a.closest('li.tile')) return; var h = a.getAttribute('href') || ''; if (/^https?:\\/\\//i.test(h) && window.parent !== window) { e.preventDefault(); e.stopPropagation(); parent.postMessage({ rjBrowseGo: h }, '*'); } }, true);
 })();
 `;
 function sxHost(u) { try { return new URL(u).hostname; } catch { return ''; } }

@@ -917,3 +917,4 @@ Hub layouts (list, home-screen grid, desktop+dock with status widgets) via rj-la
 - 3:37 PM: main now = rebuild (merge -s ours of v1 history, no force-push); v1 tagged v1-final
 - 3:45 PM: hub: removed home search bars (palette is the search entry), hover/press/focus animations on app rows
 - 3:51 PM: searx images lightbox (next/prev, swipe, esc, visit page, open image, load-full when small), strip full-res on unmetered, small-thumb hint in footer. needs server restart
+- 6:32 PM: fixed tap on image tile opening the source site inside Browse (page-level link handler ran first); lightbox now opens
