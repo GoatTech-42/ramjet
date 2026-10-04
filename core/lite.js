@@ -11,12 +11,57 @@ import zlib from 'node:zlib';
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { statSync } from 'node:fs';
+import { mkdtemp, writeFile, readFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import nodePath from 'node:path';
 import { parseDocument } from 'htmlparser2';
 import * as DU from 'domutils';
 import { clientIp } from './util.js';
 
 const MAX_HTML = 2 * 1024 * 1024, MAX_IMG = 15 * 1024 * 1024, MAX_VID = 80 * 1024 * 1024;
 let jet = null, acct = null;
+// ---- contact sheet: one numbered JPEG of the top results (thumbnail + number + short title) ----
+function getThumb(src) {
+  return new Promise((resolve, reject) => {
+    let host = 'i.ytimg.com', pth = '/vi/' + src + '/mqdefault.jpg';
+    if (/^https:\/\//.test(src)) { const u = new URL(src); if (!/^ts\d?\.mm\.bing\.net$/.test(u.hostname)) return reject(new Error('thumb host')); host = u.hostname; pth = u.pathname + u.search; }
+    const rq = https.get({ host, path: pth, timeout: 8000 }, (r) => {
+      if (r.statusCode !== 200) { r.resume(); return reject(new Error('thumb ' + r.statusCode)); }
+      const ch = []; let n = 0;
+      r.on('data', (d) => { n += d.length; if (n > 400000) { rq.destroy(); reject(new Error('thumb too big')); } else ch.push(d); });
+      r.on('end', () => resolve(Buffer.concat(ch)));
+    });
+    rq.on('error', reject); rq.on('timeout', () => rq.destroy(new Error('thumb timeout')));
+  });
+}
+async function makeSheet(items) {
+  const dir = await mkdtemp(nodePath.join(tmpdir(), 'sheet-'));
+  try {
+    const ok = [];
+    await Promise.all(items.map(async (it, i) => { try { await writeFile(nodePath.join(dir, 't' + i + '.jpg'), await getThumb(it.thumbSrc || it.id)); ok[i] = true; } catch { ok[i] = false; } }));
+    const idx = items.map((_, i) => i).filter((i) => ok[i]);
+    if (!idx.length) throw Object.assign(new Error('no thumbnails'), { code: 502 });
+    const F = '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf';
+    const args = ['-v', 'error']; const parts = []; const names = [];
+    for (const [k, i] of idx.entries()) {
+      await writeFile(nodePath.join(dir, 'n' + i + '.txt'), String(i + 1));
+      const t = String(items[i].title || '').replace(/[^\p{L}\p{N} .,!?&'()\-]/gu, ' ').replace(/\s+/g, ' ').trim();
+      let l1 = t, l2 = ''; if (t.length > 27) { let cut = t.lastIndexOf(' ', 27); if (cut < 12) cut = 27; l1 = t.slice(0, cut).trim(); l2 = t.slice(cut).trim(); if (l2.length > 27) l2 = l2.slice(0, 26).trimEnd() + '...'; }
+      await writeFile(nodePath.join(dir, 'a' + i + '.txt'), l1); await writeFile(nodePath.join(dir, 'b' + i + '.txt'), l2);
+      args.push('-i', nodePath.join(dir, 't' + i + '.jpg'));
+      const d = (f, sz, x, y, col) => `drawtext=fontfile=${F}:textfile=${nodePath.join(dir, f + i + '.txt')}:fontsize=${sz}:fontcolor=${col}:x=${x}:y=${y}`;
+      parts.push(`[${k}:v]scale=320:180:force_original_aspect_ratio=increase,crop=320:180,pad=320:236:0:0:color=0x15151a,drawbox=x=0:y=0:w=64:h=52:color=0xe8452c@0.95:t=fill,${d('n', 40, '(64-text_w)/2', 6, 'white')},${d('a', 20, 8, 186, 'white')},${d('b', 20, 8, 209, 'white')}[v${k}]`);
+      names.push(`[v${k}]`);
+    }
+    const cols = 2, rows = Math.ceil(idx.length / cols);
+    const layout = idx.map((_, k) => `${(k % cols) * 320}_${Math.floor(k / cols) * 236}`).join('|');
+    const fc = parts.join(';') + ';' + (idx.length === 1 ? '[v0]copy[o]' : names.join('') + `xstack=inputs=${idx.length}:layout=${layout}:fill=0x15151a[o]`);
+    args.push('-filter_complex', fc, '-map', '[o]', '-frames:v', '1', '-q:v', '5', '-f', 'mjpeg', nodePath.join(dir, 'out.jpg'));
+    await new Promise((resolve, reject) => { const ff = spawn('nice', ['-n', '10', 'ffmpeg', '-y', ...args], { stdio: ['ignore', 'ignore', 'pipe'] }); let e = ''; ff.stderr.on('data', (d) => { e += d; }); ff.on('close', (c) => c ? reject(new Error('ffmpeg ' + e.slice(0, 200))) : resolve()); setTimeout(() => ff.kill('SIGKILL'), 20000); });
+    return { buf: await readFile(nodePath.join(dir, 'out.jpg')), shown: idx.map((i) => i + 1) };
+  } finally { rm(dir, { recursive: true, force: true }).catch(() => {}); }
+}
+
 export function setJetstream(api) { jet = api; }
 export function setAuth(a) { acct = a; }
 // auth = the ramjet account login (username + password), checked by ramjet's own
@@ -187,22 +232,22 @@ function pageHtml(d) {
 }
 
 // ---- media ----
-function ffJpeg(buf) {
+function ffJpeg(buf, full) {
   return new Promise((resolve, reject) => {
-    const ff = spawn('nice', ['-n', '10', 'ffmpeg', '-v', 'error', '-i', 'pipe:0', '-frames:v', '1', '-vf', "scale='min(1600,iw)':-2", '-q:v', '4', '-f', 'mjpeg', 'pipe:1'], { stdio: ['pipe', 'pipe', 'ignore'] });
+    const ff = spawn('nice', ['-n', '10', 'ffmpeg', '-v', 'error', '-i', 'pipe:0', '-frames:v', '1', ...(full ? ['-q:v', '2'] : ['-vf', "scale='min(1600,iw)':-2", '-q:v', '4']), '-f', 'mjpeg', 'pipe:1'], { stdio: ['pipe', 'pipe', 'ignore'] });
     const ch = []; ff.stdout.on('data', (c) => ch.push(c));
     const to = setTimeout(() => ff.kill('SIGKILL'), 20000);
     ff.on('close', (c) => { clearTimeout(to); const o = Buffer.concat(ch); c === 0 && o.length ? resolve(o) : reject(new Error('could not read that image')); });
     ff.stdin.on('error', () => {}); ff.on('error', reject); ff.stdin.end(buf);
   });
 }
-async function mediaImage(res, u) {
+async function mediaImage(res, u, full) {
   const { res: r } = await safeGet(u, 'image/*');
   const ct = String(r.headers['content-type'] || '');
   if (r.statusCode !== 200 || !/^image\/(jpeg|png|webp|gif|avif|bmp)/i.test(ct)) { r.resume(); throw new Error('not an image'); }
   const raw = await collect(body(r), MAX_IMG, 'image too large');
   let out = raw, type = ct.split(';')[0];
-  if (raw.length > 400 * 1024 || !/jpeg/.test(type)) { try { out = await ffJpeg(raw); type = 'image/jpeg'; } catch { if (!/^image\/(jpeg|png|gif)/.test(type)) throw new Error('could not read that image'); } }
+  if (full ? !/^image\/(jpeg|png)/.test(type) : (raw.length > 400 * 1024 || !/jpeg/.test(type))) { try { out = await ffJpeg(raw, full); type = 'image/jpeg'; } catch { if (!/^image\/(jpeg|png|gif)/.test(type)) throw new Error('could not read that image'); } }
   const ext = type === 'image/png' ? 'png' : type === 'image/gif' ? 'gif' : 'jpg';
   res.writeHead(200, { 'content-type': type, 'content-length': out.length, 'content-disposition': 'inline; filename="image.' + ext + '"', 'cache-control': 'private, max-age=3600', 'x-content-type-options': 'nosniff' });
   res.end(out);
@@ -228,6 +273,27 @@ async function mediaVideo(res, u) {
 }
 
 // ---- handler ----
+async function imageSearch(q, pg) {
+  const u = 'https://www.bing.com/images/async?q=' + encodeURIComponent(q) + '&first=' + ((pg - 1) * 8) + '&count=16&mmasync=1';
+  const html = await new Promise((resolve, reject) => {
+    const rq = https.get(u, { headers: { 'user-agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 Version/17.0 Mobile/15E148 Safari/604.1', 'accept-language': 'en-US,en;q=0.9' }, timeout: 12000 }, (r) => {
+      const ch = []; let n = 0; r.on('data', (d) => { n += d.length; if (n > 1500000) { rq.destroy(); reject(new Error('too big')); } else ch.push(d); }); r.on('end', () => resolve(Buffer.concat(ch).toString('utf8')));
+    });
+    rq.on('error', reject); rq.on('timeout', () => rq.destroy(new Error('image search timeout')));
+  });
+  const un = (x) => x.replace(/&quot;/g, '"').replace(/&amp;/g, '&').replace(/&#39;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>');
+  const out = [], seen = new Set();
+  for (const m of html.matchAll(/class="iusc"[^>]*? m="([^"]+)"/g)) {
+    let j; try { j = JSON.parse(un(m[1])); } catch { continue; }
+    if (!j.murl || !/^https?:\/\//.test(j.murl) || !j.turl || seen.has(j.murl)) continue;
+    seen.add(j.murl);
+    let host = ''; try { host = new URL(j.purl || j.murl).hostname.replace(/^www\./, ''); } catch {}
+    out.push({ title: String(j.t || j.desc || host || 'image').replace(/[\ue000-\ue00f]/g, ''), site: host, full: j.murl, thumbSrc: j.turl.replace(/^http:/, 'https:') });
+    if (out.length >= 8) break;
+  }
+  return out;
+}
+
 export async function handleLite(req, res, url) {
   const path = url.pathname.replace(/^\/api\/lite/, '') || '/';
   const ip = clientIp(req);
@@ -258,8 +324,38 @@ export async function handleLite(req, res, url) {
     if (path === '/search') {
       const q = (sp.get('q') || '').trim();
       if (!q || q.length > 120) return json(res, 400, { ok: false, error: 'q required, under 120 chars' });
-      const rs = await jet.search(q);
-      return json(res, 200, { ok: true, q, results: rs.map((v) => ({ id: v.id, title: v.title, channel: v.channel, duration: v.duration, views: v.views, thumb: mediaUrl('https://i.ytimg.com/vi/' + v.id + '/mqdefault.jpg', 'image'), video: '/api/lite/video?id=' + v.id })) });
+      const pg = Math.max(1, Math.min(20, Number(sp.get('page')) || 1));
+      const all = await jet.search(q); const rs = all.slice((pg - 1) * 8, pg * 8);
+      const clip = (x, n) => { x = String(x == null ? '' : x).replace(/\s+/g, ' ').trim(); return x.length > n ? x.slice(0, n - 1).trimEnd() + '\u2026' : x; };
+      const fmtViews = (x) => { if (x == null || x === '') return ''; const n = Number(String(x).replace(/[,\s]|views?/gi, '')); if (!isNaN(n)) return n >= 1e6 ? (n / 1e6).toFixed(1).replace(/\.0$/, '') + 'M views' : n >= 1e3 ? Math.round(n / 1e3) + 'K views' : n + ' views'; return clip(x, 18); };
+      const out = rs.map((v) => { const label = [clip(v.title, 52), clip(v.channel, 20), v.duration ? clip(v.duration, 9) : '', fmtViews(v.views)].filter(Boolean).join(' - '); return { id: v.id, title: v.title, channel: v.channel, duration: v.duration, views: v.views, label, line: label + '||' + v.id, thumb: mediaUrl('https://i.ytimg.com/vi/' + v.id + '/mqdefault.jpg', 'image'), video: '/api/lite/video?id=' + v.id }; });
+      return json(res, 200, { ok: true, q, results: out, lines: out.map((x) => x.line), page: pg, per_page: 8, has_more: all.length > pg * 8, next_page: all.length > pg * 8 ? pg + 1 : null });
+    }
+    if (path === '/sheet') {
+      const q = (sp.get('q') || '').trim();
+      if (!q || q.length > 120) return json(res, 400, { ok: false, error: 'q required, under 120 chars' });
+      const n = Math.min(8, Math.max(1, Number(sp.get('n')) || 8));
+      const pg = Math.max(1, Math.min(20, Number(sp.get('page')) || 1));
+      const rs = (await jet.search(q)).slice((pg - 1) * 8, (pg - 1) * 8 + n);
+      if (!rs.length) return json(res, 404, { ok: false, error: 'no results' });
+      const { buf } = await makeSheet(rs);
+      res.writeHead(200, { 'content-type': 'image/jpeg', 'content-length': buf.length, 'cache-control': 'no-store' });
+      return res.end(buf);
+    }
+    if (path === '/imgsearch' || path === '/imgsheet') {
+      const q = (sp.get('q') || '').trim();
+      if (!q || q.length > 120) return json(res, 400, { ok: false, error: 'q required, under 120 chars' });
+      const pg = Math.max(1, Math.min(20, Number(sp.get('page')) || 1));
+      let items; try { items = await imageSearch(q, pg); } catch (e) { return json(res, 502, { ok: false, error: 'image search failed: ' + String(e.message).slice(0, 80) }); }
+      if (!items.length) return json(res, 404, { ok: false, error: 'no results on this page', page: pg });
+      if (path === '/imgsheet') {
+        const { buf } = await makeSheet(items.map((x) => ({ thumbSrc: x.thumbSrc, title: x.title })));
+        res.writeHead(200, { 'content-type': 'image/jpeg', 'content-length': buf.length, 'cache-control': 'no-store' });
+        return res.end(buf);
+      }
+      const clip2 = (x, n) => { x = String(x).replace(/\s+/g, ' ').trim(); return x.length > n ? x.slice(0, n - 1).trimEnd() + '\u2026' : x; };
+      const results = items.map((x, i) => { const label = (i + 1) + '. ' + clip2(x.title, 48) + (x.site ? ' - ' + clip2(x.site, 22) : ''); return { n: i + 1, title: x.title, site: x.site, label, line: label + '||' + (i + 1), image: mediaUrl(x.full, 'image') + '&orig=1&fb=' + encodeURIComponent(x.thumbSrc), image_small: mediaUrl(x.full, 'image') + '&fb=' + encodeURIComponent(x.thumbSrc), thumb: mediaUrl(x.thumbSrc, 'image') }; });
+      return json(res, 200, { ok: true, q, page: pg, per_page: 8, results, lines: results.map((x) => x.line), has_more: true, next_page: pg + 1 });
     }
     if (path === '/page') {
       const d = await pageData(sp.get('u') || '');
@@ -269,7 +365,8 @@ export async function handleLite(req, res, url) {
     if (path === '/media') {
       const kind = sp.get('kind');
       try {
-        if (kind === 'image') return await mediaImage(res, sp.get('u') || '');
+        if (kind === 'image') try { return await mediaImage(res, sp.get('u') || '', sp.get('orig') === '1'); }
+          catch (e0) { const fb = sp.get('fb') || ''; let ok = false; try { ok = /^ts\d?\.mm\.bing\.net$/.test(new URL(fb).hostname); } catch {} if (!ok || res.headersSent) throw e0; return await mediaImage(res, fb, false); }
         if (kind === 'video') return await mediaVideo(res, sp.get('u') || '');
       } catch (e) { if (res.headersSent) return res.destroy(); return json(res, e.code || 502, { ok: false, error: String(e.message).slice(0, 160) }); }
       return json(res, 400, { ok: false, error: 'kind=image|video' });
