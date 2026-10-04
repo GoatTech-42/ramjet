@@ -943,3 +943,5 @@ New /api/lite/* for phone shortcuts (core/lite.js, small hook in core/index.js, 
 - /api/lite/media?kind=image adds &orig=1 (no downscale) and &fb= (Bing thumb fallback when the source blocks hotlinks).
 
 - /api/lite/sheet tiles now carry a duration badge (bottom-right of the thumbnail). (Oct 4, 4:22 PM)
+
+- /api/lite/sheet redesign: dark rounded cards, frosted-glass number chip and length pill, two-line titles (core/sheet.mjs). 632px wide. (Oct 4, 4:40 PM)
