@@ -289,30 +289,7 @@ async function searxImages(q, pg, safe) {
   }
   return list.arr.slice(start % per, start % per + 8);
 }
-async function imageSearch(q, pg, safe) {
-  try { const r = await searxImages(q, pg, safe); if (r.length) return r; } catch (e) { /* fall back to bing */ }
-  return bingImages(q, pg, safe);
-}
-async function bingImages(q, pg, safe) {
-  const u = 'https://www.bing.com/images/async?q=' + encodeURIComponent(q) + '&first=' + ((pg - 1) * 8) + '&count=16&mmasync=1' + (safe === 'strict' ? '&adlt=strict' : safe === 'off' ? '&adlt=off' : '');
-  const html = await new Promise((resolve, reject) => {
-    const rq = https.get(u, { headers: { cookie: 'SRCHHPGUSR=ADLT=' + (safe === 'off' ? 'OFF' : safe === 'strict' ? 'STRICT' : 'DEMOTE'), 'user-agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 Version/17.0 Mobile/15E148 Safari/604.1', 'accept-language': 'en-US,en;q=0.9' }, timeout: 12000 }, (r) => {
-      const ch = []; let n = 0; r.on('data', (d) => { n += d.length; if (n > 1500000) { rq.destroy(); reject(new Error('too big')); } else ch.push(d); }); r.on('end', () => resolve(Buffer.concat(ch).toString('utf8')));
-    });
-    rq.on('error', reject); rq.on('timeout', () => rq.destroy(new Error('image search timeout')));
-  });
-  const un = (x) => x.replace(/&quot;/g, '"').replace(/&amp;/g, '&').replace(/&#39;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>');
-  const out = [], seen = new Set();
-  for (const m of html.matchAll(/class="iusc"[^>]*? m="([^"]+)"/g)) {
-    let j; try { j = JSON.parse(un(m[1])); } catch { continue; }
-    if (!j.murl || !/^https?:\/\//.test(j.murl) || !j.turl || seen.has(j.murl)) continue;
-    seen.add(j.murl);
-    let host = ''; try { host = new URL(j.purl || j.murl).hostname.replace(/^www\./, ''); } catch {}
-    out.push({ title: String(j.t || j.desc || host || 'image').replace(/[\ue000-\ue00f]/g, ''), site: host, full: j.murl, thumbSrc: j.turl.replace(/^http:/, 'https:') });
-    if (out.length >= 8) break;
-  }
-  return out;
-}
+async function imageSearch(q, pg, safe) { return searxImages(q, pg, safe); }
 
 export async function handleLite(req, res, url) {
   try { const t0 = Date.now(); res.on('finish', () => { try { appendFileSync('/app/data/lite-access.log', new Date().toISOString() + ' ' + req.method + ' ' + url.pathname + ' q=' + String(url.searchParams.get('q') || '').slice(0, 40) + ' page=' + (url.searchParams.get('page') || '') + ' ' + res.statusCode + ' ' + (Date.now() - t0) + 'ms\n'); } catch {} }); } catch {}
