@@ -21,6 +21,7 @@ COPY models ./models
 COPY bin ./bin
 COPY searxng/settings.yml searxng/setup.sh ./searxng/
 RUN sh searxng/setup.sh && apt-get purge -y build-essential python3-dev && apt-get autoremove -y && rm -rf /var/lib/apt/lists/* /app/searxng/src/.git
+COPY searxng/engines/ ./searxng/src/searx/engines/
 RUN mkdir -p /app/data && chown -R 1000:1000 /app/data /app/searxng
 USER 1000:1000
 ENV RJ_HOST=0.0.0.0 RJ_PORT=14224 RJ_DATA=/app/data

@@ -960,3 +960,4 @@ New /api/lite/* for phone shortcuts (core/lite.js, small hook in core/index.js, 
 - lite /imgsearch safe: now sent as Bing SRCHHPGUSR ADLT cookie (adlt query param alone was a no-op for off). (Oct 4, 6:48 PM)
 - Lite /imgsearch uses bundled SearXNG (safesearch 0/1/2), Bing fallback
 - Lite /imgsearch: SearXNG only, Bing path removed
+- SearXNG images: bing images off, brave via custom node-eval engine (upstream parser broken), google images enabled but blocked
