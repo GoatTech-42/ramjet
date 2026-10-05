@@ -25,7 +25,7 @@ let jet = null, acct = null;
 function getThumb(src) {
   return new Promise((resolve, reject) => {
     let host = 'i.ytimg.com', pth = '/vi/' + src + '/mqdefault.jpg';
-    if (/^https:\/\//.test(src)) { const u = new URL(src); if (!/^ts\d?\.mm\.bing\.net$/.test(u.hostname)) return reject(new Error('thumb host')); host = u.hostname; pth = u.pathname + u.search; }
+    if (/^https:\/\//.test(src)) { const u = new URL(src); if (!/^(ts\d?\.mm\.bing\.net|encrypted-tbn\d\.gstatic\.com|imgs\.search\.brave\.com)$/.test(u.hostname)) return reject(new Error('thumb host')); host = u.hostname; pth = u.pathname + u.search; }
     const rq = https.get({ host, path: pth, timeout: 8000 }, (r) => {
       if (r.statusCode !== 200) { r.resume(); return reject(new Error('thumb ' + r.statusCode)); }
       const ch = []; let n = 0;
@@ -270,27 +270,53 @@ function messageImage(text) {
   });
 }
 const SXI_CACHE = new Map();
-async function searxImages(q, pg, safe) {
-  const lvl = safe === 'off' ? 0 : safe === 'strict' ? 2 : 1;
-  const per = 1000, start = (pg - 1) * 8, pn = Math.floor(start / per) + 1;
-  const key = [q.toLowerCase(), pn, lvl].join('|');
-  let list = SXI_CACHE.get(key);
-  if (!list || Date.now() - list.at > 300000) {
-    const r = await fetch('http://127.0.0.1:8888/search?q=' + encodeURIComponent(q) + '&categories=images&format=json&pageno=' + pn + '&safesearch=' + lvl, { signal: AbortSignal.timeout(12000) });
-    if (!r.ok) throw new Error('searxng ' + r.status);
-    const d = await r.json(); const seen = new Set(), arr = [];
-    for (const x of d.results || []) {
-      const full = x.img_src; if (!full || !/^https?:\/\//.test(full) || seen.has(full)) continue; seen.add(full);
-      let host = ''; try { host = new URL(x.url || full).hostname.replace(/^www\./, ''); } catch {}
-      const th = String(x.thumbnail_src || x.thumbnail || full).replace(/^http:/, 'https:');
-      arr.push({ src: (() => { const e = String(x.engine || '').toLowerCase(); return e.startsWith('brave') ? 'brave' : e.includes('cse') ? 'google cse' : e.startsWith('google') ? 'google' : e.startsWith('pinterest') ? 'pinterest' : e.startsWith('wikicommons') ? 'wikimedia' : e.replace(/ images$/, ''); })(), title: String(x.title || host || 'image').replace(/<[^>]*>/g, '').replace(/[\ue000-\ue00f]/g, ''), site: host, full, thumbSrc: th });
-    }
-    arr.sort((a, b) => (b.src === 'google cse') - (a.src === 'google cse'));
-    list = { at: Date.now(), arr }; SXI_CACHE.set(key, list); if (SXI_CACHE.size > 60) SXI_CACHE.delete(SXI_CACHE.keys().next().value);
-  }
-  return list.arr.slice(start % per, start % per + 8);
+const srcTag = (x) => { const e = String(x.engine || '').toLowerCase(); return e.startsWith('brave') ? 'brave' : e.includes('cse') ? 'google cse' : e.startsWith('google') ? 'google' : e.startsWith('pinterest') ? 'pinterest' : e.startsWith('wikicommons') ? 'wikimedia' : e.replace(/ images$/, ''); };
+async function searxFetchPage(q, pn, lvl) {
+  const r = await fetch('http://127.0.0.1:8888/search?q=' + encodeURIComponent(q) + '&categories=images&format=json&pageno=' + pn + '&safesearch=' + lvl, { signal: AbortSignal.timeout(12000) });
+  if (!r.ok) throw new Error('searxng ' + r.status);
+  return (await r.json()).results || [];
 }
-async function imageSearch(q, pg, safe) { return searxImages(q, pg, safe); }
+function sxItem(x, seen) {
+  const full = x.img_src; if (!full || !/^https?:\/\//.test(full) || seen.has(full)) return null; seen.add(full);
+  let host = ''; try { host = new URL(x.url || full).hostname.replace(/^www\./, ''); } catch {}
+  const th = String(x.thumbnail_src || x.thumbnail || full).replace(/^http:/, 'https:');
+  return { src: srcTag(x), title: String(x.title || host || 'image').replace(/<[^>]*>/g, '').replace(/[\ue000-\ue00f]/g, ''), site: host, full, thumbSrc: th };
+}
+// google cse pages are fetched one at a time and only as far as the page asked for needs;
+// brave only appears once cse has run out (global order: all cse, then brave)
+async function searxState(q, lvl) {
+  const key = q.toLowerCase() + '|' + lvl;
+  let st = SXI_CACHE.get(key);
+  if (!st || Date.now() - st.at > 600000) {
+    st = { at: Date.now(), seen: new Set(), cse: [], rest: [], next: 1, done: false, busy: null };
+    SXI_CACHE.set(key, st); if (SXI_CACHE.size > 60) SXI_CACHE.delete(SXI_CACHE.keys().next().value);
+  }
+  return st;
+}
+async function searxMore(st, q, lvl) {
+  if (st.busy) return st.busy;
+  st.busy = (async () => {
+    try {
+      const res = await searxFetchPage(q, st.next, lvl);
+      if (st.next === 1) for (const x of res) if (srcTag(x) !== 'google cse') { const it = sxItem(x, st.seen); if (it) st.rest.push(it); }
+      let added = 0;
+      for (const x of res) if (srcTag(x) === 'google cse') { const it = sxItem(x, st.seen); if (it) { st.cse.push(it); added++; } }
+      st.next++;
+      if (!added || st.next > 5) st.done = true;
+    } catch (e) { if (st.next === 1) throw e; st.done = true; } finally { st.busy = null; }
+  })();
+  return st.busy;
+}
+async function searxImages(q, pg, safe, n = 8) {
+  const lvl = safe === 'off' ? 0 : safe === 'strict' ? 2 : 1;
+  const st = await searxState(q, lvl);
+  const end = pg * n;
+  while (!st.done && (st.cse.length < end)) await searxMore(st, q, lvl);
+  if (st.done && !st.cse.length) SXI_CACHE.delete(q.toLowerCase() + '|' + lvl);
+  const arr = st.done ? st.cse.concat(st.rest) : st.cse;
+  return arr.slice((pg - 1) * n, end);
+}
+async function imageSearch(q, pg, safe, n) { return searxImages(q, pg, safe, n); }
 
 export async function handleLite(req, res, url) {
   try { const t0 = Date.now(); res.on('finish', () => { try { appendFileSync('/app/data/lite-access.log', new Date().toISOString() + ' ' + req.method + ' ' + url.pathname + ' q=' + String(url.searchParams.get('q') || '').slice(0, 40) + ' page=' + (url.searchParams.get('page') || '') + ' ' + res.statusCode + ' ' + (Date.now() - t0) + 'ms\n'); } catch {} }); } catch {}
@@ -345,7 +371,7 @@ export async function handleLite(req, res, url) {
       const q = (sp.get('q') || '').trim();
       if (!q || q.length > 120) return json(res, 400, { ok: false, error: 'q required, under 120 chars' });
       const pg = Math.max(1, Math.min(20, Number(sp.get('page')) || 1));
-      let items; try { items = await imageSearch(q, pg, sp.get('safe') || ''); } catch (e) { return json(res, 502, { ok: false, error: 'image search failed: ' + String(e.message).slice(0, 80) }); }
+      const nPer = path === '/imgsheet' ? 8 : Math.min(40, Math.max(1, Number(sp.get('n')) || 20)); let items; try { items = await imageSearch(q, pg, sp.get('safe') || '', nPer); } catch (e) { return json(res, 502, { ok: false, error: 'image search failed: ' + String(e.message).slice(0, 80) }); }
       if (!items.length) return json(res, 404, { ok: false, error: 'no results on this page', page: pg });
       if (path === '/imgsheet') {
         const { buf } = await makeSheet(items.map((x) => ({ thumbSrc: x.thumbSrc, title: x.title })));
@@ -354,7 +380,7 @@ export async function handleLite(req, res, url) {
       }
       const clip2 = (x, n) => { x = String(x).replace(/\s+/g, ' ').trim(); return x.length > n ? x.slice(0, n - 1).trimEnd() + '\u2026' : x; };
       const results = items.map((x, i) => { const label = (i + 1) + '. ' + clip2(x.title, 48) + (x.site ? ' - ' + clip2(x.site, 22) : '') + (x.src ? ' [' + x.src + ']' : ''); return { n: i + 1, title: x.title, site: x.site, source: x.src || '', label, line: label + '||' + (i + 1), image: mediaUrl(x.full, 'image') + '&orig=1&fb=' + encodeURIComponent(x.thumbSrc), image_small: mediaUrl(x.full, 'image') + '&fb=' + encodeURIComponent(x.thumbSrc), thumb: mediaUrl(x.thumbSrc, 'image') }; });
-      return json(res, 200, { ok: true, q, page: pg, per_page: 8, results, lines: results.map((x) => x.line), has_more: true, next_page: pg + 1 });
+      return json(res, 200, { ok: true, q, page: pg, per_page: nPer, results, lines: results.map((x) => x.line), has_more: items.length === nPer, next_page: pg + 1 });
     }
     if (path === '/page') {
       const d = await pageData(sp.get('u') || '');
@@ -365,7 +391,7 @@ export async function handleLite(req, res, url) {
       const kind = sp.get('kind');
       try {
         if (kind === 'image') try { return await mediaImage(res, sp.get('u') || '', sp.get('orig') === '1'); }
-          catch (e0) { const fb = sp.get('fb') || ''; let ok = false; try { ok = /^ts\d?\.mm\.bing\.net$/.test(new URL(fb).hostname); } catch {} if (!ok || res.headersSent) throw e0; return await mediaImage(res, fb, false); }
+          catch (e0) { const fb = sp.get('fb') || ''; let ok = false; try { ok = /^(ts\d?\.mm\.bing\.net|encrypted-tbn\d\.gstatic\.com|imgs\.search\.brave\.com)$/.test(new URL(fb).hostname); } catch {} if (!ok || res.headersSent) throw e0; return await mediaImage(res, fb, false); }
         if (kind === 'video') return await mediaVideo(res, sp.get('u') || '');
       } catch (e) { if (res.headersSent) return res.destroy(); return json(res, e.code || 502, { ok: false, error: String(e.message).slice(0, 160) }); }
       return json(res, 400, { ok: false, error: 'kind=image|video' });
