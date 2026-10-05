@@ -3,6 +3,7 @@
 // finished H.264+AAC mp4 (see liteApi in jetstream), page/media -> SSRF-safe
 // fetch. every outbound hop resolves once, pins the ip, and is checked against
 // a full deny list. token lives in data/lite-token.secret (mode 600).
+import { cseGate, cseBudgetLeft } from './cse-gate.js';
 import http from 'node:http';
 import https from 'node:https';
 import net from 'node:net';
@@ -272,6 +273,7 @@ function messageImage(text) {
 const SXI_CACHE = new Map();
 const srcTag = (x) => { const e = String(x.engine || '').toLowerCase(); return e.startsWith('brave') ? 'brave' : e.includes('cse') ? 'google cse' : e.startsWith('google') ? 'google' : e.startsWith('pinterest') ? 'pinterest' : e.startsWith('wikicommons') ? 'wikimedia' : e.replace(/ images$/, ''); };
 async function searxFetchPage(q, pn, lvl) {
+  await cseGate();
   const r = await fetch('http://127.0.0.1:8888/search?q=' + encodeURIComponent(q) + '&categories=images&format=json&pageno=' + pn + '&safesearch=' + lvl, { signal: AbortSignal.timeout(12000) });
   if (!r.ok) throw new Error('searxng ' + r.status);
   return (await r.json()).results || [];
@@ -287,7 +289,7 @@ function sxItem(x, seen) {
 async function searxState(q, lvl) {
   const key = q.toLowerCase() + '|' + lvl;
   let st = SXI_CACHE.get(key);
-  if (!st || Date.now() - st.at > 600000) {
+  if (!st || Date.now() - st.at > 1800000) {
     st = { at: Date.now(), seen: new Set(), cse: [], rest: [], next: 1, done: false, busy: null };
     SXI_CACHE.set(key, st); if (SXI_CACHE.size > 60) SXI_CACHE.delete(SXI_CACHE.keys().next().value);
   }
@@ -302,7 +304,7 @@ async function searxMore(st, q, lvl) {
       let added = 0;
       for (const x of res) if (srcTag(x) === 'google cse') { const it = sxItem(x, st.seen); if (it) { st.cse.push(it); added++; } }
       st.next++;
-      if (!added || st.next > 5) st.done = true;
+      if (!added || st.next > 5 || cseBudgetLeft() < 4) st.done = true;
     } catch (e) { if (st.next === 1) throw e; st.done = true; } finally { st.busy = null; }
   })();
   return st.busy;

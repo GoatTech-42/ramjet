@@ -973,3 +973,4 @@ New /api/lite/* for phone shortcuts (core/lite.js, small hook in core/index.js, 
 - images: lite fetches cse pages lazily (google throttles), suspend 120s on too-many-requests
 - never cache image results without cse
 - cse suspend 600s after google 429
+- cse-gate: serialized 3s gap, 24 calls/10min budget, 30min caches

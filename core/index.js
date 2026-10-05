@@ -1,3 +1,4 @@
+import { cseGate, cseBudgetLeft } from './cse-gate.js';
 import { createServer, request as httpRequest } from 'node:http';
 import { request as httpsRequest } from 'node:https';
 import { readFileSync, existsSync, readdirSync, statSync } from 'node:fs';
@@ -129,11 +130,11 @@ const SX_TTL = 5 * 60 * 1000;
 async function sxFetch(query, page, cat, safe) {
 	const key = [query.toLowerCase(), page, cat, safe].join('|');
 	const hit = SX_CACHE.get(key);
-	if (hit && Date.now() - hit.at < SX_TTL) return hit.v;
+	if (hit && Date.now() - hit.at < (cat === 'images' ? 30 * 60 * 1000 : SX_TTL)) return hit.v;
 	const general = !cat || cat === 'general';
 	let v = await sxFetchRaw(query, page, cat, safe, general);
 	if (cat === 'images' && page === 1 && v.data && Array.isArray(v.data.results)) {
-		const extra = []; for (const p of [2, 3, 4, 5]) { const ex = await sxFetchRaw(query, p, cat, safe, false); extra.push(ex); if (!ex.data || !ex.data.results || !ex.data.results.length) break; }
+		const extra = []; for (const p of [2, 3, 4, 5]) { if (cseBudgetLeft() < 4) break; const ex = await sxFetchRaw(query, p, cat, safe, false); extra.push(ex); if (!ex.data || !ex.data.results || !ex.data.results.length) break; }
 		const isC = (r) => String(r.engine || '').includes('cse');
 		const seen = new Set(), all = [];
 		const add = (r) => { const k = r.img_src || r.url; if (!k || seen.has(k)) return; seen.add(k); all.push(r); };
@@ -150,7 +151,7 @@ async function sxFetch(query, page, cat, safe) {
 	return v;
 }
 function sxFetchRaw(query, page, cat, safe, pin) {
-	return new Promise((resolve) => {
+	return (cat === 'images' ? cseGate() : Promise.resolve()).then(() => new Promise((resolve) => {
 		const qs = (pin ? '?engines=bing,google+cse&q=' : '?q=') + encodeURIComponent(query) + '&format=json' + (page > 1 ? '&pageno=' + page : '') + (cat && cat !== 'general' ? '&categories=' + encodeURIComponent(cat) : '') + '&safesearch=' + (safe | 0);
 		const up = httpRequest(SEARX_UPSTREAM + '/search' + qs, {
 			headers: { accept: 'application/json', 'accept-encoding': 'identity' },
@@ -167,7 +168,7 @@ function sxFetchRaw(query, page, cat, safe, pin) {
 		up.on('timeout', () => { up.destroy(); resolve({ down: true }); });
 		up.on('error', () => resolve({ down: true }));
 		up.end();
-	});
+	}));
 }
 
 const SX_CATS = [['general', 'all'], ['images', 'images'], ['videos', 'videos'], ['news', 'news'], ['map', 'maps']];
