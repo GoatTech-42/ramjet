@@ -952,3 +952,5 @@ New /api/lite/* for phone shortcuts (core/lite.js, small hook in core/index.js, 
 - lite /sheet: past-the-end pages return a "No more results" image (200) instead of JSON 404; /search and /sheet retry an empty YouTube result once. (Oct 4, 6:18 PM)
 
 - lite: path/status access log at data/lite-access.log (no credentials). (Oct 4, 6:21 PM)
+
+- lite /imgsearch: &safe=strict adds Bing strict safe search (default = Bing moderate). (Oct 4, 6:38 PM)
