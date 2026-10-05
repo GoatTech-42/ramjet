@@ -16,3 +16,5 @@ Rule: no texts to Luke. Parent gets urgent blockers only. This log + docs/overni
 - 8:29 PM: mc-headless dashboard login fixed (a second showLogin() overwrote the password form) and the whole UI redesigned: glass look, Simple/Advanced, tabs on phone. Shots: mch-*.png
 - 8:31 PM: mc-headless tab bar clearance fixed (more bottom padding, opaque bar).
 - 9:10 PM: hub first-run card "make it yours" (queue item 1). Shows only the steps still undone, hides itself when done or on tap. Shots: hub-start-*.png
+- CSE back at 9:27 PM (probe returned results). Lite shows google cse first.
+- 10:09 PM: Lite /imgsearch JSON has a per-page "sources" count (queue item 2). red fox n=40: page 1 = 40 google cse, page 3 = 14 google cse + 26 brave (CSE runs out around result 54, then Brave).

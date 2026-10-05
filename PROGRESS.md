@@ -979,3 +979,5 @@ New /api/lite/* for phone shortcuts (core/lite.js, small hook in core/index.js, 
 - Lite image formats: /media, /imgsearch and /imgsheet files are sniffed by real bytes and always returned as JPEG or PNG (WebP, GIF, AVIF etc converted via ffmpeg from a temp file). Tested GIF, PNG, WebP, JPEG.
 
 - Hub first-run card ("make it yours"): in list and grid layouts, up to 3 one-tap steps (watch something, play a song, save a site, add a friend) for whatever is still empty, with a done count and a hide button. Disappears when all are done. Tested iPhone-13 and desktop, default and glass skin.
+
+- Lite /imgsearch now returns a sources count for the page, e.g. {"google cse":14,"brave":26}. Tested n=40 pages 1 and 3.
