@@ -269,8 +269,8 @@ function messageImage(text) {
     ff.stdout.on('data', (c) => ch.push(c)); ff.on('close', (c) => { const o = Buffer.concat(ch); c === 0 && o.length ? resolve(o) : reject(new Error('msg image')); }); ff.on('error', reject);
   });
 }
-async function imageSearch(q, pg) {
-  const u = 'https://www.bing.com/images/async?q=' + encodeURIComponent(q) + '&first=' + ((pg - 1) * 8) + '&count=16&mmasync=1';
+async function imageSearch(q, pg, strict) {
+  const u = 'https://www.bing.com/images/async?q=' + encodeURIComponent(q) + '&first=' + ((pg - 1) * 8) + '&count=16&mmasync=1' + (strict ? '&adlt=strict' : '');
   const html = await new Promise((resolve, reject) => {
     const rq = https.get(u, { headers: { 'user-agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 Version/17.0 Mobile/15E148 Safari/604.1', 'accept-language': 'en-US,en;q=0.9' }, timeout: 12000 }, (r) => {
       const ch = []; let n = 0; r.on('data', (d) => { n += d.length; if (n > 1500000) { rq.destroy(); reject(new Error('too big')); } else ch.push(d); }); r.on('end', () => resolve(Buffer.concat(ch).toString('utf8')));
@@ -343,7 +343,7 @@ export async function handleLite(req, res, url) {
       const q = (sp.get('q') || '').trim();
       if (!q || q.length > 120) return json(res, 400, { ok: false, error: 'q required, under 120 chars' });
       const pg = Math.max(1, Math.min(20, Number(sp.get('page')) || 1));
-      let items; try { items = await imageSearch(q, pg); } catch (e) { return json(res, 502, { ok: false, error: 'image search failed: ' + String(e.message).slice(0, 80) }); }
+      let items; try { items = await imageSearch(q, pg, sp.get('safe') === 'strict'); } catch (e) { return json(res, 502, { ok: false, error: 'image search failed: ' + String(e.message).slice(0, 80) }); }
       if (!items.length) return json(res, 404, { ok: false, error: 'no results on this page', page: pg });
       if (path === '/imgsheet') {
         const { buf } = await makeSheet(items.map((x) => ({ thumbSrc: x.thumbSrc, title: x.title })));
