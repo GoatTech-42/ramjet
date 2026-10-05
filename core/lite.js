@@ -10,7 +10,7 @@ import dns from 'node:dns';
 import zlib from 'node:zlib';
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { statSync } from 'node:fs';
+import { statSync, appendFileSync } from 'node:fs';
 import { mkdtemp, writeFile, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import nodePath from 'node:path';
@@ -291,6 +291,7 @@ async function imageSearch(q, pg) {
 }
 
 export async function handleLite(req, res, url) {
+  try { const t0 = Date.now(); res.on('finish', () => { try { appendFileSync('/app/data/lite-access.log', new Date().toISOString() + ' ' + req.method + ' ' + url.pathname + ' q=' + String(url.searchParams.get('q') || '').slice(0, 40) + ' page=' + (url.searchParams.get('page') || '') + ' ' + res.statusCode + ' ' + (Date.now() - t0) + 'ms\n'); } catch {} }); } catch {}
   const path = url.pathname.replace(/^\/api\/lite/, '') || '/';
   const ip = clientIp(req);
   const now = Date.now();
