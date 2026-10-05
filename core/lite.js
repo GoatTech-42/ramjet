@@ -391,7 +391,8 @@ export async function handleLite(req, res, url) {
       }
       const clip2 = (x, n) => { x = String(x).replace(/\s+/g, ' ').trim(); return x.length > n ? x.slice(0, n - 1).trimEnd() + '\u2026' : x; };
       const results = items.map((x, i) => { const label = (i + 1) + '. ' + clip2(x.title, 48) + (x.site ? ' - ' + clip2(x.site, 22) : '') + (x.src ? ' [' + x.src + ']' : ''); return { n: i + 1, title: x.title, site: x.site, source: x.src || '', label, line: label + '||' + (i + 1), image: mediaUrl(x.full, 'image') + '&orig=1&fb=' + encodeURIComponent(x.thumbSrc), image_small: mediaUrl(x.full, 'image') + '&fb=' + encodeURIComponent(x.thumbSrc), thumb: mediaUrl(x.thumbSrc, 'image') }; });
-      return json(res, 200, { ok: true, q, page: pg, per_page: nPer, results, lines: results.map((x) => x.line), has_more: items.length === nPer, next_page: pg + 1 });
+      const sources = {}; for (const r of results) sources[r.source || "unknown"] = (sources[r.source || "unknown"] || 0) + 1;
+      return json(res, 200, { ok: true, q, page: pg, per_page: nPer, sources, results, lines: results.map((x) => x.line), has_more: items.length === nPer, next_page: pg + 1 });
     }
     if (path === '/page') {
       const d = await pageData(sp.get('u') || '');
