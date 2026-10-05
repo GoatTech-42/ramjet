@@ -132,8 +132,18 @@ async function sxFetch(query, page, cat, safe) {
 	if (hit && Date.now() - hit.at < SX_TTL) return hit.v;
 	const general = !cat || cat === 'general';
 	let v = await sxFetchRaw(query, page, cat, safe, general);
+	if (cat === 'images' && page === 1 && v.data && Array.isArray(v.data.results)) {
+		const extra = []; for (const p of [2, 3, 4, 5]) { const ex = await sxFetchRaw(query, p, cat, safe, false); extra.push(ex); if (!ex.data || !ex.data.results || !ex.data.results.length) break; }
+		const isC = (r) => String(r.engine || '').includes('cse');
+		const seen = new Set(), all = [];
+		const add = (r) => { const k = r.img_src || r.url; if (!k || seen.has(k)) return; seen.add(k); all.push(r); };
+		v.data.results.filter(isC).forEach(add);
+		extra.forEach((e) => e.data && Array.isArray(e.data.results) && e.data.results.filter(isC).forEach(add));
+		v.data.results.filter((r) => !isC(r)).forEach(add);
+		v.data.results = all;
+	}
 	if (general && !v.down && !(v.data && v.data.results && v.data.results.length)) v = await sxFetchRaw(query, page, cat, safe, false);
-	if (!v.down && v.data && v.data.results && v.data.results.length) {
+	if (!v.down && v.data && v.data.results && v.data.results.length && (cat !== 'images' || v.data.results.some((r) => String(r.engine || '').includes('cse')))) {
 		SX_CACHE.set(key, { at: Date.now(), v });
 		if (SX_CACHE.size > 200) SX_CACHE.delete(SX_CACHE.keys().next().value);
 	}
@@ -296,7 +306,9 @@ html[data-skin=glass] .tab.on { color: var(--rj-text); }
   .hit-th.news { width: 72px; }
   .hit.has-th { gap: 12px; }
   .safe .sf { padding: 5px 9px; }
-  .tabs { padding: 0 8px; }
+  .tabs { padding: 0 8px; flex-wrap: wrap; overflow-x: visible; row-gap: 0; }
+  .tabset { flex: none; }
+  .safe { margin: 2px 6px 10px 6px; }
 }
 @media (min-width: 1100px) {
   .bar-in, .tabs, .wrap { padding-left: 24px; padding-right: 24px; }

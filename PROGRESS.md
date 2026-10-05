@@ -967,3 +967,9 @@ New /api/lite/* for phone shortcuts (core/lite.js, small hook in core/index.js, 
 - image source chip (ramjet UI) + [source] tag and source field in lite imgsearch
 - images: all working searxng image engines on (bing off), 4s timeouts, cse ranked first, source tags
 - images: only brave + google cse (safesearch-honoring engines); others off
+- ramjet search: safe pill wraps under tabs on mobile
+- images: all google cse (5 pages) before brave; lite n= param (default 20, max 40); ramjet same ordering
+- lite: imgsheet/media fb allow gstatic + brave thumb hosts
+- images: lite fetches cse pages lazily (google throttles), suspend 120s on too-many-requests
+- never cache image results without cse
+- cse suspend 600s after google 429

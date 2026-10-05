@@ -6,6 +6,8 @@ server:
   image_proxy: true
 search:
   safe_search: 0
+  suspended_times:
+    SearxEngineTooManyRequests: 600
   autocomplete: "duckduckgo"
   formats:
     - html
