@@ -40,7 +40,13 @@ engines:
   - name: bing images
     disabled: true
   - name: google images
-    disabled: false
+    disabled: true
+  - name: google cse images
+    disabled: true
+  - name: pinterest
+    disabled: true
+  - name: wikicommons.images
+    disabled: true
   - name: brave images
     engine: brave_node
     shortcut: brn

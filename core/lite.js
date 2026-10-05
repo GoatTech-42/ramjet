@@ -272,7 +272,7 @@ function messageImage(text) {
 const SXI_CACHE = new Map();
 async function searxImages(q, pg, safe) {
   const lvl = safe === 'off' ? 0 : safe === 'strict' ? 2 : 1;
-  const per = 40, start = (pg - 1) * 8, pn = Math.floor(start / per) + 1;
+  const per = 1000, start = (pg - 1) * 8, pn = Math.floor(start / per) + 1;
   const key = [q.toLowerCase(), pn, lvl].join('|');
   let list = SXI_CACHE.get(key);
   if (!list || Date.now() - list.at > 300000) {
