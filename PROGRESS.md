@@ -964,3 +964,6 @@ New /api/lite/* for phone shortcuts (core/lite.js, small hook in core/index.js, 
 - images: Brave only (cse/pinterest/commons/google off); lite slices page1 of brave
 - images: old engine set restored (bing, cse, pinterest, commons) + fixed brave; lite slices page 1
 - images: bing images off again, others on
+- image source chip (ramjet UI) + [source] tag and source field in lite imgsearch
+- images: all working searxng image engines on (bing off), 4s timeouts, cse ranked first, source tags
+- images: only brave + google cse (safesearch-honoring engines); others off

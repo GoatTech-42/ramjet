@@ -149,7 +149,7 @@ function sxFetchRaw(query, page, cat, safe, pin) {
 			const chunks = [];
 			ur.on('data', (c) => { if (Buffer.concat(chunks).length < 4 * 1024 * 1024) chunks.push(c); });
 			ur.on('end', () => {
-				try { resolve({ down: false, data: JSON.parse(Buffer.concat(chunks).toString('utf8')) }); }
+				try { const dd = JSON.parse(Buffer.concat(chunks).toString('utf8')); if (cat === 'images' && dd && Array.isArray(dd.results)) { const w = (r) => (String(r.engine || '').includes('cse') ? 1 : 0); dd.results = dd.results.map((r, k) => [r, k]).sort((a, b) => (w(b[0]) - w(a[0])) || (a[1] - b[1])).map((x) => x[0]); } resolve({ down: false, data: dd }); }
 				catch { resolve({ down: true }); }
 			});
 			ur.on('error', () => resolve({ down: true }));
@@ -162,6 +162,7 @@ function sxFetchRaw(query, page, cat, safe, pin) {
 
 const SX_CATS = [['general', 'all'], ['images', 'images'], ['videos', 'videos'], ['news', 'news'], ['map', 'maps']];
 const SX_SAFE = ['off', 'moderate', 'strict'];
+function sxSrc(r) { const e = String((r && r.engine) || '').toLowerCase(); return e.startsWith('brave') ? 'brave' : e.includes('cse') ? 'google cse' : e.startsWith('google') ? 'google' : e.startsWith('pinterest') ? 'pinterest' : e.startsWith('wikicommons') ? 'wikimedia' : e.startsWith('bing') ? 'bing' : e.replace(/ images$/, ''); }
 function sxImg(u) { return u ? '/searx/img?u=' + encodeURIComponent(u) : ''; }
 const SX_BANGS = {
 	w: 'https://en.wikipedia.org/w/index.php?search=%s', yt: 'https://www.youtube.com/results?search_query=%s',
@@ -236,9 +237,10 @@ a { color: inherit; text-decoration: none; }
 .pill { background: var(--rj-surface); border: 1px solid var(--rj-border); border-radius: var(--rj-pill); padding: 10px 20px; font-size: 14px; color: var(--rj-text); }
 .pill:hover { background: var(--rj-surface-2); }
 .grid { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
-.tile a { display: block; aspect-ratio: 1; border-radius: calc(var(--rj-radius) - 2px); overflow: hidden; background: var(--rj-surface); }
+.tile a { position: relative; display: block; aspect-ratio: 1; border-radius: calc(var(--rj-radius) - 2px); overflow: hidden; background: var(--rj-surface); }
 .tile img { width: 100%; height: 100%; object-fit: cover; display: block; transition: transform .25s; }
 .tile a:hover img { transform: scale(1.05); }
+.src-chip { position: absolute; left: 6px; bottom: 6px; max-width: calc(100% - 12px); padding: 2px 8px; border-radius: 999px; font-size: 10.5px; line-height: 16px; letter-spacing: .02em; color: #fff; background: rgba(18,18,22,.46); -webkit-backdrop-filter: blur(10px) saturate(1.4); backdrop-filter: blur(10px) saturate(1.4); border: 1px solid rgba(255,255,255,.18); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none; }
 .tile-cap { color: var(--rj-text-faint); font-size: 11.5px; margin-top: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .wrap.wide .col { max-width: none; }
 .home-hero { min-height: calc(100dvh - 120px); display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; padding: 0 16px 6vh; }
@@ -398,7 +400,7 @@ function sxPage(query, page, result, cat, safe, imgRes) {
 		const th = sxHref(r.thumbnail_src || r.thumbnail || '');
 		if (cat === 'images') {
 			const full = sxHref(r.img_src);
-			cards.push('<li class="tile"><a href="' + sxEsc(href) + '" title="' + sxEsc(r.title || '') + '"><img loading="lazy" referrerpolicy="no-referrer" alt="' + sxEsc(r.title || '') + '" src="' + sxEsc(sxImg(th || full)) + '"' + (th && full ? ' data-alt="' + sxEsc(sxImg(full)) + '"' : '') + (th && full ? ' data-full="' + sxEsc(sxImg(full)) + '"' : '') + ' /></a><div class="tile-cap">' + sxEsc(String(r.title || '').slice(0, 60)) + '</div></li>');
+			cards.push('<li class="tile"><a href="' + sxEsc(href) + '" title="' + sxEsc(r.title || '') + '"><img loading="lazy" referrerpolicy="no-referrer" alt="' + sxEsc(r.title || '') + '" src="' + sxEsc(sxImg(th || full)) + '"' + (th && full ? ' data-alt="' + sxEsc(sxImg(full)) + '"' : '') + (th && full ? ' data-full="' + sxEsc(sxImg(full)) + '"' : '') + ' /><span class="src-chip">' + sxEsc(sxSrc(r)) + '</span></a><div class="tile-cap">' + sxEsc(String(r.title || '').slice(0, 60)) + '</div></li>');
 			continue;
 		}
 		const thumbHtml = (th && (cat === 'videos' || cat === 'news')) ? '<img class="hit-th ' + cat + '" loading="lazy" referrerpolicy="no-referrer" alt="" src="' + sxEsc(sxImg(th)) + '" />' : '';

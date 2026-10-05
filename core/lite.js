@@ -283,8 +283,9 @@ async function searxImages(q, pg, safe) {
       const full = x.img_src; if (!full || !/^https?:\/\//.test(full) || seen.has(full)) continue; seen.add(full);
       let host = ''; try { host = new URL(x.url || full).hostname.replace(/^www\./, ''); } catch {}
       const th = String(x.thumbnail_src || x.thumbnail || full).replace(/^http:/, 'https:');
-      arr.push({ title: String(x.title || host || 'image').replace(/<[^>]*>/g, '').replace(/[\ue000-\ue00f]/g, ''), site: host, full, thumbSrc: th });
+      arr.push({ src: (() => { const e = String(x.engine || '').toLowerCase(); return e.startsWith('brave') ? 'brave' : e.includes('cse') ? 'google cse' : e.startsWith('google') ? 'google' : e.startsWith('pinterest') ? 'pinterest' : e.startsWith('wikicommons') ? 'wikimedia' : e.replace(/ images$/, ''); })(), title: String(x.title || host || 'image').replace(/<[^>]*>/g, '').replace(/[\ue000-\ue00f]/g, ''), site: host, full, thumbSrc: th });
     }
+    arr.sort((a, b) => (b.src === 'google cse') - (a.src === 'google cse'));
     list = { at: Date.now(), arr }; SXI_CACHE.set(key, list); if (SXI_CACHE.size > 60) SXI_CACHE.delete(SXI_CACHE.keys().next().value);
   }
   return list.arr.slice(start % per, start % per + 8);
@@ -352,7 +353,7 @@ export async function handleLite(req, res, url) {
         return res.end(buf);
       }
       const clip2 = (x, n) => { x = String(x).replace(/\s+/g, ' ').trim(); return x.length > n ? x.slice(0, n - 1).trimEnd() + '\u2026' : x; };
-      const results = items.map((x, i) => { const label = (i + 1) + '. ' + clip2(x.title, 48) + (x.site ? ' - ' + clip2(x.site, 22) : ''); return { n: i + 1, title: x.title, site: x.site, label, line: label + '||' + (i + 1), image: mediaUrl(x.full, 'image') + '&orig=1&fb=' + encodeURIComponent(x.thumbSrc), image_small: mediaUrl(x.full, 'image') + '&fb=' + encodeURIComponent(x.thumbSrc), thumb: mediaUrl(x.thumbSrc, 'image') }; });
+      const results = items.map((x, i) => { const label = (i + 1) + '. ' + clip2(x.title, 48) + (x.site ? ' - ' + clip2(x.site, 22) : '') + (x.src ? ' [' + x.src + ']' : ''); return { n: i + 1, title: x.title, site: x.site, source: x.src || '', label, line: label + '||' + (i + 1), image: mediaUrl(x.full, 'image') + '&orig=1&fb=' + encodeURIComponent(x.thumbSrc), image_small: mediaUrl(x.full, 'image') + '&fb=' + encodeURIComponent(x.thumbSrc), thumb: mediaUrl(x.thumbSrc, 'image') }; });
       return json(res, 200, { ok: true, q, page: pg, per_page: 8, results, lines: results.map((x) => x.line), has_more: true, next_page: pg + 1 });
     }
     if (path === '/page') {
