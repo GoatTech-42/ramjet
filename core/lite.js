@@ -217,23 +217,32 @@ function pageHtml(d) {
 }
 
 // ---- media ----
-function ffJpeg(buf, full) {
-  return new Promise((resolve, reject) => {
-    const ff = spawn('nice', ['-n', '10', 'ffmpeg', '-v', 'error', '-i', 'pipe:0', '-frames:v', '1', ...(full ? ['-q:v', '2'] : ['-vf', "scale='min(1600,iw)':-2", '-q:v', '4']), '-f', 'mjpeg', 'pipe:1'], { stdio: ['pipe', 'pipe', 'ignore'] });
-    const ch = []; ff.stdout.on('data', (c) => ch.push(c));
-    const to = setTimeout(() => ff.kill('SIGKILL'), 20000);
-    ff.on('close', (c) => { clearTimeout(to); const o = Buffer.concat(ch); c === 0 && o.length ? resolve(o) : reject(new Error('could not read that image')); });
-    ff.stdin.on('error', () => {}); ff.on('error', reject); ff.stdin.end(buf);
-  });
+async function ffJpeg(buf, full) {
+  // read from a temp file, not a pipe: some formats (gif) fail with "Input/output error" on pipe:0
+  const dir = await mkdtemp(nodePath.join(tmpdir(), 'img-'));
+  const f = nodePath.join(dir, 'in.bin');
+  try {
+    await writeFile(f, buf);
+    return await new Promise((resolve, reject) => {
+      const ff = spawn('nice', ['-n', '10', 'ffmpeg', '-v', 'error', '-i', f, '-frames:v', '1', ...(full ? ['-q:v', '2'] : ['-vf', "scale='min(1600,iw)':-2", '-q:v', '4']), '-f', 'mjpeg', 'pipe:1'], { stdio: ['ignore', 'pipe', 'ignore'] });
+      const ch = []; ff.stdout.on('data', (c) => ch.push(c));
+      const to = setTimeout(() => ff.kill('SIGKILL'), 20000);
+      ff.on('close', (c) => { clearTimeout(to); const o = Buffer.concat(ch); c === 0 && o.length ? resolve(o) : reject(new Error('could not read that image')); });
+      ff.on('error', reject);
+    });
+  } finally { rm(dir, { recursive: true, force: true }).catch(() => {}); }
 }
 async function mediaImage(res, u, full) {
   const { res: r } = await safeGet(u, 'image/*');
   const ct = String(r.headers['content-type'] || '');
   if (r.statusCode !== 200 || !/^image\/(jpeg|png|webp|gif|avif|bmp)/i.test(ct)) { r.resume(); throw new Error('not an image'); }
   const raw = await collect(body(r), MAX_IMG, 'image too large');
-  let out = raw, type = ct.split(';')[0];
-  if (full ? !/^image\/(jpeg|png)/.test(type) : (raw.length > 400 * 1024 || !/jpeg/.test(type))) { try { out = await ffJpeg(raw, full); type = 'image/jpeg'; } catch { if (!/^image\/(jpeg|png|gif)/.test(type)) throw new Error('could not read that image'); } }
-  const ext = type === 'image/png' ? 'png' : type === 'image/gif' ? 'gif' : 'jpg';
+  let out = raw;
+  // trust the bytes, not the upstream header: Shortcuts only handles jpeg/png/heic reliably
+  const sniff = raw[0] === 0xff && raw[1] === 0xd8 ? 'image/jpeg' : raw[0] === 0x89 && raw[1] === 0x50 ? 'image/png' : 'other';
+  let type = sniff;
+  if (full ? sniff === 'other' : (raw.length > 400 * 1024 || sniff !== 'image/jpeg')) { try { out = await ffJpeg(raw, full); type = 'image/jpeg'; } catch { if (sniff === 'other') throw new Error('could not read that image'); } }
+  const ext = type === 'image/png' ? 'png' : 'jpg';
   res.writeHead(200, { 'content-type': type, 'content-length': out.length, 'content-disposition': 'inline; filename="image.' + ext + '"', 'cache-control': 'private, max-age=3600', 'x-content-type-options': 'nosniff' });
   res.end(out);
 }
