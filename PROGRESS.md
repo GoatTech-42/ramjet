@@ -956,3 +956,5 @@ New /api/lite/* for phone shortcuts (core/lite.js, small hook in core/index.js, 
 - lite /imgsearch: &safe=strict adds Bing strict safe search (default = Bing moderate). (Oct 4, 6:38 PM)
 
 - lite /imgsearch: safe param: missing/on = standard SafeSearch (default), strict, off. (Oct 4, 6:40 PM)
+
+- lite /imgsearch safe: now sent as Bing SRCHHPGUSR ADLT cookie (adlt query param alone was a no-op for off). (Oct 4, 6:48 PM)
