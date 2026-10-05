@@ -948,3 +948,5 @@ New /api/lite/* for phone shortcuts (core/lite.js, small hook in core/index.js, 
 
 ## Logo (Oct 4, 5:41 PM)
 - Luke picked wordmark option C. Added favicon-32.png (rj tile), apple-touch-icon.png and logo-512.png (full wordmark), icon-192.png, favicon.svg, manifest.webmanifest in web/src/public; linked from all 10 pages; static allowlist + manifest MIME in core/index.js. Note: cloak.js still swaps the tab icon to the Docs favicon by design.
+
+- lite /sheet: past-the-end pages return a "No more results" image (200) instead of JSON 404; /search and /sheet retry an empty YouTube result once. (Oct 4, 6:18 PM)

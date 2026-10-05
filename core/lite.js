@@ -257,6 +257,18 @@ async function mediaVideo(res, u) {
 }
 
 // ---- handler ----
+async function searchRetry(q) {
+  let r = await jet.search(q);
+  if (!r || !r.length) { await new Promise((x) => setTimeout(x, 700)); r = await jet.search(q); }
+  return r || [];
+}
+function messageImage(text) {
+  return new Promise((resolve, reject) => {
+    const args = ['-v', 'error', '-f', 'lavfi', '-i', 'color=c=0x0d0e12:s=632x220', '-vf', `drawtext=fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:text='${text.replace(/[^A-Za-z0-9 .,]/g, '')}':fontsize=30:fontcolor=0xffa028:x=(w-text_w)/2:y=(h-text_h)/2`, '-frames:v', '1', '-q:v', '4', '-f', 'mjpeg', 'pipe:1'];
+    const ff = spawn('ffmpeg', args, { stdio: ['ignore', 'pipe', 'ignore'] }); const ch = [];
+    ff.stdout.on('data', (c) => ch.push(c)); ff.on('close', (c) => { const o = Buffer.concat(ch); c === 0 && o.length ? resolve(o) : reject(new Error('msg image')); }); ff.on('error', reject);
+  });
+}
 async function imageSearch(q, pg) {
   const u = 'https://www.bing.com/images/async?q=' + encodeURIComponent(q) + '&first=' + ((pg - 1) * 8) + '&count=16&mmasync=1';
   const html = await new Promise((resolve, reject) => {
@@ -309,7 +321,7 @@ export async function handleLite(req, res, url) {
       const q = (sp.get('q') || '').trim();
       if (!q || q.length > 120) return json(res, 400, { ok: false, error: 'q required, under 120 chars' });
       const pg = Math.max(1, Math.min(20, Number(sp.get('page')) || 1));
-      const all = await jet.search(q); const rs = all.slice((pg - 1) * 8, pg * 8);
+      const all = await searchRetry(q); const rs = all.slice((pg - 1) * 8, pg * 8);
       const clip = (x, n) => { x = String(x == null ? '' : x).replace(/\s+/g, ' ').trim(); return x.length > n ? x.slice(0, n - 1).trimEnd() + '\u2026' : x; };
       const fmtViews = (x) => { if (x == null || x === '') return ''; const n = Number(String(x).replace(/[,\s]|views?/gi, '')); if (!isNaN(n)) return n >= 1e6 ? (n / 1e6).toFixed(1).replace(/\.0$/, '') + 'M views' : n >= 1e3 ? Math.round(n / 1e3) + 'K views' : n + ' views'; return clip(x, 18); };
       const out = rs.map((v) => { const label = [clip(v.title, 52), clip(v.channel, 20), v.duration ? clip(v.duration, 9) : '', fmtViews(v.views)].filter(Boolean).join(' - '); return { id: v.id, title: v.title, channel: v.channel, duration: v.duration, views: v.views, label, line: label + '||' + v.id, thumb: mediaUrl('https://i.ytimg.com/vi/' + v.id + '/mqdefault.jpg', 'image'), video: '/api/lite/video?id=' + v.id }; });
@@ -320,8 +332,8 @@ export async function handleLite(req, res, url) {
       if (!q || q.length > 120) return json(res, 400, { ok: false, error: 'q required, under 120 chars' });
       const n = Math.min(8, Math.max(1, Number(sp.get('n')) || 8));
       const pg = Math.max(1, Math.min(20, Number(sp.get('page')) || 1));
-      const rs = (await jet.search(q)).slice((pg - 1) * 8, (pg - 1) * 8 + n);
-      if (!rs.length) return json(res, 404, { ok: false, error: 'no results' });
+      const rs = (await searchRetry(q)).slice((pg - 1) * 8, (pg - 1) * 8 + n);
+      if (!rs.length) { const m = await messageImage(pg > 1 ? 'No more results' : 'No results found'); res.writeHead(200, { 'content-type': 'image/jpeg', 'content-length': m.length, 'cache-control': 'no-store' }); return res.end(m); }
       const { buf } = await makeSheet(rs);
       res.writeHead(200, { 'content-type': 'image/jpeg', 'content-length': buf.length, 'cache-control': 'no-store' });
       return res.end(buf);
