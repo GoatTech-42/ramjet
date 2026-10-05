@@ -58,6 +58,22 @@
     if (t.title) return t.title;
     return t.surfing ? 'loading...' : 'new tab';
   }
+  // address bar follows the page (Luke 7:39 AM): the proxied frame's document
+  // url is the real address, so read it on load and while the page lives
+  // (covers link clicks, redirects, pushState, back/forward).
+  function syncAddr(id) {
+    const v = live.get(id);
+    const tb = tabs.find((x) => x.id === id);
+    if (!v || !tb || !tb.surfing) return;
+    let u = '';
+    try { u = v.el.contentDocument?.URL || ''; } catch { return; }
+    if (!/^https?:\/\//i.test(u)) return;
+    try { if (new URL(u).origin === location.origin) return; } catch { return; }
+    if (u === tb.url) return;
+    tb.url = u; tb.address = u;
+    if (id === activeId && document.activeElement?.id !== 'br-omni') address = u;
+    try { if (tb.seen !== u) { tb.seen = u; noteVisit(u, v.el.contentDocument?.title || ''); } } catch {}
+  }
   function newTab(addr) {
     if (!ctrl || !stageEl || tabs.length >= 12) return;
     const id = nextId++;
@@ -69,6 +85,7 @@
     const fr = ctrl.createFrame(el);
     el.addEventListener('load', () => {
       try {
+        syncAddr(id);
         if (loadT0 && id === activeId) { loadMs = Math.round(performance.now() - loadT0); loadT0 = 0; }
         const t = el.contentDocument?.title;
         const tb = tabs.find((x) => x.id === id);
@@ -78,7 +95,7 @@
         if (t && id === activeId && !cloaked) document.title = t + ' - browse';
       } catch {}
     });
-    live.set(id, { el, frame: fr });
+    live.set(id, { el, frame: fr, poll: setInterval(() => syncAddr(id), 400) });
     tabs.push({ id, title: '', address: '', surfing: false });
     switchTab(id);
     if (addr) { address = addr; go(); }
@@ -99,6 +116,7 @@
     if (i < 0) return;
     const v = live.get(id);
     { const ct = tabs[i]; const cu = ct.url || ''; if (ct.surfing && !cloaked && /^https?:\/\//i.test(cu)) closed = [{ url: cu, title: ct.title || hostOf({ address: cu, surfing: true }) }, ...closed].slice(0, 10); }
+    try { if (v?.poll) clearInterval(v.poll); } catch {}
     try { v?.el.remove(); } catch {}
     live.delete(id);
     tabs.splice(i, 1);
@@ -495,6 +513,7 @@
     t.surfing = true; t.url = url; loadT0 = performance.now(); loadMs = 0;
     t.address = address;
     t.title = '';
+    try { document.getElementById('br-omni')?.blur(); } catch {}
     syncDisplay();
     if (url.startsWith('/searx/')) { v.el.src = url; return; }
     v.frame.go(url);

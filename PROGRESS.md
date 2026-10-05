@@ -981,3 +981,4 @@ New /api/lite/* for phone shortcuts (core/lite.js, small hook in core/index.js, 
 - Hub first-run card ("make it yours"): in list and grid layouts, up to 3 one-tap steps (watch something, play a song, save a site, add a friend) for whatever is still empty, with a done count and a hide button. Disappears when all are done. Tested iPhone-13 and desktop, default and glass skin.
 
 - Lite /imgsearch now returns a sources count for the page, e.g. {"google cse":14,"brave":26}. Tested n=40 pages 1 and 3.
+- Oct 5 7:55 AM: Browse address bar now follows the page (Luke 7:39 AM). syncAddr reads the proxied frame document url on load and every 400 ms, so link clicks, redirects, pushState and back/forward update the bar; submitting blurs the omnibox so it can update. Tested desktop + iPhone 13 (typed, link click, history.back, http->https redirect, pushState); shots docs/overnight-shots/addrbar-*.png.
