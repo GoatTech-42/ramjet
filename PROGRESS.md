@@ -974,3 +974,6 @@ New /api/lite/* for phone shortcuts (core/lite.js, small hook in core/index.js, 
 - never cache image results without cse
 - cse suspend 600s after google 429
 - cse-gate: serialized 3s gap, 24 calls/10min budget, 30min caches
+- lite media: sniff real bytes, convert webp/gif/avif/bmp to jpeg (never send gif), jpg/png only
+
+- Lite image formats: /media, /imgsearch and /imgsheet files are sniffed by real bytes and always returned as JPEG or PNG (WebP, GIF, AVIF etc converted via ffmpeg from a temp file). Tested GIF, PNG, WebP, JPEG.
