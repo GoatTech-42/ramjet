@@ -35,3 +35,14 @@ engines:
     disabled: false
   - name: wikipedia
     disabled: false
+  - name: brave.images
+    disabled: true
+  - name: bing images
+    disabled: true
+  - name: google images
+    disabled: false
+  - name: brave images
+    engine: brave_node
+    shortcut: brn
+    categories: [images]
+    timeout: 8.0
