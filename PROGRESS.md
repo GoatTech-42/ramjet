@@ -982,3 +982,5 @@ New /api/lite/* for phone shortcuts (core/lite.js, small hook in core/index.js, 
 
 - Lite /imgsearch now returns a sources count for the page, e.g. {"google cse":14,"brave":26}. Tested n=40 pages 1 and 3.
 - Oct 5 7:55 AM: Browse address bar now follows the page (Luke 7:39 AM). syncAddr reads the proxied frame document url on load and every 400 ms, so link clicks, redirects, pushState and back/forward update the bar; submitting blurs the omnibox so it can update. Tested desktop + iPhone 13 (typed, link click, history.back, http->https redirect, pushState); shots docs/overnight-shots/addrbar-*.png.
+
+- 2026-10-05 Lite images: every image served through ffmpeg to baseline JPEG (full-size PNG stays PNG); AVIF/HEIC via heif-convert (libheif-examples in the image); loosened the content-type gate so odd headers no longer fail. Fixes Shortcuts unsupported image format.
