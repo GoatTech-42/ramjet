@@ -272,7 +272,7 @@ function messageImage(text) {
 async function imageSearch(q, pg, safe) {
   const u = 'https://www.bing.com/images/async?q=' + encodeURIComponent(q) + '&first=' + ((pg - 1) * 8) + '&count=16&mmasync=1' + (safe === 'strict' ? '&adlt=strict' : safe === 'off' ? '&adlt=off' : '');
   const html = await new Promise((resolve, reject) => {
-    const rq = https.get(u, { headers: { 'user-agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 Version/17.0 Mobile/15E148 Safari/604.1', 'accept-language': 'en-US,en;q=0.9' }, timeout: 12000 }, (r) => {
+    const rq = https.get(u, { headers: { cookie: 'SRCHHPGUSR=ADLT=' + (safe === 'off' ? 'OFF' : safe === 'strict' ? 'STRICT' : 'DEMOTE'), 'user-agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 Version/17.0 Mobile/15E148 Safari/604.1', 'accept-language': 'en-US,en;q=0.9' }, timeout: 12000 }, (r) => {
       const ch = []; let n = 0; r.on('data', (d) => { n += d.length; if (n > 1500000) { rq.destroy(); reject(new Error('too big')); } else ch.push(d); }); r.on('end', () => resolve(Buffer.concat(ch).toString('utf8')));
     });
     rq.on('error', reject); rq.on('timeout', () => rq.destroy(new Error('image search timeout')));
