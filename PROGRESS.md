@@ -945,3 +945,6 @@ New /api/lite/* for phone shortcuts (core/lite.js, small hook in core/index.js, 
 - /api/lite/sheet tiles now carry a duration badge (bottom-right of the thumbnail). (Oct 4, 4:22 PM)
 
 - /api/lite/sheet redesign: dark rounded cards, frosted-glass number chip and length pill, two-line titles (core/sheet.mjs). 632px wide. (Oct 4, 4:40 PM)
+
+## Logo (Oct 4, 5:41 PM)
+- Luke picked wordmark option C. Added favicon-32.png (rj tile), apple-touch-icon.png and logo-512.png (full wordmark), icon-192.png, favicon.svg, manifest.webmanifest in web/src/public; linked from all 10 pages; static allowlist + manifest MIME in core/index.js. Note: cloak.js still swaps the tab icon to the Docs favicon by design.

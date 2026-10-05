@@ -35,7 +35,7 @@ const guard = new Guard(DATA);
 
 const MIME = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8',
-  '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png',
+  '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.webmanifest': 'application/manifest+json', '.png': 'image/png',
   '.jpg': 'image/jpeg', '.webp': 'image/webp', '.woff2': 'font/woff2',
   '.json': 'application/json', '.ico': 'image/x-icon', '.mp4': 'video/mp4',
   '.wasm': 'application/wasm', '.mjs': 'text/javascript; charset=utf-8',
@@ -727,7 +727,7 @@ const server = createServer(async (req, res) => {
     if (path.startsWith('/searx/')) {
       return proxySearx(req, res, session, path.slice(6) + (url.search || ''));
     }
-    if (path.startsWith('/assets/') || path === '/favicon.svg' || path.startsWith('/cloak/') || path.startsWith('/scramjet/') || path.startsWith('/controller/') || path.startsWith('/epoxy/') || path.startsWith('/libcurl/') || path === '/browse-sw.js') {
+    if (path.startsWith('/assets/') || /^\/(favicon\.svg|favicon-32\.png|icon-192\.png|apple-touch-icon\.png|logo-512\.png|manifest\.webmanifest)$/.test(path) || path.startsWith('/cloak/') || path.startsWith('/scramjet/') || path.startsWith('/controller/') || path.startsWith('/epoxy/') || path.startsWith('/libcurl/') || path === '/browse-sw.js') {
       if (serveStatic(res, path)) return;
     }
     if (!session && (/^\/(browse|jetstream|amp|sage|banter|settings)\/?$/.test(path))) return redirect(res, "/login");
