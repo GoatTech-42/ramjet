@@ -13,3 +13,6 @@ Rule: no texts to Luke. Parent gets urgent blockers only. This log + docs/overni
 3. Hourly: CSE probe (wake runs it), Excelnt probe (every 30 min).
 
 - 8:22 PM: Shortcut image formats. Everything Lite returns is now real JPEG or PNG with the matching Content-Type. Tested GIF to JPEG, PNG pass-through, WebP to JPEG.
+- 8:29 PM: mc-headless dashboard login fixed (a second showLogin() overwrote the password form) and the whole UI redesigned: glass look, Simple/Advanced, tabs on phone. Shots: mch-*.png
+- 8:31 PM: mc-headless tab bar clearance fixed (more bottom padding, opaque bar).
+- 9:10 PM: hub first-run card "make it yours" (queue item 1). Shows only the steps still undone, hides itself when done or on tap. Shots: hub-start-*.png

@@ -137,6 +137,18 @@
   const siteLetter = (s) => (s.name || s.url || '?').replace(/^https?:\/\/(www\.)?/, '').slice(0, 1);
   function openSite(s) { try { sessionStorage.setItem('rj-open', s.url); } catch {} window.location.href = '/browse'; }
   function askSage(t) { try { sessionStorage.setItem('rj-ask', t); } catch {} window.location.href = '/sage'; }
+  // first-run card: a few one-tap steps that fill the apps up (list and grid layouts)
+  let startOff = $state(false);
+  try { startOff = localStorage.getItem('rj-start-off') === '1'; } catch {}
+  const steps = $derived([
+    { k: 'watch', t: 'watch something', d: 'start a video and it shows up here', href: '/jetstream', done: !!(cont && cont.length) },
+    { k: 'play', t: 'play a song', d: 'amp remembers what you played', href: '/amp', done: !!music },
+    { k: 'save', t: 'save a site', d: 'star a page in browse', href: '/browse', done: !!(sites && sites.length) },
+    { k: 'friend', t: 'add a friend', d: 'banter is better with people', href: '/banter', done: !!(rooms && rooms.length) },
+  ]);
+  const loaded = $derived(cont !== null && music !== null && sites !== null && rooms !== null);
+  const todo = $derived(steps.filter((x) => !x.done));
+  function hideStart() { startOff = true; try { localStorage.setItem('rj-start-off', '1'); } catch {} }
   async function loadDesk() {
     try { const m = JSON.parse(localStorage.getItem('amp-recent') || '[]')[0]; music = m || false; } catch { music = false; }
     api('/api/apps/jetstream/history').then((r) => { cont = r.ok ? (r.data.items || []).slice(0, 3) : []; });
@@ -275,6 +287,18 @@
     {/each}
   </section>
 
+  {#if layout !== 'dock' && loaded && !startOff && todo.length}
+    <section class="start" aria-label="get started">
+      <p class="sh">make it yours <button class="sx" onclick={hideStart}>hide</button></p>
+      <div class="sg">
+        {#each todo.slice(0, 3) as st, ix}
+          <a class="si" href={st.href}><span class="sn2">{ix + 1}</span><span class="sk-t"><b>{st.t}</b><i>{st.d}</i></span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5l7 7-7 7" /></svg></a>
+        {/each}
+      </div>
+      <p class="sp">{steps.length - todo.length} of {steps.length} done</p>
+    </section>
+  {/if}
+
   {#if layout !== 'dock' && ((cont && cont.length) || music)}
     <section class="strip" aria-label="pick up where you left off">
       <p class="sh">pick up where you left off</p>
@@ -292,6 +316,18 @@
 </main>
 
 <style>
+  .start { margin: 18px 0 6px; padding: 14px; border-radius: var(--rj-radius); background: var(--rj-surface); }
+  .start .sh { display: flex; justify-content: space-between; align-items: center; margin: 0 2px 10px; font-size: 13px; font-weight: 600; color: var(--rj-text-dim); }
+  .sx { background: none; border: none; color: var(--rj-text-faint); font-size: 12px; padding: 4px 8px; border-radius: 8px; }
+  .sx:hover { color: var(--rj-text); background: var(--rj-hover); }
+  .sg { display: grid; gap: 6px; }
+  .si { display: flex; align-items: center; gap: 12px; padding: 10px; border-radius: calc(var(--rj-radius) - 4px); background: var(--rj-hover); }
+  .si:active { opacity: .8; }
+  .sn2 { width: 28px; height: 28px; flex: none; display: grid; place-items: center; border-radius: 50%; background: var(--rj-accent); color: #000; font: 700 13px system-ui; }
+  .si .sk-t { display: grid; min-width: 0; }
+  .si b { font-size: 14px; } .si i { font-style: normal; font-size: 12px; color: var(--rj-text-dim); }
+  .si svg { margin-left: auto; width: 14px; height: 14px; flex: none; fill: none; stroke: var(--rj-text-faint); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  .sp { margin: 10px 2px 0; font-size: 12px; color: var(--rj-text-faint); }
   main { max-width: 640px; margin: 0 auto; padding: 16px 14px 48px; }
   header { display: flex; justify-content: space-between; align-items: center; padding: 6px 6px 18px; }
   .brand { font-size: 22px; font-weight: 700; letter-spacing: -0.03em; }
