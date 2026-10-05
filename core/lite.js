@@ -269,7 +269,31 @@ function messageImage(text) {
     ff.stdout.on('data', (c) => ch.push(c)); ff.on('close', (c) => { const o = Buffer.concat(ch); c === 0 && o.length ? resolve(o) : reject(new Error('msg image')); }); ff.on('error', reject);
   });
 }
+const SXI_CACHE = new Map();
+async function searxImages(q, pg, safe) {
+  const lvl = safe === 'off' ? 0 : safe === 'strict' ? 2 : 1;
+  const per = 40, start = (pg - 1) * 8, pn = Math.floor(start / per) + 1;
+  const key = [q.toLowerCase(), pn, lvl].join('|');
+  let list = SXI_CACHE.get(key);
+  if (!list || Date.now() - list.at > 300000) {
+    const r = await fetch('http://127.0.0.1:8888/search?q=' + encodeURIComponent(q) + '&categories=images&format=json&pageno=' + pn + '&safesearch=' + lvl, { signal: AbortSignal.timeout(12000) });
+    if (!r.ok) throw new Error('searxng ' + r.status);
+    const d = await r.json(); const seen = new Set(), arr = [];
+    for (const x of d.results || []) {
+      const full = x.img_src; if (!full || !/^https?:\/\//.test(full) || seen.has(full)) continue; seen.add(full);
+      let host = ''; try { host = new URL(x.url || full).hostname.replace(/^www\./, ''); } catch {}
+      const th = String(x.thumbnail_src || x.thumbnail || full).replace(/^http:/, 'https:');
+      arr.push({ title: String(x.title || host || 'image').replace(/<[^>]*>/g, '').replace(/[\ue000-\ue00f]/g, ''), site: host, full, thumbSrc: th });
+    }
+    list = { at: Date.now(), arr }; SXI_CACHE.set(key, list); if (SXI_CACHE.size > 60) SXI_CACHE.delete(SXI_CACHE.keys().next().value);
+  }
+  return list.arr.slice(start % per, start % per + 8);
+}
 async function imageSearch(q, pg, safe) {
+  try { const r = await searxImages(q, pg, safe); if (r.length) return r; } catch (e) { /* fall back to bing */ }
+  return bingImages(q, pg, safe);
+}
+async function bingImages(q, pg, safe) {
   const u = 'https://www.bing.com/images/async?q=' + encodeURIComponent(q) + '&first=' + ((pg - 1) * 8) + '&count=16&mmasync=1' + (safe === 'strict' ? '&adlt=strict' : safe === 'off' ? '&adlt=off' : '');
   const html = await new Promise((resolve, reject) => {
     const rq = https.get(u, { headers: { cookie: 'SRCHHPGUSR=ADLT=' + (safe === 'off' ? 'OFF' : safe === 'strict' ? 'STRICT' : 'DEMOTE'), 'user-agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 Version/17.0 Mobile/15E148 Safari/604.1', 'accept-language': 'en-US,en;q=0.9' }, timeout: 12000 }, (r) => {
