@@ -401,18 +401,6 @@ function parseSearch(data) {
   return out.filter((v) => (seen.has(v.id) ? false : (seen.add(v.id), true))).slice(0, 20);
 }
 
-function pickHd(adaptive) {
-  const videos = adaptive.filter((f) =>
-    f.url && f.mimeType?.includes('video/mp4') && f.mimeType?.includes('avc1') && (f.height || 0) > 360
-  );
-  videos.sort((a, b) => (b.height || 0) - (a.height || 0));
-  const video = videos.find((f) => (f.height || 0) <= 1080) || videos[videos.length - 1];
-  const audios = adaptive.filter((f) => f.url && f.mimeType?.includes('audio/mp4'));
-  audios.sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0));
-  const audio = audios[0];
-  if (!video || !audio) return null;
-  return { videoUrl: video.url, audioUrl: audio.url, quality: video.qualityLabel || `${video.height}p` };
-}
 
 const execFileP = promisify(execFile);
 const YTDLP = process.env.YTDLP || new URL("../../../bin/yt-dlp", import.meta.url).pathname;
