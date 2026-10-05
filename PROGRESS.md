@@ -962,3 +962,4 @@ New /api/lite/* for phone shortcuts (core/lite.js, small hook in core/index.js, 
 - Lite /imgsearch: SearXNG only, Bing path removed
 - SearXNG images: bing images off, brave via custom node-eval engine (upstream parser broken), google images enabled but blocked
 - images: Brave only (cse/pinterest/commons/google off); lite slices page1 of brave
+- images: old engine set restored (bing, cse, pinterest, commons) + fixed brave; lite slices page 1
