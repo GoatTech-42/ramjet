@@ -167,7 +167,7 @@
     let link = document.querySelector("link[rel~='icon']");
     if (!link) { link = document.createElement('link'); link.setAttribute('rel', 'icon'); document.head.appendChild(link); }
     if (cloaked) { document.title = CLOAK_TITLE; link.href = CLOAK_ICON; }
-    else { document.title = 'browse - ramjet'; link.href = '/favicon.svg'; }
+    else { document.title = 'browse - ramjet'; link.href = '/favicon-32.png'; }
   }
   function toggleCloak() {
     cloaked = !cloaked;
