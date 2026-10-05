@@ -12,7 +12,7 @@ import zlib from 'node:zlib';
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { statSync, appendFileSync } from 'node:fs';
-import { mkdtemp, writeFile, rm } from 'node:fs/promises';
+import { mkdtemp, writeFile, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import nodePath from 'node:path';
 import { renderSheet } from './sheet.mjs';
