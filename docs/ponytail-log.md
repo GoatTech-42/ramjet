@@ -13,3 +13,4 @@ Work happens on the ponytail-redo branch in a separate worktree (~/ponytail-redo
 - 1:27 AM unused-import scan of core: only aliased imports flagged, all aliases used. Nothing to cut.
 
 - 6:29 AM: scan of jetstream, core/index.js, amp for commented-out code: none (2 comments are real notes). Next: function-length review of jetstream, one function per slice.
+- 7:29 AM: unreferenced top-level functions in jetstream: none.
