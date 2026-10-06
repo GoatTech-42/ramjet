@@ -18,7 +18,7 @@ import nodePath from 'node:path';
 import { renderSheet } from './sheet.mjs';
 import { parseDocument } from 'htmlparser2';
 import * as DU from 'domutils';
-import { clientIp } from './util.js';
+import { clientIp, esc } from './util.js';
 
 const MAX_HTML = 2 * 1024 * 1024, MAX_IMG = 15 * 1024 * 1024, MAX_VID = 80 * 1024 * 1024;
 let jet = null, acct = null;
@@ -163,7 +163,6 @@ function collect(src, cap, onOver) {
 // ---- page ----
 const DROP = new Set(['script', 'style', 'nav', 'header', 'footer', 'aside', 'form', 'iframe', 'noscript', 'svg', 'button', 'select', 'input', 'textarea', 'dialog', 'template', 'canvas']);
 const tx = (n) => DU.textContent(n).replace(/\s+/g, ' ').trim();
-const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const mediaUrl = (u, kind) => '/api/lite/media?kind=' + kind + '&u=' + encodeURIComponent(u);
 async function pageData(u) {
   const { res: r, url } = await safeGet(u, 'text/html,application/xhtml+xml');
