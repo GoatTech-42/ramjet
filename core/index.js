@@ -60,7 +60,10 @@ function serveStatic(res, urlPath) {
   const safe = resolve(DIST, '.' + urlPath);
   if (!safe.startsWith(DIST) || !existsSync(safe) || !statSync(safe).isFile()) return false;
   const ext = extname(safe);
-  const headers = {
+  const st = statSync(safe);
+  const etag = 'W/"' + st.size + '-' + Math.round(st.mtimeMs) + '"'; // lets the no-cache engine files revalidate for one round trip instead of re-downloading megabytes
+  if (res.req?.headers?.['if-none-match'] === etag) { res.writeHead(304, { etag }); res.end(); return true; }
+  const headers = { etag,
     'content-type': MIME[ext] || 'application/octet-stream',
     'cache-control': urlPath.startsWith('/cloak/') || /^\/(browse-sw\.js|scramjet\/|controller\/|epoxy\/|libcurl\/)/.test(urlPath) ? 'no-cache' : 'public, max-age=31536000, immutable',
   };
