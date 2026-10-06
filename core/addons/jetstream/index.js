@@ -468,6 +468,7 @@ async function resolveViaYtdlp(id) {
   // low-data tier for phones: 720 short side (a 390pt phone shows a 720p short
   // pixel for pixel), same codec + 30fps preference. roughly half the bytes of 1080.
   const lvideo = pickCap(videos, 720), lvpick = pickCap(vp9s, 720);
+  const hdOf = (v) => (v && audio ? { videoUrl: v.url, audioUrl: audio.url, quality: v.format_note || `${v.height}p` } : null);
   const hdOk = !!((video && audio) || (vpick && audio));
   let pick = null;
   if (!hdOk) {
@@ -482,10 +483,10 @@ async function resolveViaYtdlp(id) {
     quality: pick ? (pick.format_note || `${pick.height || '?'}p`) : ((video || vpick).format_note || `${(video || vpick).height}p`),
     channel: String(data.channel || data.uploader || '').slice(0, 200),
     channelId: String(data.channel_id || data.uploader_id || '').slice(0, 64),
-    hd: video && audio ? { videoUrl: video.url, audioUrl: audio.url, quality: video.format_note || `${video.height}p` } : null,
-    hdVp9: vpick && audio ? { videoUrl: vpick.url, audioUrl: audio.url, quality: vpick.format_note || `${vpick.height}p` } : null,
-    hdL: lvideo && audio ? { videoUrl: lvideo.url, audioUrl: audio.url, quality: lvideo.format_note || `${lvideo.height}p` } : null,
-    hdLVp9: lvpick && audio ? { videoUrl: lvpick.url, audioUrl: audio.url, quality: lvpick.format_note || `${lvpick.height}p` } : null,
+    hd: hdOf(video),
+    hdVp9: hdOf(vpick),
+    hdL: hdOf(lvideo),
+    hdLVp9: hdOf(lvpick),
     duration: Number(data.duration) || 0,
     lite: {
       v: videos.map((f) => ({ h: eff(f), fps: f.fps || 30, url: f.url, size: f.filesize || f.filesize_approx || 0, tbr: f.tbr || 0 })).slice(0, 12),
