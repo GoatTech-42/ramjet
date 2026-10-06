@@ -452,25 +452,21 @@ async function resolveViaYtdlp(id) {
   const videos = fmts.filter((f) => direct(f) && (!f.acodec || f.acodec === 'none') && (f.vcodec || '').startsWith('avc1') && eff(f) > 360);
   videos.sort((a, b) => eff(b) - eff(a));
   // 60fps doubles the phone's decode cost. drop to 30fps ONLY at the same
-  // resolution - never trade pixels for frames.
-  const within = videos.filter((f) => eff(f) <= 1080);
-  const best = within[0] || videos[videos.length - 1];
-  const video = within.find((f) => (f.fps || 30) <= 30 && eff(f) === eff(best)) || best;
-  const audios = fmts.filter((f) => direct(f) && (!f.vcodec || f.vcodec === 'none') && (f.ext === 'm4a' || (f.acodec || '').startsWith('mp4a')));
-  audios.sort((a, b) => (b.abr || 0) - (a.abr || 0));
-  const audio = audios[0];
-  const vp9s = fmts.filter((f) => direct(f) && (!f.acodec || f.acodec === 'none') && /^(vp9|vp09)/.test(f.vcodec || '') && eff(f) > 360);
-  vp9s.sort((a, b) => eff(b) - eff(a));
-  const vwithin = vp9s.filter((f) => eff(f) <= 1080);
-  const vbest = vwithin[0] || vp9s[vp9s.length - 1];
-  const vpick = vbest ? (vwithin.find((f) => (f.fps || 30) <= 30 && eff(f) === eff(vbest)) || vbest) : null;
-  // low-data tier for phones: 720 short side (a 390pt phone shows a 720p short
-  // pixel for pixel), same codec + 30fps preference. roughly half the bytes of 1080.
+  // resolution - never trade pixels for frames. cap = max short side.
   const pickCap = (list, cap) => {
     const w = list.filter((f) => eff(f) <= cap);
     const b = w[0] || list[list.length - 1];
     return b ? (w.find((f) => (f.fps || 30) <= 30 && eff(f) === eff(b)) || b) : null;
   };
+  const video = pickCap(videos, 1080);
+  const audios = fmts.filter((f) => direct(f) && (!f.vcodec || f.vcodec === 'none') && (f.ext === 'm4a' || (f.acodec || '').startsWith('mp4a')));
+  audios.sort((a, b) => (b.abr || 0) - (a.abr || 0));
+  const audio = audios[0];
+  const vp9s = fmts.filter((f) => direct(f) && (!f.acodec || f.acodec === 'none') && /^(vp9|vp09)/.test(f.vcodec || '') && eff(f) > 360);
+  vp9s.sort((a, b) => eff(b) - eff(a));
+  const vpick = pickCap(vp9s, 1080);
+  // low-data tier for phones: 720 short side (a 390pt phone shows a 720p short
+  // pixel for pixel), same codec + 30fps preference. roughly half the bytes of 1080.
   const lvideo = pickCap(videos, 720), lvpick = pickCap(vp9s, 720);
   const hdOk = !!((video && audio) || (vpick && audio));
   let pick = null;
