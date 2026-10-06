@@ -244,10 +244,7 @@ async function ymSearch(q) {
     if (!node || typeof node !== 'object') return;
     const it = node.musicResponsiveListItemRenderer;
     if (!it) {
-      for (const val of Object.values(node)) {
-        if (Array.isArray(val)) val.forEach(walk);
-        else if (val && typeof val === 'object') walk(val);
-      }
+      Object.values(node).forEach(walk);
       return;
     }
     let videoId = '';
