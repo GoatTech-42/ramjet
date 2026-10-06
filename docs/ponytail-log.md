@@ -14,3 +14,4 @@ Work happens on the ponytail-redo branch in a separate worktree (~/ponytail-redo
 
 - 6:29 AM: scan of jetstream, core/index.js, amp for commented-out code: none (2 comments are real notes). Next: function-length review of jetstream, one function per slice.
 - 7:29 AM: unreferenced top-level functions in jetstream: none.
+- 12:50 PM: resolveViaYtdlp picked the 1080 video and vp9 tracks with two copies of the pickCap logic. Both now call pickCap (same result, including null when no format). Syntax checked; needs the regression run.
