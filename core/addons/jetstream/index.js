@@ -391,10 +391,7 @@ function parseSearch(data) {
       }
       return;
     }
-    for (const val of Object.values(node)) {
-      if (Array.isArray(val)) val.forEach(walk);
-      else if (val && typeof val === 'object') walk(val);
-    }
+    Object.values(node).forEach(walk);
   };
   walk(data);
   const seen = new Set();
@@ -1329,10 +1326,7 @@ function parseKindSearch(data, kind) {
       }
       return;
     }
-    for (const val of Object.values(node)) {
-      if (Array.isArray(val)) val.forEach(walk);
-      else if (val && typeof val === 'object') walk(val);
-    }
+    Object.values(node).forEach(walk);
   };
   walk(data);
   const seen = new Set();

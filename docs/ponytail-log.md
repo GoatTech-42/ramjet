@@ -18,3 +18,4 @@ Work happens on the ponytail-redo branch in a separate worktree (~/ponytail-redo
 - 12:55 PM: resolveViaYtdlp built the hd, hdVp9, hdL and hdLVp9 entries with four copies of one expression. Now one hdOf helper, same output. Syntax checked; needs the regression run.
 - 1:00 PM: the try/cancel-response-body line was pasted 10 times in jetstream (gvProxy and the stream cache). Now one dropBody helper, same behavior. Syntax checked; needs the regression run.
 - 1:05 PM: code comments in core/ and web/src named the owner and quoted chat. Reworded to plain technical comments, comments only. Syntax checked on all changed js files; needs the regression run.
+- 1:10 PM: three JSON tree walkers (amp ymSearch, jetstream x2) looped over children and special-cased arrays. walk() already ignores non-objects and walks arrays, so each is now Object.values(node).forEach(walk). Same traversal order. Syntax checked; needs the regression run.
