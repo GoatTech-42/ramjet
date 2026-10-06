@@ -1,9 +1,9 @@
-
-
-
-
-
-
+// Clear-on-close. Off by default, per device.
+// iOS Safari has no dependable "app closed" event: swiping the app away fires nothing, and every
+// ramjet app is its own page, so a page-hide also fires when he just moves between apps.
+// So "closed" means "away for N minutes": a heartbeat records when this device last saw the
+// page, and the next time any ramjet page loads or comes back to the front, if the gap is
+// at least N minutes the history below is cleared before it is shown.
 const CFG = 'rj-autoclear', SEEN = 'rj-last-seen';
 export const AUTOCLEAR_KEYS = ['rj-browse-recent', 'rj-browse-history', 'amp-recent', 'js-pos', 'js-searches', 'amp-searches', 'rj-browse-searches'];
 export function readCfg() { try { return { on: false, mins: 30, ...JSON.parse(localStorage.getItem(CFG) || '{}') }; } catch { return { on: false, mins: 30 }; } }

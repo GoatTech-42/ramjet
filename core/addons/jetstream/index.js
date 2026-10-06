@@ -14,9 +14,9 @@ const HIST_FILE = fileURLToPath(new URL('../../../data/jetstream-history.json', 
 // a short scroll session flushed every long-form signal. shelf display still
 // filters through shelfHist - this cap only bounds how much taste persists.
 const HIST_CAP = 200;
-
-
-
+// keep watching is a shelf, not an archive: entries age
+// out, shorts never sit on it, and a video you finished leaves it. the full
+// history still feeds recommendations - only the shelf filters.
 const HIST_TTL = 3 * 24 * 3600 * 1000;
 function shelfHist(user) {
   const now = Date.now();
@@ -52,17 +52,17 @@ const DIS_FILE = fileURLToPath(new URL('../../../data/jetstream-dislikes.json', 
 const DIS_CAP = 100;
 function loadDislikes() { return readJson(DIS_FILE, {}); }
 
-
-
-
+// subscriptions: per-account channel subs.
+// a sub is a standing "more from this channel" - it folds into the taste
+// profile as channel weight, like a like that never leaves.
 const SUBS_FILE = fileURLToPath(new URL('../../../data/jetstream-subs.json', import.meta.url));
 const SUBS_CAP = 100;
 function loadSubs() { return readJson(SUBS_FILE, {}); }
 function userSubs(user) { return loadSubs()[user] || []; }
 
-
-
-
+// dead pool: a video that can't play - restricted, no
+// formats - never surfaces again. global: if ytdlp can't resolve it from
+// the box, no account can play it. feeds + channel pages filter it out.
 const DEAD_FILE = fileURLToPath(new URL('../../../data/jetstream-dead.json', import.meta.url));
 function loadDead() {
   const d = new Set(readJson(DEAD_FILE, { ids: [] }).ids || []);
@@ -94,10 +94,10 @@ const REC_TTL = 10 * 60 * 1000;
 // n rotates the seed window so re-ranks explore different pools.
 const recCache = new Map();
 const GENERIC_SEEDS = ['trending now', 'viral clips'];
-
-
-
-
+// platform-filler words are taste poison: "challenge", "tiktok", "viral"
+// say nothing about what a video IS, but they swarm titles - and they were
+// the top taste words, which made feeds of one topic fill with random
+// stuff. filler never enters the profile.
 const STOPWORDS = new Set('the and for with that this from your you are was were have has had not but all can will its his her she him they them their our out about into over after before between under again once here there when where why how what which who whom been being both each few more most other some such only own same than too very just challenge challenges tiktok viral viralvideo ytshorts shorts short video videos youtube reels fyp foryou trending compilation bigbank goon gyatt feat wait till end'.split(' '));
 
 function parseViews(t) {
@@ -132,10 +132,10 @@ const SET_FILE = fileURLToPath(new URL('../../../data/jetstream-settings.json', 
 function loadSettings() { return readJson(SET_FILE, {}); }
 function histPaused(user) { return !!loadSettings()[user]?.paused; }
 
-
-
-
-
+// taste profile: learn the TYPE of video, not just the
+// channel, and learn it from what he actually did. a 2-second skip used to
+// teach the feed "more of this" - now it teaches the opposite. content words
+// carry the signal, channel rides along as a hint. weights can go negative.
 function histProfile(hist, likes = [], subs = []) {
   const chan = new Map(); const words = new Map();
   const add = (map, k, w) => map.set(k, (map.get(k) || 0) + w);
@@ -155,7 +155,7 @@ function histProfile(hist, likes = [], subs = []) {
     if (ws != null && dur > 0) {
       const ratio = ws / dur;
       if (ws < 3 || (dur > 20 && ratio < 0.15)) return fold(v, -3 * rec); // quick skip: hard no
-      if (ratio >= 0.7 || ws >= 25) return fold(v, 6 * rec);              
+      if (ratio >= 0.7 || ws >= 25) return fold(v, 6 * rec);              // watched through: the loudest organic signal - one topic floods the next batch
       return fold(v, 0.5 * rec);                                          // sampled, mild yes
     }
     fold(v, rec); // legacy row without an outcome: count the view
@@ -179,9 +179,9 @@ function chanWordProfile(list) {
 }
 
 function recSeeds(profile, n = 0) {
-
-
-
+  // rotation: the same top seeds every re-rank froze the
+  // feed. take a wider window and rotate through it so each re-rank pulls a
+  // different pool - the profile stays the compass, the heading changes.
   const chans = [...profile.chan.entries()].filter(([, w]) => w > 0.5).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([c]) => c);
   const kws = [...profile.words.entries()].filter(([, w]) => w > 0.5).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([w]) => w);
   const all = [];
@@ -270,7 +270,7 @@ async function buildRanked(user, hit) {
     if (!data) continue;
     for (const v of parseSearch(data)) {
       if (seen.has(v.id)) continue;
-      if (deadIds.has(v.id)) continue; 
+      if (deadIds.has(v.id)) continue; // restricted: never surface
       if (hit && hit.served.has(v.id)) continue; // a new batch is NEW shorts
       seen.add(v.id);
       cands.push(v);
@@ -302,9 +302,9 @@ async function buildRanked(user, hit) {
   return [...head, ...tail];
 }
 
-
-
-
+// stale-while-revalidate: opens used to block on a full
+// cold re-rank - that was the "forever to load". now a cached list answers
+// instantly while a background re-rank builds the next batch behind it.
 async function rankedRecs(user, fresh = false) {
   let hit = recCache.get(user);
   if (!hit) {
@@ -331,16 +331,16 @@ async function rankedRecs(user, fresh = false) {
 
 const stripRec = ({ score, secs, ...rest }) => rest;
 
-
-
-
-
-
-
-
-
-
-
+// jetstream: search YouTube (InnerTube, no API key), play through ramjet's own
+// backend - the client never touches Google domains.
+// HD (Mon late evening): adaptive video-only (up to 1080p avc1) + best m4a
+// audio, both proxied byte-for-byte; the client plays them as a synced
+// video+audio pair (no server transcode, cpu stays idle) - the exact pattern
+// the old ramjet used, where 1080p worked. The server passes each browser
+// range request through transparently and caps open-ended reads at 1MB, so
+// googlevideo sees ordinary browser traffic and the browser natively retries
+// the occasional 403. Server-side chunked fetching (16MB bursts) got the box
+// IP rate-walled within seconds; this pattern does not.
 
 const API = 'https://www.youtube.com/youtubei/v1';
 const CLIENT = {
@@ -615,21 +615,20 @@ async function gvProxy(u, req, res, track, refresh, capBytes) {
   return res.end();
 }
 
-
-
-
-
-
-
-
+// ── warm stream cache ──
+// some networks filter googlevideo, so every byte played flows through this
+// box live. live proxying means every swipe pays an upstream handshake. the
+// fix: the moment a feed batch is ranked, the box pulls the next slides'
+// streams to its own disk in the background; the phone then downloads from
+// the box at full local speed. swipes stop paying the upstream tax.
 const CACHE_DIR = fileURLToPath(new URL('../../../data/stream-cache', import.meta.url));
 try { mkdirSync(CACHE_DIR, { recursive: true }); } catch {}
 
-
-
-
-
-
+// thumb cache: posters used to ride i.ytimg upstream on EVERY cold request
+// (the buffering background, the watch poster, every feed grid image). on
+// a filtered network the box is the fast path, so every fetched
+// poster lands on disk and repeats serve in milliseconds. lru by mtime,
+// capped by bytes - plain multiplication, bitshifts overflow past 2^31.
 const THUMB_DIR = fileURLToPath(new URL('../../../data/thumb-cache', import.meta.url));
 try { mkdirSync(THUMB_DIR, { recursive: true }); } catch {}
 const THUMB_CAP = 128 * 1024 * 1024;
@@ -866,9 +865,9 @@ async function pumpWarm() {
   } finally { warmBusy = false; }
 }
 
-
-
-
+// channel pages: one page per channel - their videos, their
+// shorts, subscribe. listings are yt-dlp flat playlists of the channel tabs,
+// cached 30 min: they change slowly and a cold resolve takes seconds.
 const chanCache = new Map(); // `id:tab` -> { at, name, items }
 
 // ---- video summary helpers ----
@@ -1095,16 +1094,15 @@ function embedAsync(id, text) {
 function requestEmbed(id, text) { if (!embedInflight.has(id)) embedAsync(id, text).catch(() => {}); }
 function cosArr(a, b) { let s = 0; for (let i = 0; i < a.length; i++) s += a[i] * b[i]; return s; } // both sides normalized
 
-
-
-
-
-
-
-
-
-
-
+// ── the taste model: a small model trained off the watch history ──
+// every resolved video's full metadata (title, tags, description, category)
+// lands in a persistent store - yt-dlp already paid for it. each video
+// becomes a TF-IDF document over title x3 + tags x2 + description x1. each
+// account's watch outcomes train a taste CENTROID: full-watch pulls in,
+// quick-skip pushes out, likes pull hard, all recency-decayed. candidates
+// rank by cosine similarity to that centroid - so "ninja warrior" matches a
+// watched "obstacle course" through shared tag/description vocabulary even
+// when the titles share no words. that is the "it understands" feel.
 const META_FILE = fileURLToPath(new URL('../../../data/jetstream-meta.json', import.meta.url));
 const META_CAP = 3000;
 let metaMem = null;
@@ -1140,7 +1138,7 @@ function docTerms({ title, tags, desc, cat }) {
   const add = (words, w) => { for (const t of words) tf.set(t, (tf.get(t) || 0) + w); };
   add(tok(title), 3);
   add((tags || []).flatMap((t) => tok(t)), 2);
-  add(tok(cat || ''), 2); 
+  add(tok(cat || ''), 2); // the category is what it IS
   add(tok(String(desc || '').slice(0, 600)), 1);
   return tf;
 }
@@ -1283,9 +1281,9 @@ function tasteCentroid(user) {
 export const __taste = { docVec, tasteCentroid, cosine };
 
 
-
-
-
+// ── channel + playlist search, playlist pages, channel playlists tab ──
+// the ANDROID client hands back opaque element blobs for these result types,
+// the WEB client returns the real renderers, so these calls use WEB.
 const WEB_CTX = { client: { clientName: 'WEB', clientVersion: '2.20250925.01.00', hl: 'en', gl: 'US' } };
 async function ytWeb(endpoint, body) {
   const r = await fetch(`${API}/${endpoint}?prettyPrint=false`, {
@@ -1342,12 +1340,12 @@ function parseKindSearch(data, kind) {
 }
 
 
-
-
-
-
-
-
+// ── restricted / unplayable pre-check ──
+// the ANDROID player endpoint tells us up front, per video, whether it is playable
+// without a login: OK, or LOGIN_REQUIRED ("may be inappropriate" = age-gated),
+// or ERROR/UNPLAYABLE (private, removed, blocked). cached: blocked ids persist in
+// data/jetstream-blocked.json (30 days), OK ids stay in memory 12 hours. a network
+// failure is "unknown": never cached, never blocks.
 const BLOCK_FILE = fileURLToPath(new URL('../../../data/jetstream-blocked.json', import.meta.url));
 let blockedMem = null;
 function blockedMap() { if (!blockedMem) blockedMem = readJson(BLOCK_FILE, {}); return blockedMem; }
@@ -1598,9 +1596,9 @@ export async function register(req, res, ctx) {
     return sendJson(res, 200, { ok: true });
   }
 
-
-
-
+  // clearing history must clear the algorithm too - likes,
+    // not-interested marks and watch-outcome rows are all training data, so a
+    // clear is a real fresh start - nothing about the account survives it.
     if (sub === '/history/clear' && req.method === 'POST') {
     const all = loadHist();
     all[session.user] = [];
@@ -1613,7 +1611,7 @@ export async function register(req, res, ctx) {
     writeJson(DIS_FILE, ds);
     const sb = loadSubs();
     sb[session.user] = [];
-    writeJson(SUBS_FILE, sb); 
+    writeJson(SUBS_FILE, sb); // the one clear nukes subs too
     recCache.delete(session.user); // the learned profile goes with it
     return sendJson(res, 200, { ok: true });
   }
@@ -1918,9 +1916,9 @@ export async function register(req, res, ctx) {
     if (!/^[A-Za-z0-9_-]{11}$/.test(id)) return sendJson(res, 400, { ok: false, error: 'bad video id' });
     try {
       const s = await resolveStream(id);
-
-
-
+      // direct-first: hand the client the CDN urls too - it
+      // plays direct when the network doesn't filter them, proxy fallback
+      // when it does. the proxy stays the product on filtered networks.
       const body = { ok: true, id, quality: s.quality, stream: `/api/apps/jetstream/stream?id=${id}`, direct: s.url, channel: s.channel || '', channelId: s.channelId || '' };
       const wantVp9 = url.searchParams.get('vp9') === '1' && s.hdVp9;
       const lite = url.searchParams.get('lite') === '1' && (wantVp9 ? s.hdLVp9 : s.hdL);

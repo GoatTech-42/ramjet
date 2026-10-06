@@ -31,10 +31,10 @@ function cleanUrl(u) {
   } catch { return ''; }
 }
 
-
-
-
-
+// url encryption key: the proxy scrambles destination urls
+// so a filter or a glance at the address bar sees gibberish, not where you
+// went. one key per login session, derived statelessly - logging out kills
+// every url it ever made. the secret never leaves the box.
 const KEY_FILE = fileURLToPath(new URL("../../../data/.urlkey-secret", import.meta.url));
 function urlSecret() {
   if (existsSync(KEY_FILE)) return readFileSync(KEY_FILE, "utf8").trim();
@@ -48,10 +48,10 @@ export async function register(req, res, ctx) {
   const { sendJson, readBody: rb, session } = ctx;
   const sub = req.url.split('?')[0].replace(/^\/api\/apps\/browse/, '') || '/';
 
-
-
-
-
+  // cross-device cookie + localStorage sync: the admin
+// account ONLY - every other account gets a flat 403. cookies are the
+// scramjet jar dump; storage is the proxied sites' localStorage (host@key
+// entries). last writer wins - it is a personal sync, not a merge.
 const SYNC_FILE = fileURLToPath(new URL("../../../data/browse-sync.json", import.meta.url));
 const SYNC_ADMIN = process.env.RJ_SYNC_ADMIN || "admin";
 

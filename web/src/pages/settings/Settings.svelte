@@ -169,8 +169,8 @@
   }
 
 
-
-
+  // per-app privacy, all in one place: jetstream watch history
+  // pause + clear, amp playlists, browse bookmarks. sage is above.
   let jsPaused = $state(false);
   let jsCount = $state(0);
   let jsMsg = $state('');

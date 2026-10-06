@@ -1,11 +1,10 @@
-
-
-
-
-
-
-
-
+// server-side fetch for browse (a news page took 9 seconds). the stock engine opens a TLS connection from inside the browser
+// for every host and every parallel request, and each handshake crosses the
+// tunnel. here the box does the TLS with pooled keep-alive connections and
+// sends the body back down the one multiplexed tunnel connection the page
+// already has: one round trip per request, no handshakes. same pattern the
+// bare-server proxies use. private/loopback targets are refused at connect
+// time, and the ad blocker applies here too.
 
 import http from 'node:http';
 import https from 'node:https';

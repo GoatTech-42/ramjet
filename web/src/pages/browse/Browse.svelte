@@ -13,8 +13,8 @@
   let stageEl = $state(null);
   let ctrl = null;
 
-
-
+  // tabs: every tab is its own proxied iframe, kept
+  // alive (hidden) while you are on another tab so pages keep their state.
   let tabs = $state([]);
   let activeId = $state(0);
   let nextId = 1;
@@ -29,8 +29,8 @@
       v.el.style.display = k === activeId && t?.surfing ? 'block' : 'none';
     }
   }
-
-
+  // per-site "allow ads": the block list stays on everywhere
+  // else. the choice is per device, kept in localStorage rj-ads-allow.
   let menuOpen = $state(false);
   $effect(() => { if (ready && !surfing && typeof matchMedia === 'function' && matchMedia('(pointer: fine)').matches) document.getElementById('br-omni')?.focus(); });
   let adAllow = $state((() => { try { const v = JSON.parse(localStorage.getItem('rj-ads-allow') || '[]'); return Array.isArray(v) ? v.filter((x) => typeof x === 'string').slice(0, 200) : []; } catch { return []; } })());
@@ -58,9 +58,9 @@
     if (t.title) return t.title;
     return t.surfing ? 'loading...' : 'new tab';
   }
-
-
-
+  // address bar follows the page: the proxied frame's document
+  // url is the real address, so read it on load and while the page lives
+  // (covers link clicks, redirects, pushState, back/forward).
   function syncAddr(id) {
     const v = live.get(id);
     const tb = tabs.find((x) => x.id === id);
@@ -137,18 +137,18 @@
     if (!v) return null;
     const looksLikeUrl = /^[a-z]+:\/\//i.test(v) || (/^[^\s]+\.[^\s]{2,}/.test(v) && !v.includes(' '));
     if (looksLikeUrl) return /^[a-z]+:\/\//i.test(v) ? v : 'https://' + v;
-
-
-
+    // self-hosted searxng, reverse-proxied same-origin at /searx/ (captcha-free):
+    // its own instance, aggregates brave/bing/
+    // google-cse. same-origin keeps result clicks routable back into the proxy.
     return '/searx/search?q=' + encodeURIComponent(v);
   }
 
 
-
-
-
-
-
+  // url encryption: a proxied address must not be readable in
+  // the url itself - a filter or a glance at the bar sees gibberish, not the
+  // destination. scramjet serializes these with .toString() into the service
+  // worker and proxied frames, so the session key is baked into the source
+  // and everything they touch is defined inside - no closures.
   function makeUrlCodec(keyHex) {
     const body =
       'var KH="' + keyHex + '";var K=[];for(var i=0;i<KH.length;i+=2)K.push(parseInt(KH.slice(i,i+2),16));' +
@@ -175,9 +175,9 @@
   }
 
 
-
-
-
+  // tab cloak: one tap (or the ` key) and the tab reads as
+  // homework - innocuous title + a docs-look icon, and proxied page titles
+  // stop reaching the tab (and browser history) while it is on.
   const CLOAK_TITLE = 'Google Docs';
   const CLOAK_ICON = '/cloak/docs-32.png';
   let cloaked = $state(true);
@@ -193,10 +193,10 @@
     applyCloak();
   }
 
-
-
-
-
+  // cookie + localStorage cloud sync: admin account only -
+  // the server 403s everyone else, so this silently turns itself off for
+  // other users. restores before the first navigation, pushes every 15s and
+  // on tab close. last writer wins.
   function startSync(controller) {
     (async () => {
       let on = false;

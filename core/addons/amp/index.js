@@ -122,12 +122,12 @@ const YTDLP = process.env.YTDLP || new URL("../../../bin/yt-dlp", import.meta.ur
 const ytAudio = new Map(); // videoId -> { url, expires }
 const ytInflight = new Map(); // videoId -> Promise<url>
 
-
-
-
-
-
-
+// Tue 7:40 AM: youtube audio resolves through the local
+// yt-dlp binary, same fix as jetstream HD - InnerTube client URLs are
+// head-capped by googlevideo (~2MB absolute) without the n-parameter
+// transform, which yt-dlp applies. One resolver plus one forced re-resolve
+// replaces the old client ladder; if yt-dlp flakes for a track the block
+// cache below still fails honestly.
 const YT_LADDER = ['YTDLP'];
 
 async function ytAudioResolve(id) {

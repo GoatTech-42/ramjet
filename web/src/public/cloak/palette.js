@@ -1,6 +1,6 @@
-
-
-
+// command palette: ctrl/cmd-K anywhere in ramjet, plus a small
+// button on the home page for phones. plain js, themed with the --rj-* tokens
+// so every theme and mode gets it for free.
 (function () {
   if (window.__rjPalette) return; window.__rjPalette = 1;
   var PAGES = [['home', '/', 'the ramjet home page'], ['browse', '/browse', 'the whole web'], ['jetstream', '/jetstream', 'search and watch videos'], ['amp', '/amp', 'your music'], ['sage', '/sage', 'ask anything'], ['banter', '/banter', 'chat with friends'], ['settings', '/settings', 'look, account, privacy']];
