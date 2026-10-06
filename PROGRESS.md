@@ -984,3 +984,5 @@ New /api/lite/* for phone shortcuts (core/lite.js, small hook in core/index.js, 
 - Oct 5 7:55 AM: Browse address bar now follows the page (Luke 7:39 AM). syncAddr reads the proxied frame document url on load and every 400 ms, so link clicks, redirects, pushState and back/forward update the bar; submitting blurs the omnibox so it can update. Tested desktop + iPhone 13 (typed, link click, history.back, http->https redirect, pushState); shots docs/overnight-shots/addrbar-*.png.
 
 - 2026-10-05 Lite images: every image served through ffmpeg to baseline JPEG (full-size PNG stays PNG); AVIF/HEIC via heif-convert (libheif-examples in the image); loosened the content-type gate so odd headers no longer fail. Fixes Shortcuts unsupported image format.
+
+- 8:51 PM: static files now send an ETag and answer If-None-Match with 304. The engine files (epoxy, scramjet, libcurl, controller) stay no-cache as before, but a reload costs one round trip instead of re-downloading up to several MB through Cloudflare (epoxy: 683 KB br -> 0 bytes, 276 ms -> 132 ms). Measured latency: origin 1 ms, Cosmos 8 ms, through Cloudflare 55-140 ms (p50 80), srv.us tunnel 390 ms.
