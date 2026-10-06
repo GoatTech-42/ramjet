@@ -79,42 +79,6 @@ export async function handlePFetch(req, res, session, readBody, track) {
   if (body) up.end(body); else up.end();
 }
 
-// ---- box-side GET cache: the page never sees cache headers through the proxy
-// (every fetch re-crosses the box), so static assets - fonts, scripts, css,
-// images with a max-age - are kept here and answered from memory next time.
-// keyed by url + accept + a hash of any cookie, never shared across logins.
-import { createHash } from 'node:crypto';
-const PCACHE = new Map();
-let pcBytes = 0;
-const PC_MAX = 160e6, PC_ITEM = 2.5e6;
-const pcKey = (u, h) => u.href + '|' + (h.accept || '') + '|' + (h.cookie ? createHash('md5').update(h.cookie).digest('hex') : '');
-function pcGet(k) {
-  const e = PCACHE.get(k);
-  if (!e) return null;
-  if (Date.now() > e.exp) { PCACHE.delete(k); pcBytes -= e.size; return null; }
-  PCACHE.delete(k); PCACHE.set(k, e);
-  return e;
-}
-function pcTtl(ur, u) {
-  const h = ur.headers;
-  if (ur.statusCode !== 200 || h['set-cookie'] || /\b(cookie|\*)\b/i.test(String(h.vary || ''))) return 0;
-  const cc = String(h['cache-control'] || '').toLowerCase();
-  if (/no-store|private|no-cache/.test(cc)) return 0;
-  const m = /s-maxage=(\d+)/.exec(cc) || /max-age=(\d+)/.exec(cc);
-  const age = parseInt(h.age || '0', 10) || 0;
-  if (m) return Math.min(86400, Math.max(0, +m[1] - age));
-  const ct = String(h['content-type'] || '');
-  if (/^(image|font)\/|javascript|text\/css/i.test(ct) && (h.etag || h['last-modified'])) return 600;
-  return 0;
-}
-function pcPut(k, e) {
-  if (e.size > PC_ITEM) return;
-  const old = PCACHE.get(k); if (old) pcBytes -= old.size;
-  PCACHE.set(k, e); pcBytes += e.size;
-  while (pcBytes > PC_MAX) { const [kk, ee] = PCACHE.entries().next().value; PCACHE.delete(kk); pcBytes -= ee.size; }
-}
-export const pcacheStats = () => ({ entries: PCACHE.size, mb: Math.round(pcBytes / 1e5) / 10 });
-
 // ---- websocket multiplexed variant: many requests over one connection, so the
 // tunnel's http/1.1-only front (6 connections per host) is no longer a cap ----
 import { WebSocketServer } from 'ws';
@@ -149,19 +113,11 @@ export function pwsUpgrade(req, socket, head, user, track) {
       const body = spec.body ? Buffer.from(spec.body, 'base64') : null;
       if (body) headers['content-length'] = body.length;
       const method = String(spec.method || 'GET').toUpperCase();
-      const cacheable = method === 'GET' && !body && !headers.range && !headers.authorization;
-      const ck = cacheable ? pcKey(u, headers) : null;
-      if (ck) {
-        const hit = pcGet(ck);
-        if (hit) { track(hit.size); out(id, 0, hit.meta); for (let o = 0; o < hit.body.length; o += 65536) out(id, 1, hit.body.subarray(o, o + 65536)); out(id, 2); return; }
-      }
       const lib = u.protocol === 'https:' ? https : http;
       const up = lib.request({
         protocol: u.protocol, hostname: u.hostname, port: u.port || undefined, path: u.pathname + u.search,
         method, headers, agent: agents[u.protocol], lookup: safeLookup, timeout: 30000,
       }, (ur) => {
-        const ttl = ck ? pcTtl(ur, u) : 0;
-        const keepChunks = ttl > 0 ? [] : null; let keepSize = 0, metaStr = '';
         const raw = [];
         for (let i = 0; i < ur.rawHeaders.length; i += 2) raw.push([ur.rawHeaders[i], ur.rawHeaders[i + 1]]);
         const enc = String(ur.headers['content-encoding'] || '').toLowerCase();
@@ -172,20 +128,15 @@ export function pwsUpgrade(req, socket, head, user, track) {
           ur.on('error', () => src.destroy());
         }
         const keep = raw.filter(([k]) => !HOP.has(k.toLowerCase()));
-        const metaBuf = Buffer.from(JSON.stringify({ status: ur.statusCode, text: ur.statusMessage || '', headers: keep }));
-        out(id, 0, metaBuf);
+        out(id, 0, Buffer.from(JSON.stringify({ status: ur.statusCode, text: ur.statusMessage || '', headers: keep })));
         src.on('data', (c) => {
           track(c.length); out(id, 1, c);
-          if (keepChunks) { keepSize += c.length; if (keepSize > PC_ITEM) keepChunks.length = 0, keepSize = PC_ITEM + 1; else keepChunks.push(c); }
           if (ws.bufferedAmount > 4e6) {
             src.pause();
             const t = setInterval(() => { if (ws.bufferedAmount < 1e6 || ws.readyState !== 1) { clearInterval(t); src.resume(); } }, 20);
           }
         });
-        src.on('end', () => {
-          active.delete(id); out(id, 2);
-          if (keepChunks && keepSize > 0 && keepSize <= PC_ITEM) pcPut(ck, { meta: metaBuf, body: Buffer.concat(keepChunks), size: keepSize, exp: Date.now() + ttl * 1000 });
-        });
+        src.on('end', () => { active.delete(id); out(id, 2); });
         src.on('error', () => { active.delete(id); out(id, 3, Buffer.from('stream')); });
       });
       active.set(id, up);
