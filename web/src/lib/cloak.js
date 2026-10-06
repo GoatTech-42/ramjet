@@ -39,7 +39,6 @@ export function setCloak(on) {
   try { localStorage.setItem('rj-cloak', on ? '1' : '0'); } catch {}
   applyCloak();
 }
-export function isCloaked() { return isOn(); }
 applyCloak();
 new MutationObserver(applyCloak).observe(document.head, { childList: true, subtree: true, characterData: true, attributes: true });
 window.addEventListener('storage', (e) => { if (e.key === 'rj-cloak') applyCloak(); });
