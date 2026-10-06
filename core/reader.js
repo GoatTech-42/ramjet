@@ -7,9 +7,9 @@ import zlib from 'node:zlib';
 import { parseDocument } from 'htmlparser2';
 import * as DU from 'domutils';
 import { safeLookup } from './pfetch.js';
+import { esc } from './util.js';
 
 const MAX = 4e6;
-const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
 function fetchPage(url, hops = 0) {
 	return new Promise((resolve, reject) => {
