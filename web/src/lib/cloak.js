@@ -1,5 +1,5 @@
 import './autoclear.js';
-// Tab cloak, shared by every app (Luke 7:46 AM: "no matter what app").
+// Tab cloak, shared by every app.
 // While rj-cloak is on in this browser, the tab reads "Google Docs" with the
 // Google Docs favicon, on every page, and later title/icon changes by the app
 // are put back. Off by default; the ` key toggles it everywhere except browse

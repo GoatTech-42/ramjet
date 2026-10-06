@@ -4,8 +4,7 @@ import { readJson, writeJson } from './util.js';
 const WINDOW_MS = 3600 * 1000;
 const BYTE_BUDGET = 1024 * 1024 * 1024; // per user per hour - one hd video runs 60-100MB, one proxied web page ~12MB; this is the sanity guardrail, not a savings measure
 const REQ_BUDGET = 5000;              // per user per hour - abuse ceiling, not a human-use limit
-// luke asked (Sep 29 3:58 PM, verbatim "Unlimited cap on my account plz") -
-// his account rides free of the hourly byte budget; everyone else keeps it.
+// the owner account rides free of the hourly byte budget; everyone else keeps it.
 const BYTE_EXEMPT = new Set(['luke']);
 const LOGIN_TRIES = 10;               // per account per 10 min; a wide per-ip ceiling sits in index.js
 const LOGIN_WINDOW = 600 * 1000;

@@ -31,7 +31,7 @@ function cleanUrl(u) {
   } catch { return ''; }
 }
 
-// url encryption key (Luke 9:52 AM): the proxy scrambles destination urls
+// url encryption key: the proxy scrambles destination urls
 // so a filter or a glance at the address bar sees gibberish, not where you
 // went. one key per login session, derived statelessly - logging out kills
 // every url it ever made. the secret never leaves the box.
@@ -48,7 +48,7 @@ export async function register(req, res, ctx) {
   const { sendJson, readBody: rb, session } = ctx;
   const sub = req.url.split('?')[0].replace(/^\/api\/apps\/browse/, '') || '/';
 
-  // cross-device cookie + localStorage sync (Luke 11:26 AM): his admin
+  // cross-device cookie + localStorage sync: the admin
 // account ONLY - every other account gets a flat 403. cookies are the
 // scramjet jar dump; storage is the proxied sites' localStorage (host@key
 // entries). last writer wins - it is a personal sync, not a merge.

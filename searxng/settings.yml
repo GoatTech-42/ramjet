@@ -1,4 +1,4 @@
-# ramjet browse search backend (Luke 8:57 PM - DDG wanted, bing hated)
+# ramjet browse search backend
 use_default_settings: true
 server:
   secret_key: "ultrasecretkey"  # real key comes from data/searxng-secret at runtime

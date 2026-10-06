@@ -1,4 +1,4 @@
-// Clear-on-close (Luke 7:48 AM). Off by default, per device.
+// Clear-on-close. Off by default, per device.
 // iOS Safari has no dependable "app closed" event: swiping the app away fires nothing, and every
 // ramjet app is its own page, so a page-hide also fires when he just moves between apps.
 // So "closed" means "away for N minutes": a heartbeat records when this device last saw the

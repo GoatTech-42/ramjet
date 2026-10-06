@@ -41,12 +41,12 @@ a { color: var(--rj-text); text-decoration: none; }
 button { font-family: inherit; cursor: pointer; }
 ::selection { background: rgba(255, 255, 255, 0.2); }
 
-/* desktop scrollbars: scroll stays, chrome goes (Luke, Tue 5:58 PM) */
+/* desktop scrollbars: scroll stays, chrome goes */
 @media (pointer: fine) {
   * { scrollbar-width: none; }
   *::-webkit-scrollbar { display: none; }
 }
 
-/* iOS Safari zooms the page when a focused field is under 16px. keep every field at 16px on touch screens (Luke 1:43 PM) */
+/* iOS Safari zooms the page when a focused field is under 16px. keep every field at 16px on touch screens */
 @media (pointer: coarse) { input, textarea, select { font-size: 16px !important; } }
 input, textarea, select { -webkit-text-size-adjust: 100%; }

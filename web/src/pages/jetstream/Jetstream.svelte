@@ -113,7 +113,7 @@
     }
   }
 
-  // subscriptions manager (Luke 6:44 PM): every sub, tap through to the
+  // subscriptions manager: every sub, tap through to the
   // channel, unsubscribe in place.
   async function openSubs() {
     back();
@@ -156,7 +156,7 @@
   let feedOpen = $state(false);
   let feedWrap = $state(null);
   let feedQ = $state('');
-  let feedSearchOpen = $state(false); // the search pill stays out of the way until asked for (Luke 6:37 PM)
+  let feedSearchOpen = $state(false); // the search pill stays out of the way until asked for
   let feedMode = $state('foryou'); // 'foryou' = your ranked feed, 'search' = searched shorts
   let feedSearchErr = $state('');
   let liked = $state(new Set());
@@ -189,7 +189,7 @@
     if (statsOpen) { readStats(); statsTimer = setInterval(readStats, 700); }
   }
   let newSubs = $state([]); // fresh uploads from subscribed channels
-  let subsPage = $state(null); // subscriptions manager (Luke 6:44 PM)
+  let subsPage = $state(null); // subscriptions manager
   let fyBusy = false; let fyDone = false;
   let subs = $state(new Set()); // subscribed channel ids
   let autoplay = $state(null); // { items, idx, channelName } - the play-all chain
@@ -252,8 +252,8 @@
     feedAudio[i] = a;
   }
 
-  // sync, old-jetstream port (Luke, Tue 5:30 PM - "new approach"): the exact
-  // model the old watch page ran for months on his iPhone. one video holds a
+  // sync, old-jetstream port: the exact
+  // model the old watch page ran for months on iPhone. one video holds a
   // src at a time (no prebuffer, no muted-play warmup), the audio element is
   // DOM-attached and lazily built, and a 600ms caretaker mirrors the old
   // player's: audio follows play/pause, hard-seeks past 0.3s of drift, and
@@ -291,7 +291,7 @@
 
   function onSlidePause(i) { feedAudio[i]?.pause(); }
 
-  // direct-first (Luke 6:08 PM): if his network doesn't filter googlevideo,
+  // direct-first: if the network doesn't filter googlevideo,
   // the CDN serves him straight and the box leaves the path - that is the
   // whole speed problem gone. every slide starts direct with a 5s no-data
   // watchdog; a blocked or dead source swaps to the ramjet proxy exactly
@@ -300,8 +300,8 @@
   const slideProxy = {};
   const directWatchdog = {};
   // once direct fails anywhere it fails everywhere on this network - one
-  // probe per SESSION, not per slide. Luke 6:26 PM: "scrolling takes
-  // forever" was every slide burning a dead direct try on his filtered
+  // probe per SESSION, not per slide. Scrolling took
+  // forever because every slide burned a dead direct try on a filtered
   // network before the proxy swap. the flag resets with the tab (a new
   // network gets a fresh probe).
   let directDead = sessionStorage.getItem('rj-direct') === 'dead';
@@ -336,7 +336,7 @@
     // one dead direct means the network filters googlevideo: re-point every
     // slide that was ALREADY attached direct (the pre-warmed next slides got
     // their src before the session flag flipped) instead of letting each one
-    // burn its own dead direct try. Luke's 6 PM telemetry: 26 fallbacks in
+    // burn its own dead direct try. Telemetry showed 26 fallbacks in
     // one session - every one was a slide waiting on a try that could never
     // work.
     for (const k of Object.keys(slideResolve)) {
@@ -392,7 +392,7 @@
   function feedVideo(i) { return feedWrap?.querySelector(`video[data-idx="${i}"]`) || null; }
 
   // desktop chrome/firefox decode vp9 webm - that unlocks 1080p on videos
-  // whose avc1 ladder stops short (Luke 6:43 PM). safari says no, stays avc1.
+  // whose avc1 ladder stops short. safari says no, stays avc1.
   const canVp9 = (() => { try { return document.createElement('video').canPlayType('video/webm; codecs="vp9"') === 'probably'; } catch { return false; } })();
   // phone = low-data mode: 720p tier (pixel-exact on a phone screen, about half
   // the bytes of 1080p) and lighter prefetch. desktop keeps the full tier.
@@ -482,7 +482,7 @@
     if (!vid || feedErr[i]) return;
     lastActive = i;
     // tell the box where he is: the next slides jump the prefetch queue so
-    // his scroll position always has warm disk behind it, not the live proxy
+    // the scroll position always has warm disk behind it, not the live proxy
     if (i !== lastAheadAt) {
       lastAheadAt = i;
       const ahead = shorts.slice(i + 1, i + (isPhone ? 4 : 6)).map((s) => s?.id).filter(Boolean);
@@ -527,7 +527,7 @@
         const r = await api(watchUrl(shorts[i].id));
         feedLoading = { ...feedLoading, [i]: false };
         if (!r.ok) {
-          // can't play = never surface (Luke 6:28 PM): the slide leaves the
+          // can't play = never surface: the slide leaves the
           // feed instead of showing an error card.
           shorts = shorts.filter((_, x) => x !== i);
           return;
@@ -550,8 +550,8 @@
         await vid.play().catch(() => {});
       }
       onSlidePlay(i);
-      // ios-safe warm swipe (Luke 5:51 PM: "prebuffering is good tho"), now
-      // settle-guarded (Luke 5:56 PM): a slide must HOLD the spotlight for
+      // ios-safe warm swipe, now
+      // settle-guarded: a slide must HOLD the spotlight for
       // half a second before anything warms, so fast-scrolling past never
       // spins up loads. the next slide's video buffers (src + preload=auto)
       // but NEVER plays, and no audio element exists until it's active.
@@ -597,7 +597,7 @@
     feedWrap.querySelectorAll('.slide').forEach((s) => observer.observe(s));
   }
 
-  // root fix (Luke 6:26 PM): the tapped short is ALWAYS the one that plays first.
+  // root fix: the tapped short is ALWAYS the one that plays first.
   // the old code swapped the whole list out from under the playing slide when the
   // fresh re-rank landed, so a different short could take over. now the fresh list
   // is fetched BEFORE opening (500ms cap), the tapped one is pinned to slot 0, and
@@ -891,7 +891,7 @@
     if (hard || Math.abs(au.currentTime - videoEl.currentTime) > 0.8) au.currentTime = videoEl.currentTime;
   }
 
-  // direct-first on the watch page too (Luke 6:08 PM): start on the CDN
+  // direct-first on the watch page too: start on the CDN
   // urls, 6s no-data watchdog, one swap to the proxy and it sticks until
   // the next video. filtered networks land on the proxy every time.
   let watchDirect = false;
@@ -1078,7 +1078,7 @@
   // watched to the end: it leaves keep watching (the shelf is for things
   // you are mid-way through), and the server marks it complete.
   // autoplay chain advance; a dead video is skipped and dropped from the
-  // chain entirely (Luke 6:28 PM: restricted = skip it and remove it).
+  // chain entirely.
   function autoplayNext() {
     if (autoplay && autoplay.idx + 1 < autoplay.items.length) {
       const next = autoplay.idx + 1;
@@ -1134,7 +1134,7 @@
     const k = Object.keys(o); if (k.length > 40) delete o[k[0]];
     posWrite(o);
   }
-  // custom controls overlay (Luke 6:24 PM). native chrome is off; this draws play/pause,
+  // custom controls overlay. native chrome is off; this draws play/pause,
   // prev/next (autoplay chains), a scrub bar, time, quality and fullscreen over the video.
   // iPhone Safari can only fullscreen the <video> itself (native controls take over there,
   // no way around that); desktop/iPad/Android fullscreen the whole frame so this stays.
@@ -1197,7 +1197,7 @@
     tick().then(() => requestAnimationFrame(() => { window.scrollTo(0, y); setTimeout(() => window.scrollTo(0, y), 120); }));
   }
   function back() { statsOpen = false; clearInterval(statsTimer); dropAudio(); autoplay = null; watching = null; watchInfo = null; portrait = false; streamError = false; hdDropped = false; stalling = false; }
-  // channel pages (Luke 6:09 PM): scroll a channel's shorts, subscribe,
+  // channel pages: scroll a channel's shorts, subscribe,
   // autoplay everything they've made. videos + shorts load together, the
   // sub folds into the same taste profile the feeds rank with.
   function goChannelFromShort(v) {

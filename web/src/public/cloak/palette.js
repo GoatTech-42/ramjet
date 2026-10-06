@@ -1,4 +1,4 @@
-// command palette (Luke 9:17 AM): ctrl/cmd-K anywhere in ramjet, plus a small
+// command palette: ctrl/cmd-K anywhere in ramjet, plus a small
 // button on the home page for phones. plain js, themed with the --rj-* tokens
 // so every theme and mode gets it for free.
 (function () {

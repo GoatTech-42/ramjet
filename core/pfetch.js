@@ -1,5 +1,4 @@
-// server-side fetch for browse (Luke 8:13 PM "9 seconds for a news page is
-// crazy"). the stock engine opens a TLS connection from inside the browser
+// server-side fetch for browse (a news page took 9 seconds). the stock engine opens a TLS connection from inside the browser
 // for every host and every parallel request, and each handshake crosses the
 // tunnel. here the box does the TLS with pooled keep-alive connections and
 // sends the body back down the one multiplexed tunnel connection the page

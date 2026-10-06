@@ -101,7 +101,7 @@ if (existsSync(ADDONS)) {
 }
 
 
-// -- /searx/* : ramjet's own search page (Luke 9:17 PM - rebrand: reads as
+// -- /searx/* : ramjet's own search page (rebrand: reads as
 // ramjet's, no stock search chrome). The dockerized engine on loopback does
 // the fetching; this route renders ramjet-styled results from its JSON API.
 // Same-origin with browse, so result clicks message up and re-enter the proxy.
@@ -533,9 +533,9 @@ async function proxySearx(req, res, session, restUrl) {
 	res.end(sxPage(q, page, result, cat, safe, imgRes));
 }
 
-// accounts (Luke 1:51 PM "add multiple accounts and the approval system"):
+// accounts:
 // anyone can request an account on /login; with approval on (the default,
-// his earlier call: "approving should be optional but on by default") a new
+// the earlier call: "approving should be optional but on by default") a new
 // account sits pending until the admin approves it in settings.
 const ADMIN = process.env.RJ_ADMIN || 'luke';
 const CONFIG_PATH = new URL('../data/config.json', import.meta.url).pathname;

@@ -13,7 +13,7 @@
   let stageEl = $state(null);
   let ctrl = null;
 
-  // tabs (Luke 1:34 PM "add tabs"): every tab is its own proxied iframe, kept
+  // tabs: every tab is its own proxied iframe, kept
   // alive (hidden) while you are on another tab so pages keep their state.
   let tabs = $state([]);
   let activeId = $state(0);
@@ -29,7 +29,7 @@
       v.el.style.display = k === activeId && t?.surfing ? 'block' : 'none';
     }
   }
-  // per-site "allow ads" (Luke 9:17 AM): the block list stays on everywhere
+  // per-site "allow ads": the block list stays on everywhere
   // else. the choice is per device, kept in localStorage rj-ads-allow.
   let menuOpen = $state(false);
   $effect(() => { if (ready && !surfing && typeof matchMedia === 'function' && matchMedia('(pointer: fine)').matches) document.getElementById('br-omni')?.focus(); });
@@ -58,7 +58,7 @@
     if (t.title) return t.title;
     return t.surfing ? 'loading...' : 'new tab';
   }
-  // address bar follows the page (Luke 7:39 AM): the proxied frame's document
+  // address bar follows the page: the proxied frame's document
   // url is the real address, so read it on load and while the page lives
   // (covers link clicks, redirects, pushState, back/forward).
   function syncAddr(id) {
@@ -137,14 +137,14 @@
     if (!v) return null;
     const looksLikeUrl = /^[a-z]+:\/\//i.test(v) || (/^[^\s]+\.[^\s]{2,}/.test(v) && !v.includes(' '));
     if (looksLikeUrl) return /^[a-z]+:\/\//i.test(v) ? v : 'https://' + v;
-    // self-hosted searxng, reverse-proxied same-origin at /searx/ (Luke 8:57
-    // "i hate bing" + captcha-free): his own instance, aggregates brave/bing/
+    // self-hosted searxng, reverse-proxied same-origin at /searx/ (captcha-free):
+    // its own instance, aggregates brave/bing/
     // google-cse. same-origin keeps result clicks routable back into the proxy.
     return '/searx/search?q=' + encodeURIComponent(v);
   }
 
 
-  // url encryption (Luke 9:52 AM): a proxied address must not be readable in
+  // url encryption: a proxied address must not be readable in
   // the url itself - a filter or a glance at the bar sees gibberish, not the
   // destination. scramjet serializes these with .toString() into the service
   // worker and proxied frames, so the session key is baked into the source
@@ -175,7 +175,7 @@
   }
 
 
-  // tab cloak (Luke 11:26 AM): one tap (or the ` key) and the tab reads as
+  // tab cloak: one tap (or the ` key) and the tab reads as
   // homework - innocuous title + a docs-look icon, and proxied page titles
   // stop reaching the tab (and browser history) while it is on.
   const CLOAK_TITLE = 'Google Docs';
@@ -193,7 +193,7 @@
     applyCloak();
   }
 
-  // cookie + localStorage cloud sync (Luke 11:26 AM): admin account only -
+  // cookie + localStorage cloud sync: admin account only -
   // the server 403s everyone else, so this silently turns itself off for
   // other users. restores before the first navigation, pushes every 15s and
   // on tab close. last writer wins.

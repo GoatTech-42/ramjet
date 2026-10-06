@@ -1,4 +1,4 @@
-// recent searches per app. OFF by default (Luke 1:43 PM): nothing is saved or shown until he turns on
+// recent searches per app. OFF by default: nothing is saved or shown until he turns on
 // "save my searches" in settings > privacy. per device.
 export const savingOn = () => { try { return localStorage.getItem('rj-save-searches') === 'on'; } catch { return false; } };
 export function readSearches(key) { if (!savingOn()) return []; try { const a = JSON.parse(localStorage.getItem(key) || '[]'); return Array.isArray(a) ? a.slice(0, 12) : []; } catch { return []; } }

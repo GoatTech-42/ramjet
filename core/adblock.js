@@ -1,4 +1,4 @@
-// proxy-level ad + tracker blocking (Luke 7:59 PM). the browser engine opens
+// proxy-level ad + tracker blocking. the browser engine opens
 // every site through the wisp pipe, so refusing the connection to a known ad
 // host fails the request in one step - no extra TLS handshake, no bytes,
 // nothing to rewrite. hostlist = Peter Lowe's list (free, ads + trackers only,
@@ -15,7 +15,7 @@ const EXTRA = ['ads.pubmatic.com', 'securepubads.g.doubleclick.net', 'doubleclic
 const SAFE = new Set(['google.com', 'gstatic.com', 'googleapis.com', 'youtube.com', 'ytimg.com', 'cloudflare.com', 'cloudfront.net', 'jsdelivr.net', 'unpkg.com', 'cdnjs.cloudflare.com', 'github.com', 'githubusercontent.com', 'wikipedia.org', 'wikimedia.org', 'reddit.com', 'redd.it', 'redditstatic.com', 'redditmedia.com']);
 
 const UBO_FILE = fileURLToPath(new URL('../data/ubo-hosts.txt', import.meta.url));
-// uBlock Origin's own default lists (Luke 6:01 PM): pure domain rules only
+// uBlock Origin's own default lists: pure domain rules only
 // (||host^ with no path or context options), so it is safe at the socket layer.
 const UBO = ['https://ublockorigin.github.io/uAssets/filters/filters.min.txt', 'https://ublockorigin.github.io/uAssets/filters/badware.min.txt', 'https://ublockorigin.github.io/uAssets/filters/privacy.min.txt', 'https://easylist.to/easylist/easylist.txt', 'https://easylist.to/easylist/easyprivacy.txt'];
 function parseUbo(text) {
