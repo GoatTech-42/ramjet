@@ -525,6 +525,9 @@ async function resolveStream(id, force = false) {
   return job;
 }
 
+// release an unused fetch response body
+const dropBody = (r) => { try { r.body?.cancel()?.catch(() => {}); } catch {} };
+
 // byte proxy for googlevideo. one upstream fetch per browser request, statuses
 // passed through truthfully (a hidden 403 strands the player; a visible one
 // gets retried natively). googlevideo throttles long reads to a stall, but
@@ -547,16 +550,16 @@ async function gvProxy(u, req, res, track, refresh, capBytes) {
       try {
         pr = await fetch(u, { headers: { 'user-agent': GV_UA, range: `bytes=${start}-${start}` }, redirect: 'follow', signal: AbortSignal.timeout(30000) });
       } catch { res.writeHead(502); return res.end(); }
-      if (pr.status === 416) { try { pr.body?.cancel()?.catch(() => {}); } catch {} res.writeHead(416); return res.end(); }
+      if (pr.status === 416) { dropBody(pr); res.writeHead(416); return res.end(); }
       if (pr.status === 403 || pr.status === 410) {
-        try { pr.body?.cancel()?.catch(() => {}); } catch {}
+        dropBody(pr);
         await new Promise((d) => setTimeout(d, 400));
         try {
           pr = await fetch(u, { headers: { 'user-agent': GV_UA, range: `bytes=${start}-${start}` }, redirect: 'follow', signal: AbortSignal.timeout(30000) });
         } catch { res.writeHead(502); return res.end(); }
       }
       if (pr.status !== 206 && pr.status !== 200) {
-        try { pr.body?.cancel()?.catch(() => {}); } catch {}
+        dropBody(pr);
         if (refresh && (pr.status === 403 || pr.status === 410)) {
           const nu = await refresh().catch(() => null);
           if (nu && nu !== u) return gvProxy(nu, req, res, track, null, capBytes);
@@ -564,7 +567,7 @@ async function gvProxy(u, req, res, track, refresh, capBytes) {
         res.writeHead(pr.status || 502); return res.end();
       }
       const crm = /\/(\d+)\s*$/.exec(pr.headers.get('content-range') || '');
-      try { pr.body?.cancel()?.catch(() => {}); } catch {}
+      dropBody(pr);
       if (crm) {
         size = parseInt(crm[1], 10);
         if (Number.isSafeInteger(size) && size > 0) {
@@ -584,7 +587,7 @@ async function gvProxy(u, req, res, track, refresh, capBytes) {
     } catch { res.writeHead(502); return res.end(); }
     if (r.status === 200 || r.status === 206) break;
     const st = r.status;
-    try { r.body?.cancel()?.catch(() => {}); } catch {}
+    dropBody(r);
     if ((st === 403 || st === 410) && attempt < 4) {
       await new Promise((d) => setTimeout(d, 300 * (attempt + 1)));
       if (attempt === 2 && refresh) {
@@ -595,7 +598,7 @@ async function gvProxy(u, req, res, track, refresh, capBytes) {
     }
     res.writeHead(st); return res.end();
   }
-  res.once('close', () => { try { r.body?.cancel()?.catch(() => {}); } catch {} });
+  res.once('close', () => { dropBody(r); });
   const h = { 'content-type': r.headers.get('content-type') || 'video/mp4', 'cache-control': 'private, no-store' };
   for (const k of ['content-length', 'content-range', 'accept-ranges']) {
     const v = r.headers.get(k);
@@ -744,7 +747,7 @@ async function downloadToCache(url, dest) {
   if (existsSync(dest)) return;
   const pr = await fetch(url, { headers: { 'user-agent': GV_UA, range: 'bytes=0-0' }, redirect: 'follow', signal: AbortSignal.timeout(30000) });
   const crm = /\/(\d+)\s*$/.exec(pr.headers.get('content-range') || '');
-  try { pr.body?.cancel()?.catch(() => {}); } catch {}
+  dropBody(pr);
   if (pr.status !== 206 && pr.status !== 200) throw new Error('probe ' + pr.status);
   const size = crm ? parseInt(crm[1], 10) : 0;
   if (!size || !Number.isSafeInteger(size)) throw new Error('no size');
@@ -760,7 +763,7 @@ async function downloadToCache(url, dest) {
       for (let a = 0; a < 3 && !ok; a++) {
         try {
           const r = await fetch(url, { headers: { 'user-agent': GV_UA, range: 'bytes=' + off + '-' + last }, redirect: 'follow', signal: AbortSignal.timeout(45000) });
-          if (r.status !== 206 && r.status !== 200) { try { r.body?.cancel()?.catch(() => {}); } catch {} await new Promise((d) => setTimeout(d, 400 * (a + 1))); continue; }
+          if (r.status !== 206 && r.status !== 200) { dropBody(r); await new Promise((d) => setTimeout(d, 400 * (a + 1))); continue; }
           const buf = Buffer.from(await r.arrayBuffer());
           await fh.write(buf, 0, buf.length, off);
           off += buf.length;
@@ -2026,7 +2029,7 @@ function liteSerial(fn) {
 async function liteHop(url, dest, cap) {
   const pr = await fetch(url, { headers: { 'user-agent': GV_UA, range: 'bytes=0-0' }, redirect: 'follow', signal: AbortSignal.timeout(30000) });
   const crm = /\/(\d+)\s*$/.exec(pr.headers.get('content-range') || '');
-  try { pr.body?.cancel()?.catch(() => {}); } catch {}
+  dropBody(pr);
   if (pr.status !== 206 && pr.status !== 200) throw new Error('probe ' + pr.status);
   const size = crm ? parseInt(crm[1], 10) : 0;
   if (!size || !Number.isSafeInteger(size)) throw new Error('no size');
@@ -2041,7 +2044,7 @@ async function liteHop(url, dest, cap) {
       for (let a = 0; a < 3 && !ok; a++) {
         try {
           const r = await fetch(url, { headers: { 'user-agent': GV_UA, range: 'bytes=' + off + '-' + last }, redirect: 'follow', signal: AbortSignal.timeout(45000) });
-          if (r.status !== 206 && r.status !== 200) { try { r.body?.cancel()?.catch(() => {}); } catch {} await new Promise((d) => setTimeout(d, 400 * (a + 1))); continue; }
+          if (r.status !== 206 && r.status !== 200) { dropBody(r); await new Promise((d) => setTimeout(d, 400 * (a + 1))); continue; }
           const buf = Buffer.from(await r.arrayBuffer());
           await fh.write(buf, 0, buf.length, off);
           off += buf.length;

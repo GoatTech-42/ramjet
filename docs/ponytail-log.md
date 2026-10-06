@@ -16,3 +16,4 @@ Work happens on the ponytail-redo branch in a separate worktree (~/ponytail-redo
 - 7:29 AM: unreferenced top-level functions in jetstream: none.
 - 12:50 PM: resolveViaYtdlp picked the 1080 video and vp9 tracks with two copies of the pickCap logic. Both now call pickCap (same result, including null when no format). Syntax checked; needs the regression run.
 - 12:55 PM: resolveViaYtdlp built the hd, hdVp9, hdL and hdLVp9 entries with four copies of one expression. Now one hdOf helper, same output. Syntax checked; needs the regression run.
+- 1:00 PM: the try/cancel-response-body line was pasted 10 times in jetstream (gvProxy and the stream cache). Now one dropBody helper, same behavior. Syntax checked; needs the regression run.
