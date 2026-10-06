@@ -338,7 +338,6 @@ async function searxImages(q, pg, safe, n = 8) {
   const arr = st.done ? st.cse.concat(st.rest) : st.cse;
   return arr.slice((pg - 1) * n, end);
 }
-async function imageSearch(q, pg, safe, n) { return searxImages(q, pg, safe, n); }
 
 export async function handleLite(req, res, url) {
   try { const t0 = Date.now(); res.on('finish', () => { try { appendFileSync('/app/data/lite-access.log', new Date().toISOString() + ' ' + req.method + ' ' + url.pathname + ' q=' + String(url.searchParams.get('q') || '').slice(0, 40) + ' page=' + (url.searchParams.get('page') || '') + ' ' + res.statusCode + ' ' + (Date.now() - t0) + 'ms\n'); } catch {} }); } catch {}
@@ -393,7 +392,7 @@ export async function handleLite(req, res, url) {
       const q = (sp.get('q') || '').trim();
       if (!q || q.length > 120) return json(res, 400, { ok: false, error: 'q required, under 120 chars' });
       const pg = Math.max(1, Math.min(20, Number(sp.get('page')) || 1));
-      const nPer = path === '/imgsheet' ? 8 : Math.min(40, Math.max(1, Number(sp.get('n')) || 20)); let items; try { items = await imageSearch(q, pg, sp.get('safe') || '', nPer); } catch (e) { return json(res, 502, { ok: false, error: 'image search failed: ' + String(e.message).slice(0, 80) }); }
+      const nPer = path === '/imgsheet' ? 8 : Math.min(40, Math.max(1, Number(sp.get('n')) || 20)); let items; try { items = await searxImages(q, pg, sp.get('safe') || '', nPer); } catch (e) { return json(res, 502, { ok: false, error: 'image search failed: ' + String(e.message).slice(0, 80) }); }
       if (!items.length) return json(res, 404, { ok: false, error: 'no results on this page', page: pg });
       if (path === '/imgsheet') {
         const { buf } = await makeSheet(items.map((x) => ({ thumbSrc: x.thumbSrc, title: x.title })));
