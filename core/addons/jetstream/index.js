@@ -1,3 +1,4 @@
+import { dataPath } from '../../data.js';
 import os from 'node:os';
 import { execFile, spawn } from 'node:child_process';
 import { promisify } from 'node:util';
@@ -9,7 +10,7 @@ import { open as fsOpen, rename as fsRename } from 'node:fs/promises';
 // watch history: per-account "keep watching" list. the client records a
 // video once its stream actually resolves; most recent first, deduped,
 // capped small - it is a shelf, not an archive.
-const HIST_FILE = fileURLToPath(new URL('../../../data/jetstream-history.json', import.meta.url));
+const HIST_FILE = dataPath('jetstream-history.json');
 // storage cap is the algorithm's memory, not the shelf (Tue 4:39 PM): at 25,
 // a short scroll session flushed every long-form signal. shelf display still
 // filters through shelfHist - this cap only bounds how much taste persists.
@@ -37,7 +38,7 @@ function userHist(user) {
 // likes: per-account, newest first, capped. a like is the strongest signal
 // the account gives - liked channels and title words weigh heavy in the
 // one ranking system, and liked videos leave the feed (you've seen them).
-const LIKES_FILE = fileURLToPath(new URL('../../../data/jetstream-likes.json', import.meta.url));
+const LIKES_FILE = dataPath('jetstream-likes.json');
 const LIKES_CAP = 100;
 function loadLikes() { return readJson(LIKES_FILE, {}); }
 function userLikes(user) {
@@ -48,14 +49,14 @@ function userLikes(user) {
 // not-interested: the negative twin of a like. disliked videos never come
 // back, their channels sink hard, and their title words weigh against every
 // candidate. per account, capped like the other lists.
-const DIS_FILE = fileURLToPath(new URL('../../../data/jetstream-dislikes.json', import.meta.url));
+const DIS_FILE = dataPath('jetstream-dislikes.json');
 const DIS_CAP = 100;
 function loadDislikes() { return readJson(DIS_FILE, {}); }
 
 // subscriptions: per-account channel subs.
 // a sub is a standing "more from this channel" - it folds into the taste
 // profile as channel weight, like a like that never leaves.
-const SUBS_FILE = fileURLToPath(new URL('../../../data/jetstream-subs.json', import.meta.url));
+const SUBS_FILE = dataPath('jetstream-subs.json');
 const SUBS_CAP = 100;
 function loadSubs() { return readJson(SUBS_FILE, {}); }
 function userSubs(user) { return loadSubs()[user] || []; }
@@ -63,7 +64,7 @@ function userSubs(user) { return loadSubs()[user] || []; }
 // dead pool: a video that can't play - restricted, no
 // formats - never surfaces again. global: if ytdlp can't resolve it from
 // the box, no account can play it. feeds + channel pages filter it out.
-const DEAD_FILE = fileURLToPath(new URL('../../../data/jetstream-dead.json', import.meta.url));
+const DEAD_FILE = dataPath('jetstream-dead.json');
 function loadDead() {
   const d = new Set(readJson(DEAD_FILE, { ids: [] }).ids || []);
   for (const id of Object.keys(blockedMem || {})) d.add(id); // age-gated ids found by the pre-check leave every feed too
@@ -128,7 +129,7 @@ function parseSecs(t) {
 
 // watch-history settings, per account: pause + clear live on the ramjet
 // settings page (all settings centralized there, not inside apps).
-const SET_FILE = fileURLToPath(new URL('../../../data/jetstream-settings.json', import.meta.url));
+const SET_FILE = dataPath('jetstream-settings.json');
 function loadSettings() { return readJson(SET_FILE, {}); }
 function histPaused(user) { return !!loadSettings()[user]?.paused; }
 
@@ -618,7 +619,7 @@ async function gvProxy(u, req, res, track, refresh, capBytes) {
 // fix: the moment a feed batch is ranked, the box pulls the next slides'
 // streams to its own disk in the background; the phone then downloads from
 // the box at full local speed. swipes stop paying the upstream tax.
-const CACHE_DIR = fileURLToPath(new URL('../../../data/stream-cache', import.meta.url));
+const CACHE_DIR = dataPath('stream-cache');
 try { mkdirSync(CACHE_DIR, { recursive: true }); } catch {}
 
 // thumb cache: posters used to ride i.ytimg upstream on EVERY cold request
@@ -626,7 +627,7 @@ try { mkdirSync(CACHE_DIR, { recursive: true }); } catch {}
 // a filtered network the box is the fast path, so every fetched
 // poster lands on disk and repeats serve in milliseconds. lru by mtime,
 // capped by bytes - plain multiplication, bitshifts overflow past 2^31.
-const THUMB_DIR = fileURLToPath(new URL('../../../data/thumb-cache', import.meta.url));
+const THUMB_DIR = dataPath('thumb-cache');
 try { mkdirSync(THUMB_DIR, { recursive: true }); } catch {}
 const THUMB_CAP = 128 * 1024 * 1024;
 const thumbPath = (id, lite) => THUMB_DIR + '/' + id + (lite ? '.l' : '') + '.jpg';
@@ -868,8 +869,8 @@ async function pumpWarm() {
 const chanCache = new Map(); // `id:tab` -> { at, name, items }
 
 // ---- video summary helpers ----
-const SUM_FILE = fileURLToPath(new URL('../../../data/jetstream-summaries.json', import.meta.url));
-const AI_CONF = fileURLToPath(new URL('../../../data/sage-provider.json', import.meta.url));
+const SUM_FILE = dataPath('jetstream-summaries.json');
+const AI_CONF = dataPath('sage-provider.json');
 const sumLimit = new Map();
 function aiProvider() {
   try {
@@ -984,7 +985,7 @@ async function channelTab(id, tab) {
 // both sides have vectors; TF-IDF cosine is the fallback. semantic = it
 // knows an obstacle course video and a ninja warrior video are neighbors
 // even with zero shared words.
-const EMB_FILE = fileURLToPath(new URL('../../../data/jetstream-embed.json', import.meta.url));
+const EMB_FILE = dataPath('jetstream-embed.json');
 const EMB_WORKER = fileURLToPath(new URL('../../../models/embed-worker.mjs', import.meta.url));
 const EMB_CAP = 2000;
 let embedMem = null;
@@ -1100,7 +1101,7 @@ function cosArr(a, b) { let s = 0; for (let i = 0; i < a.length; i++) s += a[i] 
 // rank by cosine similarity to that centroid - so "ninja warrior" matches a
 // watched "obstacle course" through shared tag/description vocabulary even
 // when the titles share no words. that is the "it understands" feel.
-const META_FILE = fileURLToPath(new URL('../../../data/jetstream-meta.json', import.meta.url));
+const META_FILE = dataPath('jetstream-meta.json');
 const META_CAP = 3000;
 let metaMem = null;
 let metaVer = 0;
@@ -1340,7 +1341,7 @@ function parseKindSearch(data, kind) {
 // or ERROR/UNPLAYABLE (private, removed, blocked). cached: blocked ids persist in
 // data/jetstream-blocked.json (30 days), OK ids stay in memory 12 hours. a network
 // failure is "unknown": never cached, never blocks.
-const BLOCK_FILE = fileURLToPath(new URL('../../../data/jetstream-blocked.json', import.meta.url));
+const BLOCK_FILE = dataPath('jetstream-blocked.json');
 let blockedMem = null;
 function blockedMap() { if (!blockedMem) blockedMem = readJson(BLOCK_FILE, {}); return blockedMem; }
 const okMem = new Map(); // id -> ts
@@ -1679,7 +1680,7 @@ export async function register(req, res, ctx) {
     });
     try {
       const { appendFileSync, statSync, readFileSync, writeFileSync } = await import('node:fs');
-      const LOG = fileURLToPath(new URL('../../../data/jetstream-clientlog.jsonl', import.meta.url));
+      const LOG = dataPath('jetstream-clientlog.jsonl');
       try { if (statSync(LOG).size > 262144) { const lines = readFileSync(LOG, 'utf8').split('\n'); writeFileSync(LOG, lines.slice(-500).join('\n')); } } catch {}
       appendFileSync(LOG, line + '\n');
     } catch {}

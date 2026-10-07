@@ -1,15 +1,15 @@
+import { dataPath } from './data.js';
 // keeps the local search backend alive as a child of ramjet. localhost only.
 // if searxng/venv is missing (fresh checkout) run searxng/setup.sh once.
 import { spawn } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { randomBytes } from "node:crypto";
 const DIR = new URL("../searxng/", import.meta.url).pathname;
-const DATA = process.env.RJ_DATA || new URL("../data/", import.meta.url).pathname;
 const PORT = process.env.SEARX_PORT || "8888";
 let child = null, stopping = false, fails = 0;
 function secret() {
-	const f = DATA + "/searxng-secret";
-	try { return readFileSync(f, "utf8").trim(); } catch {}
+	const f = dataPath('searxng-secret');
+	try { return readFileSync(f, "utf8").trim(); } catch (e) { if (e.code !== "ENOENT") throw new Error("search secret unreadable"); }
 	const s = randomBytes(24).toString("hex");
 	try { writeFileSync(f, s, { mode: 0o600 }); } catch {}
 	return s;

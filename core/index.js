@@ -1,3 +1,4 @@
+import { dataPath, DATA_ROOT } from './data.js';
 import { cseGate, cseBudgetLeft } from './cse-gate.js';
 import { createServer, request as httpRequest } from 'node:http';
 import { request as httpsRequest } from 'node:https';
@@ -27,7 +28,7 @@ const HOST = process.env.RJ_HOST || '127.0.0.1';
 const PORT = Number(process.env.RJ_PORT || 14224);
 let sysCache = null;
 const SYS_VERSION = (() => { try { return JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version; } catch { return '2'; } })();
-const DATA = process.env.RJ_DATA || new URL('../data', import.meta.url).pathname;
+const DATA = DATA_ROOT;
 const DIST = new URL('../web/dist', import.meta.url).pathname;
 const ADDONS = new URL('./addons', import.meta.url).pathname;
 
@@ -538,7 +539,7 @@ async function proxySearx(req, res, session, restUrl) {
 // the earlier call: "approving should be optional but on by default") a new
 // account sits pending until the admin approves it in settings.
 const ADMIN = process.env.RJ_ADMIN || 'admin';
-const CONFIG_PATH = new URL('../data/config.json', import.meta.url).pathname;
+const CONFIG_PATH = dataPath('config.json');
 const getConfig = () => ({ requireApproval: true, ...rjRead(CONFIG_PATH, {}) });
 const RESERVED = new Set(['admin', 'administrator', 'root', 'ramjet', 'support', 'system']);
 const MAX_PENDING = 25;

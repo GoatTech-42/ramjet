@@ -1,14 +1,14 @@
+import { dataPath } from '../../data.js';
 // browse bookmarks: the proxy itself is client-side scramjet, so there was
 // never a browse addon - this one exists only to keep per-account bookmarks.
 // a bookmark is just a name + a public http(s) url; the client stars the
 // page it is on, the home screen lists them next to the quick links.
 
-import { fileURLToPath } from 'node:url';
 import { randomBytes, createHmac } from 'node:crypto';
 import { readFileSync, writeFileSync, existsSync, chmodSync } from 'node:fs';
 import { readJson, writeJson, readBody } from '../../util.js';
 
-const BM_FILE = fileURLToPath(new URL('../../../data/browse-bookmarks.json', import.meta.url));
+const BM_FILE = dataPath('browse-bookmarks.json');
 const MAX_BOOKMARKS = 30;
 
 function loadBm() { return readJson(BM_FILE, {}); }
@@ -35,7 +35,7 @@ function cleanUrl(u) {
 // so a filter or a glance at the address bar sees gibberish, not where you
 // went. one key per login session, derived statelessly - logging out kills
 // every url it ever made. the secret never leaves the box.
-const KEY_FILE = fileURLToPath(new URL("../../../data/.urlkey-secret", import.meta.url));
+const KEY_FILE = dataPath('.urlkey-secret');
 function urlSecret() {
   if (existsSync(KEY_FILE)) return readFileSync(KEY_FILE, "utf8").trim();
   const sec = randomBytes(32).toString("hex");
@@ -52,7 +52,7 @@ export async function register(req, res, ctx) {
 // account ONLY - every other account gets a flat 403. cookies are the
 // scramjet jar dump; storage is the proxied sites' localStorage (host@key
 // entries). last writer wins - it is a personal sync, not a merge.
-const SYNC_FILE = fileURLToPath(new URL("../../../data/browse-sync.json", import.meta.url));
+const SYNC_FILE = dataPath('browse-sync.json');
 const SYNC_ADMIN = process.env.RJ_SYNC_ADMIN || "admin";
 
 if (sub === "/urlkey" && req.method === "GET") {

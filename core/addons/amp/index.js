@@ -1,6 +1,6 @@
+import { dataPath } from '../../data.js';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { fileURLToPath } from 'node:url';
 import { randomBytes } from 'node:crypto';
 import { readJson, writeJson, readBody } from '../../util.js';
 // amp: one clean music player across three sources - youtube music,
@@ -22,7 +22,7 @@ const CAP = 1 << 20;
 // playlists: per-user, server-side, so they follow the account across
 // devices. one small json file, written atomically; a playlist is just
 // an ordered list of the same track objects search returns.
-const PL_FILE = fileURLToPath(new URL('../../../data/amp-playlists.json', import.meta.url));
+const PL_FILE = dataPath('amp-playlists.json');
 const MAX_PLAYLISTS = 20;
 const MAX_TRACKS = 100;
 

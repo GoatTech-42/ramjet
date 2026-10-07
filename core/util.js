@@ -2,9 +2,18 @@ import { readFileSync, writeFileSync, renameSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 
 export function readJson(path, fallback) {
-  try { return JSON.parse(readFileSync(path, 'utf8')); } catch { return fallback; }
+  try { return JSON.parse(readFileSync(path, 'utf8')); }
+  catch (cause) {
+    if (cause.code === 'ENOENT') return fallback;
+    // JSON parser messages can include private file contents. Do not retain them.
+    const error = new Error('stored JSON is unreadable or invalid');
+    error.code = 'RJ_STORE_INVALID';
+    throw error;
+  }
 }
 export function writeJson(path, obj) {
+  // Never replace corrupt existing state, even if a caller caught a failed read.
+  readJson(path, undefined);
   mkdirSync(dirname(path), { recursive: true });
   const tmp = `${path}.tmp-${process.pid}`;
   writeFileSync(tmp, JSON.stringify(obj, null, 2));

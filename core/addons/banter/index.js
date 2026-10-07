@@ -1,13 +1,13 @@
-import { mkdirSync, existsSync, readFileSync, writeFileSync, appendFileSync, renameSync, readdirSync, unlinkSync, statSync } from 'node:fs';
+import { dataPath } from '../../data.js';
+import { mkdirSync, existsSync, readFileSync, writeFileSync, appendFileSync, readdirSync, unlinkSync, statSync } from 'node:fs';
 import { randomBytes, randomUUID, createCipheriv, createDecipheriv } from 'node:crypto';
-import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
-import { readBody } from '../../util.js';
+import { readBody, readJson, writeJson } from '../../util.js';
 
 // banter: small private chat inside ramjet. people are ramjet accounts, so
 // there is no separate signup. groups join by code, dms need a friend
 // request accepted. message text and images are encrypted at rest.
-const DIR = fileURLToPath(new URL('../../../data/banter2', import.meta.url));
+const DIR = dataPath('banter2');
 const MSGS = join(DIR, 'msgs');
 const MEDIA = join(DIR, 'media');
 const STATE = join(DIR, 'state.json');
@@ -21,7 +21,14 @@ const IMG_MAX = 450 * 1024;
 const MEDIA_DAYS = 30;
 
 const key = (() => {
-  if (existsSync(KEYF)) return Buffer.from(readFileSync(KEYF, 'utf8').trim(), 'hex');
+  if (existsSync(KEYF)) {
+    const raw = readFileSync(KEYF, 'utf8').trim();
+    if (!/^[a-f0-9]{64}$/i.test(raw)) throw new Error('invalid chat encryption key');
+    return Buffer.from(raw, 'hex');
+  }
+  if (existsSync(STATE) || readdirSync(MSGS).length || readdirSync(MEDIA).length) {
+    throw new Error('chat encryption key missing for existing state');
+  }
   const k = randomBytes(32);
   writeFileSync(KEYF, k.toString('hex'), { mode: 0o600 });
   return k;
@@ -37,12 +44,9 @@ const open = (buf) => {
   return Buffer.concat([d.update(buf.subarray(12, buf.length - 16)), d.final()]);
 };
 
-let st = { rooms: {}, friends: {}, reqs: {}, reads: {}, codes: {}, seq: 1 };
-try { st = { ...st, ...JSON.parse(readFileSync(STATE, 'utf8')) }; } catch {}
+let st = { rooms: {}, friends: {}, reqs: {}, reads: {}, codes: {}, seq: 1, ...readJson(STATE, {}) };
 const save = () => {
-  const tmp = STATE + '.tmp';
-  writeFileSync(tmp, JSON.stringify(st));
-  renameSync(tmp, STATE);
+  writeJson(STATE, st);
 };
 const fl = (u) => (st.friends[u] ||= []);
 const rq = (u) => (st.reqs[u] ||= { in: [], out: [] });

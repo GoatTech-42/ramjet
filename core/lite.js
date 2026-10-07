@@ -1,3 +1,4 @@
+import { dataPath } from './data.js';
 // lite api: /api/lite/*  - bearer-token, read-only text/media view for a phone
 // shortcut (no cookies, no JS). search -> jetstream's own backend, video ->
 // finished H.264+AAC mp4 (see liteApi in jetstream), page/media -> SSRF-safe
@@ -340,7 +341,7 @@ async function searxImages(q, pg, safe, n = 8) {
 }
 
 export async function handleLite(req, res, url) {
-  try { const t0 = Date.now(); res.on('finish', () => { try { appendFileSync('/app/data/lite-access.log', new Date().toISOString() + ' ' + req.method + ' ' + url.pathname + ' q=' + String(url.searchParams.get('q') || '').slice(0, 40) + ' page=' + (url.searchParams.get('page') || '') + ' ' + res.statusCode + ' ' + (Date.now() - t0) + 'ms\n'); } catch {} }); } catch {}
+  try { const t0 = Date.now(); res.on('finish', () => { try { appendFileSync(dataPath('lite-access.log'), new Date().toISOString() + ' ' + req.method + ' ' + url.pathname + ' q=' + String(url.searchParams.get('q') || '').slice(0, 40) + ' page=' + (url.searchParams.get('page') || '') + ' ' + res.statusCode + ' ' + (Date.now() - t0) + 'ms\n'); } catch {} }); } catch {}
   const path = url.pathname.replace(/^\/api\/lite/, '') || '/';
   const ip = clientIp(req);
   const now = Date.now();

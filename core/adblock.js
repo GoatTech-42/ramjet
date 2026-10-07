@@ -1,3 +1,4 @@
+import { dataPath } from './data.js';
 // proxy-level ad + tracker blocking. the browser engine opens
 // every site through the wisp pipe, so refusing the connection to a known ad
 // host fails the request in one step - no extra TLS handshake, no bytes,
@@ -5,16 +6,15 @@
 // no cdn/functional hosts) plus a few extras, refreshed weekly in the
 // background. matches the host or any parent domain of it.
 
-import { fileURLToPath } from 'node:url';
 import { readFileSync, writeFileSync, existsSync, statSync } from 'node:fs';
 
-const FILE = fileURLToPath(new URL('../data/adblock-hosts.txt', import.meta.url));
+const FILE = dataPath('adblock-hosts.txt');
 const SRC = 'https://pgl.yoyo.org/adservers/serverlist.php?hostformat=nohtml&showintro=0&mimetype=plaintext';
 const EXTRA = ['ads.pubmatic.com', 'securepubads.g.doubleclick.net', 'doubleclick.net', 'adsystem.com', 'amazon-adsystem.com', 'taboola.com', 'outbrain.com', 'criteo.com', 'criteo.net', 'adnxs.com', 'rubiconproject.com', 'openx.net', 'casalemedia.com', 'scorecardresearch.com', 'quantserve.com', 'moatads.com', 'adsrvr.org', 'adform.net', 'smartadserver.com', 'media.net', 'pubmatic.com', 'zedo.com', 'advertising.com', 'yieldmo.com', 'sharethrough.com', 'teads.tv', 'connatix.com', 'hotjar.com', 'fullstory.com', 'mixpanel.com', 'segment.io', 'branch.io', 'app-measurement.com', 'ads-twitter.com', 'analytics.tiktok.com', 'ads.linkedin.com'];
 // never block these even if a list ever grows to include them
 const SAFE = new Set(['google.com', 'gstatic.com', 'googleapis.com', 'youtube.com', 'ytimg.com', 'cloudflare.com', 'cloudfront.net', 'jsdelivr.net', 'unpkg.com', 'cdnjs.cloudflare.com', 'github.com', 'githubusercontent.com', 'wikipedia.org', 'wikimedia.org', 'reddit.com', 'redd.it', 'redditstatic.com', 'redditmedia.com']);
 
-const UBO_FILE = fileURLToPath(new URL('../data/ubo-hosts.txt', import.meta.url));
+const UBO_FILE = dataPath('ubo-hosts.txt');
 // uBlock Origin's own default lists: pure domain rules only
 // (||host^ with no path or context options), so it is safe at the socket layer.
 const UBO = ['https://ublockorigin.github.io/uAssets/filters/filters.min.txt', 'https://ublockorigin.github.io/uAssets/filters/badware.min.txt', 'https://ublockorigin.github.io/uAssets/filters/privacy.min.txt', 'https://easylist.to/easylist/easylist.txt', 'https://easylist.to/easylist/easyprivacy.txt'];

@@ -1,3 +1,4 @@
+import { dataPath } from '../../data.js';
 // sage: ask an AI anything in a clean conversation. the browser never
 // talks to the model provider - ramjet relays each turn server-side, so
 // the shape of the network stays the same as every other ramjet call.
@@ -6,7 +7,6 @@
 // groq with a key for heavier answers - the route does not change.
 
 import { readFileSync, existsSync } from 'fs';
-import { fileURLToPath } from 'url';
 import { randomBytes } from 'node:crypto';
 import { readJson, writeJson } from '../../util.js';
 
@@ -15,7 +15,7 @@ const MAX_CHARS = 4000;
 
 // conversations: per-account, so a chat started on the phone is there on
 // the laptop. titles come from the first user message; capped small.
-const CONV_FILE = fileURLToPath(new URL('../../../data/sage-conversations.json', import.meta.url));
+const CONV_FILE = dataPath('sage-conversations.json');
 const MAX_CONVS = 20;
 const MAX_CONV_MSGS = 100;
 
@@ -45,7 +45,7 @@ function cleanMessages(input) {
 // ({ "base": "https://api.groq.com/openai/v1", "model": "...", "key": "..." })
 // and sage talks to any openai-compatible api with that key instead. no
 // file = pollinations.ai's free keyless endpoint (daily anonymous quota).
-const CONF = fileURLToPath(new URL('../../../data/sage-provider.json', import.meta.url));
+const CONF = dataPath('sage-provider.json');
 
 function provider() {
   try {
