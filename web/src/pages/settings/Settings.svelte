@@ -265,9 +265,9 @@
       <section class="card prof"><span class="avatar">{user.slice(0, 1)}</span><div><p class="name">{user}</p><p class="hint">ramjet account</p></div><button class="ghost" onclick={logout}>log out</button></section>
       <form class="card" onsubmit={save}>
         <h3>change password</h3>
-        <input bind:value={current} type="password" placeholder="current password" autocomplete="current-password" required />
-        <input bind:value={next} type="password" placeholder="new password (6+ characters)" autocomplete="new-password" required minlength="6" />
-        <input bind:value={confirm} type="password" placeholder="new password again" autocomplete="new-password" required minlength="6" />
+        <label class="field">Current password<input bind:value={current} type="password" placeholder="current password" autocomplete="current-password" required /></label>
+        <label class="field">New password<input bind:value={next} type="password" placeholder="new password (6+ characters)" autocomplete="new-password" required minlength="6" /></label>
+        <label class="field">Confirm new password<input bind:value={confirm} type="password" placeholder="new password again" autocomplete="new-password" required minlength="6" /></label>
         {#if msg}<p class="msg" class:ok role="alert">{msg}</p>{/if}
         <button class="primary" type="submit" disabled={busy}>{busy ? 'saving...' : 'save password'}</button>
       </form>
@@ -399,6 +399,7 @@
   .seg.sm button { padding: 6px 11px; font-size: 13px; }
   .bd { width: 12px; height: 12px; border-radius: 50%; background: var(--c); box-shadow: 0 0 0 1px var(--rj-border); }
   select { background: var(--rj-surface-2); color: var(--rj-text); border: 1px solid var(--rj-border); border-radius: 9px; padding: 8px 10px; font: inherit; font-size: 14px; }
+  .field { display: grid; gap: 7px; font-size: 13px; color: var(--rj-text-dim); }
   input[type=password] { background: var(--rj-surface-2); border: 1px solid var(--rj-border); color: var(--rj-text); border-radius: 10px; padding: 12px 14px; font-size: 15px; }
   input:focus-visible, button:focus-visible, select:focus-visible, a:focus-visible { outline: 2px solid var(--rj-accent); outline-offset: 2px; }
   .primary { background: var(--rj-accent); color: var(--rj-accent-ink); border: 0; border-radius: 10px; padding: 11px 18px; font-weight: 600; font-size: 15px; justify-self: start; }
