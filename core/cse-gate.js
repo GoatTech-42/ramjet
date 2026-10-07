@@ -23,7 +23,7 @@ export function createCseGate({ now = Date.now, sleep = ms => new Promise(r => s
   };
 }
 const file = dataPath('cse-budget.json');
-const gate = createCseGate({ state: readJson(file, {}), save: state => writeJson(file, state) });
+const gate = createCseGate({ state: readJson(file, {}), save: state => writeJson(file, { ...readJson(file, {}), ...state }) });
 export const cseGate = () => gate.admit();
 export const cseBudgetLeft = () => gate.left();
 export const cseCooldownLeft = () => gate.cooldown();

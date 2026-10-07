@@ -11,12 +11,12 @@ export function readJson(path, fallback) {
     throw error;
   }
 }
-export function writeJson(path, obj) {
+export function writeJson(path, obj, mode) {
   // Never replace corrupt existing state, even if a caller caught a failed read.
   readJson(path, undefined);
   mkdirSync(dirname(path), { recursive: true });
   const tmp = `${path}.tmp-${process.pid}`;
-  writeFileSync(tmp, JSON.stringify(obj, null, 2));
+  writeFileSync(tmp, JSON.stringify(obj, null, 2), mode == null ? undefined : { mode });
   renameSync(tmp, path);
 }
 export function readBody(req, limit = 65536) {

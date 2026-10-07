@@ -83,7 +83,8 @@ engines:
   - name: quark images
     disabled: true
   - name: qwant images
-    disabled: true
+    disabled: false
+    timeout: 4.0
   - name: selfhst icons
     disabled: true
   - name: sogou images

@@ -375,6 +375,7 @@ function sxPage(query, page, result, cat, safe, imgRes) {
 	const corrections = (Array.isArray(data.corrections) ? data.corrections : []).filter(Boolean).slice(0, 1);
 	const total = Number(data.number_of_results) || 0;
 
+	const safeNote = cat === 'images' ? '<p class="safe-note">Qwant supports off, moderate and strict. Google API backup filters both moderate and strict; off stays off.</p>' : '';
 	let strip = '';
 	if (cat === 'general' && page === 1 && imgRes && imgRes.data && Array.isArray(imgRes.data.results)) {
 		const ims = imgRes.data.results.map((r) => ({ t: sxHref(r.thumbnail_src || r.thumbnail || '') || sxHref(r.img_src || ''), f: sxHref(r.img_src || ''), a: String(r.title || '') })).filter((x) => x.t).slice(0, 9);
@@ -448,12 +449,12 @@ function sxPage(query, page, result, cat, safe, imgRes) {
 '<meta name="viewport" content="width=device-width, initial-scale=1" />' +
 '<title>' + (query ? qAttr + ' - ' : '') + 'ramjet search</title>' +
 '<meta name="theme-color" content="#000000" /><link rel="stylesheet" href="/cloak/walls.css?v=1" /><script src="/cloak/theme-boot.js?v=9"></script>' +
-'<style>' + SX_CSS + '</style><link rel="stylesheet" href="/cloak/search-theme.css?v=1" /></head>' +
+'<style>' + SX_CSS + '</style><link rel="stylesheet" href="/cloak/search-theme.css?v=2" /></head>' +
 '<body>' +
 (home
 	? '<header class="bar"><div class="bar-in">' + BACK + '</div></header>' +
 	  '<main class="home-hero"><div class="mark">ramjet<b>search</b></div>' + formHtml + '<div class="recent" id="sxrecent"></div></main>'
-	: headBar + (query ? tabsHtml : '') + '<main class="wrap' + (cat === 'images' ? ' wide' : '') + '"><div class="col">' + body + '<div class="foot">served from your own box &middot; queries go straight from the box to the engines<span id="sxlite"></span></div></div></main>') +
+	: headBar + (query ? tabsHtml : '') + '<main class="wrap' + (cat === 'images' ? ' wide' : '') + '"><div class="col">' + safeNote + body + '<div class="foot">served from your own box &middot; queries go straight from the box to the engines<span id="sxlite"></span></div></div></main>') +
 '<script>' + SX_JS + '<' + '/script>' +
 '</body></html>';
 }
