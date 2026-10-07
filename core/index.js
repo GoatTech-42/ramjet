@@ -456,7 +456,7 @@ function sxPage(query, page, result, cat, safe, imgRes) {
 	const SVG_S = '<svg class="ic" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>';
 	const formHtml =
 		'<form class="box" action="/searx/search" method="get">' + SVG_S +
-			'<input type="text" name="q" value="' + qAttr + '" placeholder="search the web" autocomplete="off" enterkeyhint="search" list="sxdl"' + (home ? ' autofocus' : '') + ' />' +
+			'<input type="text" name="q" aria-label="Search the web" value="' + qAttr + '" placeholder="search the web" autocomplete="off" enterkeyhint="search" list="sxdl"' + (home ? ' autofocus' : '') + ' />' +
 			'<datalist id="sxdl"></datalist>' +
 			'<input type="hidden" name="c" value="' + cat + '" /><input type="hidden" name="s" value="' + safe + '" />' +
 			'<button type="submit" aria-label="search"><svg viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button>' +
@@ -470,8 +470,8 @@ function sxPage(query, page, result, cat, safe, imgRes) {
 '<html lang="en"><head><meta charset="utf-8" />' +
 '<meta name="viewport" content="width=device-width, initial-scale=1" />' +
 '<title>' + (query ? qAttr + ' - ' : '') + 'ramjet search</title>' +
-'<meta name="theme-color" content="#000000" /><link rel="stylesheet" href="/cloak/walls.css?v=1" /><script src="/cloak/theme-boot.js?v=8"></script>' +
-'<style>' + SX_CSS + '</style></head>' +
+'<meta name="theme-color" content="#000000" /><link rel="stylesheet" href="/cloak/walls.css?v=1" /><script src="/cloak/theme-boot.js?v=9"></script>' +
+'<style>' + SX_CSS + '</style><link rel="stylesheet" href="/cloak/search-theme.css?v=1" /></head>' +
 '<body>' +
 (home
 	? '<header class="bar"><div class="bar-in">' + BACK + '</div></header>' +
