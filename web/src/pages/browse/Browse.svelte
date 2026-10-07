@@ -3,6 +3,7 @@
   import Recent from '../../lib/Recent.svelte';
   let qf = $state(false);
   import '../../tokens.css';
+  import AppFrame from '../../lib/AppFrame.svelte';
   import { onMount } from 'svelte';
   import { api } from '../../lib/api.js';
 
@@ -593,6 +594,7 @@
 
 </script>
 
+<AppFrame active="/browse">
 <div class="shell" class:surfing>
   <div class="chrome">
   <header>
@@ -649,8 +651,8 @@
     <div class="center"><p class="dim">{failed}</p></div>
   {:else if !surfing}
     <div class="center home">
-      <h1>browse</h1>
-      <p class="dim">{boot || 'the open web, through ramjet'}</p>
+      <h1>Browse</h1>
+      <p class="dim">{boot || 'The open web. Your way.'}</p>
       <div class="chips">
         {#each quick as s}
           <button class="chip" onclick={() => open(s)} disabled={!ready}>{s.name}</button>
@@ -739,6 +741,8 @@
   {#if surfing && loadMs && techOn()}<span class="techchip">loaded in {(loadMs / 1000).toFixed(1)} s · via scramjet</span>{/if}
 </div>
 
+</AppFrame>
+
 <style>
   .jsb { color: var(--rj-accent); }
   .adb.on { color: var(--rj-accent); }
@@ -798,7 +802,7 @@
   .dlbar.bad i { background: var(--rj-text-faint); }
   .dlbar i.ind { animation: dlind 1.1s ease-in-out infinite alternate; }
   @keyframes dlind { from { margin-left: 0; } to { margin-left: 60%; } }
-  .hov { position: fixed; inset: 0; z-index: 50; background: rgba(0,0,0,.6); display: flex; align-items: flex-end; justify-content: center; }
+  .hov { position: fixed; inset: 0; z-index: 100; background: rgba(0,0,0,.6); display: flex; align-items: flex-end; justify-content: center; }
   .hsheet { width: min(560px, 100%); max-height: 82vh; overflow: auto; background: var(--rj-bg, #000); border: 1px solid var(--rj-border); border-radius: 22px 22px 0 0; padding: 16px 16px 24px; display: flex; flex-direction: column; gap: 6px; }
   @media (min-width: 700px) { .hov { align-items: center; } .hsheet { border-radius: 22px; } }
   .hhead { display: flex; align-items: center; justify-content: space-between; font-size: 17px; }
@@ -919,4 +923,17 @@
     .tabbar { padding: 0 10px; }
     .findbar { top: 100px; }
   }
+
+  .shell { height: 100dvh; min-height: 0; }
+  .chrome { padding: 12px 12px 0; background: var(--rj-glass); border-bottom: 1px solid var(--rj-border); }
+  header { padding: 4px 4px 12px; max-width: 100%; } header>.back { display: none; }
+  header form.omni { border-radius: 16px; background: var(--rj-surface); padding: 5px; gap: 4px; }
+  header form.omni input { height: 42px; padding: 0 12px; } header form.omni .go { border-radius: 11px; height: 42px; }
+  .navbtns button,.menub { width: 40px; height: 40px; } .tabbar { padding: 4px 4px 0; } .tab { border-radius: 12px 12px 0 0; }
+  .home { width: min(740px,100%); margin: 0 auto; align-items: flex-start; gap: 16px; padding: 48px 32px; }
+  .home h1 { font-size: 38px; font-weight: 600; letter-spacing: -.045em; } .home>.dim { margin: 0 0 20px; font-size: 16px; line-height: 1.6; }
+  .home .chips { justify-content: flex-start; gap: 10px; } .chip { padding: 10px 16px; min-height: 40px; }
+  .menu { background: var(--rj-surface); box-shadow: var(--rj-shadow); border-radius: 16px; } .menu .mi { min-height: 44px; }
+  .bm-toast { bottom: 28px; } .techchip { left: 120px; }
+  @media(max-width:760px) { .shell { height: calc(100dvh - 90px - env(safe-area-inset-bottom)); } .chrome { padding: 10px 8px 0; } header { gap: 6px; } .home { padding: 36px 24px; } .home h1 { font-size: 32px; } .bm-toast { bottom: calc(100px + env(safe-area-inset-bottom)); } .techchip { left: 12px; bottom: calc(94px + env(safe-area-inset-bottom)); } }
 </style>
