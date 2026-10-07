@@ -1,5 +1,6 @@
 <script>
   import '../../tokens.css';
+  import AppFrame from '../../lib/AppFrame.svelte';
   import { api } from '../../lib/api.js';
 
   // the open conversation boots from localStorage instantly; every exchange
@@ -265,17 +266,13 @@
         {/each}
 {/snippet}
 
+<AppFrame active="/sage">
 <div class="page">
   <aside class="side"><div class="sidein">{@render convlist()}</div></aside>
   <header class="top">
-    <a class="back" href="/" aria-label="back to ramjet">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
-    </a>
-    <span class="brand">sage</span>
-    <span class="tagline">ask anything</span>
-    <button class="chatsbtn stylebtn" onclick={cycleStyle} aria-label="answer length" title="answer length: brief, normal or deep">length: {style}</button>
-    {#if messages.length}<button class="chatsbtn copyall" onclick={copyChat} aria-label="copy whole chat" title="copy whole chat">{chatCopied ? 'copied' : 'copy'}</button>{/if}
-    <button class="chatsbtn" onclick={() => { sheetOpen = true; loadConvs(); }}>chats</button>
+    <div class="heading"><h1>Sage</h1><p>A little help with anything.</p></div>
+    <details class="answer-options"><summary>Options</summary><div><button class="chatsbtn stylebtn" onclick={cycleStyle} aria-label="answer length">Length: {style}</button>{#if messages.length}<button class="chatsbtn copyall" onclick={copyChat} aria-label="copy whole chat">{chatCopied ? 'Copied' : 'Copy chat'}</button>{/if}</div></details>
+    <button class="chatsbtn history-button" onclick={() => { sheetOpen = true; loadConvs(); }}>Chats</button>
   </header>
 
   {#if sheetOpen}
@@ -289,7 +286,7 @@
   <main class="list" bind:this={listEl}>
     {#if !messages.length && !thinking}
       <div class="empty">
-        <p class="big">what's on your mind?</p>
+        <p class="big">What's on your mind?</p>
         <div class="starters">
           {#each starters as s}<button class="starter" onclick={() => send(s)}>{s}</button>{/each}
         </div>
@@ -315,7 +312,7 @@
     {#if thinking}
       <div class="msg"><div class="bubble thinking-bubble"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div></div>
     {/if}
-    {#if error}<p class="error">{error}{#if messages.at(-1)?.role === 'user'} <button class="retrylink" onclick={retry}>try again</button>{/if}</p>{/if}
+    {#if error}<p class="error" role="alert">{error}{#if messages.at(-1)?.role === 'user'} <button class="retrylink" onclick={retry}>try again</button>{/if}</p>{/if}
   </main>
 
   <form class="composer" onsubmit={(e) => { e.preventDefault(); if (streaming) stop(); else send(); }}>
@@ -338,19 +335,19 @@
   </form>
 </div>
 
+</AppFrame>
+
 <style>
-  .page { height: 100dvh; display: flex; flex-direction: column; background: var(--rj-bg); color: var(--rj-text); }
-  .top { display: flex; align-items: center; gap: 10px; padding: 14px 16px; max-width: 760px; margin: 0 auto; width: 100%; }
-  .back { width: 38px; height: 38px; display: grid; place-items: center; border-radius: 12px; background: var(--rj-surface); color: var(--rj-text); flex: none; }
-  .back svg { width: 20px; height: 20px; }
-  .brand { font-size: 22px; font-weight: 800; letter-spacing: 0.5px; color: var(--rj-accent); }
-  .tagline { font-size: 13px; color: var(--rj-text-dim); }
-  .list { flex: 1; overflow-y: auto; padding: 8px 16px 16px; max-width: 760px; margin: 0 auto; width: 100%; display: flex; flex-direction: column; gap: 10px; }
-  .empty { text-align: center; padding: 56px 20px; margin: auto 0; }
-  .empty .big { font-size: 24px; font-weight: 800; margin: 0 0 20px; }
-  .starters { display: flex; flex-direction: column; gap: 8px; max-width: 420px; margin: 0 auto; }
-  .starter { background: var(--rj-surface); border: 1px solid var(--rj-border); color: var(--rj-text-dim); border-radius: 14px; padding: 13px 16px; font-size: 14px; text-align: left; }
-  .starter:hover { color: var(--rj-text); border-color: var(--rj-accent); }
+  .page { height: 100dvh; display: flex; flex-direction: column; color: var(--rj-text); }
+  .top { display: flex; align-items: center; gap: 12px; padding: 28px 32px 20px; width: 100%; max-width: 920px; margin: 0 auto; }
+  .heading { flex: 1; min-width: 0; } h1 { margin: 0 0 6px; font-size: 30px; letter-spacing: -.04em; font-weight: 600; } .heading p { margin: 0; color: var(--rj-text-dim); font-size: 14px; }
+  .answer-options { position: relative; font-size: 13px; color: var(--rj-text-dim); } .answer-options summary { cursor: pointer; padding: 10px; } .answer-options>div { position: absolute; top: 100%; right: 0; z-index: 40; min-width: 190px; display: grid; gap: 8px; padding: 12px; border: 1px solid var(--rj-border); border-radius: 16px; background: var(--rj-surface); box-shadow: var(--rj-shadow); }
+  .list { flex: 1; min-height: 0; overflow-y: auto; padding: 24px 32px; max-width: 920px; margin: 0 auto; width: 100%; display: flex; flex-direction: column; gap: 20px; }
+  .empty { max-width: 500px; margin: auto; padding: 24px 0; width: 100%; }
+  .empty .big { font-size: 28px; font-weight: 600; letter-spacing: -.035em; margin: 0 0 24px; }
+  .starters { display: grid; gap: 10px; }
+  .starter { background: var(--rj-surface); border: 1px solid var(--rj-border); color: var(--rj-text-dim); border-radius: 16px; padding: 16px 18px; font-size: 14px; line-height: 1.5; text-align: left; }
+  .starter:hover { background: var(--rj-hover); color: var(--rj-text); }
   .msg { display: flex; flex-wrap: wrap; }
   .convq { width: 100%; box-sizing: border-box; margin: 4px 0 8px; background: var(--rj-bg); border: 1px solid var(--rj-border); color: var(--rj-text); border-radius: 12px; padding: 10px 12px; font-size: 16px; outline: none; }
   .acts { width: 100%; display: flex; gap: 14px; padding: 4px 6px 0; }
@@ -369,7 +366,7 @@
   .dot:nth-child(2) { animation-delay: 0.2s; }
   .dot:nth-child(3) { animation-delay: 0.4s; }
   @keyframes blink { 0%, 60%, 100% { opacity: 0.25; } 30% { opacity: 1; } }
-  .error { color: #ff7b72; font-size: 14px; text-align: center; margin: 4px 0; }
+  .error { color: var(--rj-danger); font-size: 14px; text-align: center; margin: 4px 0; }
   .retrylink { margin-left: 5px; background: none; border: none; color: var(--rj-accent); font-size: 14px; text-decoration: underline; padding: 0; cursor: pointer; }
   .chatsbtn { margin-left: auto; background: none; border: 1px solid var(--rj-border); color: var(--rj-text-dim); border-radius: 999px; padding: 7px 14px; font-size: 13px; }
   .chatsbtn { white-space: nowrap; flex: none; }
@@ -377,7 +374,7 @@
   @media (max-width: 520px) { .top .tagline { display: none; } .top { gap: 6px; } .chatsbtn { padding: 7px 10px; font-size: 12.5px; } }
   .chatsbtn.copyall, .stylebtn + .chatsbtn { margin-left: 0; }
   .chatsbtn:hover { color: var(--rj-text); border-color: var(--rj-accent); }
-  .overlay { position: fixed; inset: 0; z-index: 40; background: rgba(0,0,0,0.6); display: flex; align-items: flex-end; justify-content: center; }
+  .overlay { position: fixed; inset: 0; z-index: 100; background: rgba(0,0,0,0.6); display: flex; align-items: flex-end; justify-content: center; }
   .sheet { width: 100%; max-width: 560px; background: var(--rj-surface); border: 1px solid var(--rj-border); border-radius: 18px 18px 0 0; padding: 18px 16px calc(18px + env(safe-area-inset-bottom)); display: flex; flex-direction: column; gap: 8px; max-height: 70dvh; overflow-y: auto; }
   .sheet-h { margin: 0; font-size: 16px; font-weight: 700; }
   .newchat { background: var(--rj-accent); color: var(--rj-accent-ink); border: 0; border-radius: 12px; padding: 12px; font-size: 15px; font-weight: 700; }
@@ -390,7 +387,7 @@
   .convren:hover { color: var(--rj-accent); }
   .tmeta { font: 11px var(--rj-mono); color: var(--rj-text-faint); margin-left: 8px; align-self: center; }
   .convempty { text-align: center; color: var(--rj-text-dim); font-size: 14px; padding: 14px 0; }
-  .composer { display: flex; gap: 8px; padding: 12px 16px calc(12px + env(safe-area-inset-bottom)); max-width: 760px; margin: 0 auto; width: 100%; }
+  .composer { display: flex; gap: 10px; padding: 16px 32px 24px; max-width: 920px; margin: 0 auto; width: 100%; }
   .composer textarea { flex: 1; min-width: 0; background: var(--rj-surface); border: 1px solid var(--rj-border); color: var(--rj-text); border-radius: 16px; padding: 13px 16px; font-size: 16px; font-family: inherit; outline: none; resize: none; min-height: 48px; max-height: 120px; }
   .composer textarea:focus { border-color: var(--rj-accent); }
   .composer button { width: 48px; height: 48px; border-radius: 50%; border: 0; background: var(--rj-accent); color: var(--rj-accent-ink); display: grid; place-items: center; flex: none; }
@@ -404,9 +401,15 @@
     .sidein { padding: 22px 14px; display: flex; flex-direction: column; gap: 8px; }
     .sidein .sheet-h { padding: 0 6px; font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--rj-text-faint); }
     .page > .top, .page > .list, .page > .composer { grid-column: 2; max-width: 900px; }
-    .page > .overlay { display: none; }
-    .chatsbtn:not(.stylebtn):not(.copyall) { display: none; }
+
+    .history-button { display: none; }
     .bubble { max-width: 82%; }
   }
   @media (min-width: 1500px) { .page { grid-template-columns: 320px minmax(0, 1fr); } .page > .top, .page > .list, .page > .composer { max-width: 980px; } .list { font-size: 17px; } }
+  @media (max-width: 760px) {
+    .page { height: calc(100dvh - 90px - env(safe-area-inset-bottom)); }
+    .top { padding: 24px 20px 16px; } .heading p { display: none; } h1 { margin: 0; font-size: 28px; }
+    .list { padding: 16px 20px; } .composer { padding: 12px 16px 8px; }
+    .bubble { max-width: 90%; } .empty .big { font-size: 26px; }
+  }
 </style>
