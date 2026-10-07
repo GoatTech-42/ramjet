@@ -1,4 +1,5 @@
 <script>
+  import { modal } from '../../lib/modal.js';
   import { readSearches, addSearch, clearSearches } from '../../lib/searchhist.js';
   import Recent from '../../lib/Recent.svelte';
   let qf = $state(false);
@@ -684,7 +685,7 @@
 
   {#if dlOpen}
     <div class="hov" role="presentation" onclick={() => (dlOpen = false)}>
-      <div class="hsheet" role="dialog" aria-label="downloads" tabindex="-1" onclick={(e) => e.stopPropagation()}>
+      <div class="hsheet" role="dialog" aria-modal="true" aria-label="downloads" tabindex="-1" use:modal={() => { dlOpen = false; }} onclick={(e) => e.stopPropagation()}>
         <div class="hhead"><b>downloads</b><button class="hclose" onclick={() => (dlOpen = false)} aria-label="close">&times;</button></div>
         <div class="hlist">
           {#each dls as d (d.id)}
@@ -705,7 +706,7 @@
 
   {#if histOpen}
     <div class="hov" role="presentation" onclick={() => (histOpen = false)}>
-      <div class="hsheet" role="dialog" aria-label="history" tabindex="-1" onclick={(e) => e.stopPropagation()}>
+      <div class="hsheet" role="dialog" aria-modal="true" aria-label="history" tabindex="-1" use:modal={() => { histOpen = false; }} onclick={(e) => e.stopPropagation()}>
         <div class="hhead"><b>history</b><button class="hclose" onclick={() => (histOpen = false)} aria-label="close">&times;</button></div>
         {#if closed.length}
           <p class="hsec">recently closed</p>

@@ -374,7 +374,7 @@
               {#if mine}<button class="dng" onclick={() => delMsg(m)} aria-label="delete">delete</button>{/if}
               <button onclick={() => (selMsg = m.id)} aria-label="react">&#9786;</button>
             </span>{/if}
-            <span class="ts">{clock(m.ts)}</span>
+            <span class="ts">{clock(m.ts)}</span>{#if m.type !== 'deleted' && m.type !== 'invite'}<button class="message-actions" aria-label={'Actions for message from ' + m.from} onclick={() => { selMsg = m.id; }}>•••</button>{/if}
           </div>
           {/if}
         {:else}
@@ -382,7 +382,7 @@
         {/each}
       </div>
       {#if selM && selRect && selM.type !== 'deleted'}
-        <div class="ov" style={ovPos()} role="dialog" aria-label="message actions">
+        <div class="ov" style={ovPos()} role="dialog" aria-modal="true" tabindex="-1" aria-label="message actions" use:modal={() => { selMsg = 0; }}>
           <button class="ov-bd" aria-label="close" onclick={() => (selMsg = 0)}></button>
           <div class="ov-emo">{#each EMOJI as e}<button onclick={() => react(selM, e)} aria-label="react {e}" class:on={selM.reacts?.[e]?.includes(me)}>{e}</button>{/each}</div>
           <div class="ov-prev" class:mine={selM.from === me}>
@@ -612,4 +612,5 @@
   .side { border-right-color: color-mix(in srgb, var(--rj-border) 45%, transparent); }
   .top, .composer { background: transparent; border-color: color-mix(in srgb, var(--rj-border) 45%, transparent); }
   .sheet-close { align-self: flex-end; min-height: 40px; padding: 8px 14px; background: var(--rj-surface-2); color: var(--rj-text); border: 1px solid var(--rj-border); border-radius: 12px; }
+  .message-actions { display: block; margin: 4px 4px 0; min-width: 36px; min-height: 28px; border: 1px solid var(--rj-border); border-radius: 10px; background: transparent; color: var(--rj-text-dim); } .m.mine .message-actions { align-self: flex-end; }
 </style>
