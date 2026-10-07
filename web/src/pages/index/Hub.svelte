@@ -200,7 +200,7 @@
 {/snippet}
 
 <AppFrame active="/">
-<main class:desktop={layout === 'dock'} class:grid={layout === 'grid'}>
+<main class:arranging class:desktop={layout === 'dock'} class:grid={layout === 'grid'}>
   <header class="home-heading">
     <a class="brand" href="/">ramjet<span>.</span></a>
     <details class="account-menu"><summary aria-label="Account menu">{user ? user.slice(0,1).toUpperCase() : 'Account'}</summary><div><p>{user}</p><a href="/settings#account">Account settings</a><button onclick={logout}>Log out</button></div></details>
@@ -354,4 +354,5 @@
   .grid .recent-list { grid-template-columns: repeat(2,minmax(0,1fr)); gap: 8px; border: 0; border-radius: 0; } .grid .recent-row { border: 1px solid var(--rj-border); border-radius: 16px; }
   @media(max-width:760px) { .grid .recent-list { grid-template-columns: minmax(0,1fr); } }
   .arrangement-status { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); } .wh { flex-wrap: wrap; } .ctl { flex-wrap: wrap; } .ctl button { min-width: 34px; min-height: 34px; }
+  :global(body:has(main.arranging) #rjp-b) { display: none !important; }
 </style>
