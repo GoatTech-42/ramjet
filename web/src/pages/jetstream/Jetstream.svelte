@@ -4,6 +4,7 @@
   import Recent from '../../lib/Recent.svelte';
   let qf = $state(false);
   import '../../tokens.css';
+  import AppFrame from '../../lib/AppFrame.svelte';
   import { onMount, tick } from "svelte";
   import { api } from '../../lib/api.js';
 
@@ -1286,6 +1287,7 @@
   const lthumb = (id) => `/api/apps/jetstream/thumb?id=${id}${lite ? '&lite=1' : ''}`;
 </script>
 
+<AppFrame active="/jetstream">
 <main>
   <header>
     {#if viewKey}
@@ -1293,15 +1295,15 @@
     {:else}
       <a class="home" href="/" aria-label="back to hub"><svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7" /></svg></a>
     {/if}
-    <div class="brand">jetstream</div>
+    <div class="heading"><h1>Jetstream</h1><p>Find something worth watching.</p></div>
     <button class="subs-link" onclick={openSubs}>subscriptions</button>
     <span class="spacer"></span>
   </header>
 
   <form class="bar" onsubmit={search}>
-    <input bind:value={q} onfocus={() => (qf = true)} onblur={() => setTimeout(() => (qf = false), 150)} placeholder="search anything" enterkeyhint="search" autocapitalize="off" autocomplete="off" />
+    <input bind:value={q} onfocus={() => (qf = true)} onblur={() => setTimeout(() => (qf = false), 150)} aria-label="Search videos" placeholder="Search videos, channels or playlists" enterkeyhint="search" autocapitalize="off" autocomplete="off" />
     <Recent items={recentQ} query={q} focused={qf} onpick={(r) => { q = r; qf = false; search({ preventDefault() {} }); }} onclear={() => (recentQ = clearSearches('js-searches'))} />
-    <button type="submit" disabled={busy}>{busy ? '...' : 'go'}</button>
+    <button type="submit" disabled={busy}>{busy ? 'Searching...' : 'Search'}</button>
   </form>
 
   {#if error}<p class="err" role="alert">{error}</p>{/if}
@@ -1696,7 +1698,7 @@ network {stats.net} · ready {stats.ready}</pre>
         {#if searched && !busy && !error}
           <p class="empty">nothing came up. try different words.</p>
         {:else if !searched}
-          <p class="empty">search it, watch it. that's the whole app.</p>
+          <p class="empty">Your next watch starts with a search.</p>
         {/if}
       {/each}
     </section>
@@ -1768,29 +1770,19 @@ network {stats.net} · ready {stats.ready}</pre>
   {/if}
 </main>
 
+</AppFrame>
+
 <style>
-  main { max-width: 640px; margin: 0 auto; padding: 16px 14px 48px; }
-  header { display: flex; align-items: center; gap: 10px; padding: 6px 6px 16px; }
-  .home { width: 34px; height: 34px; display: grid; place-items: center; border-radius: 50%; }
-  .home:hover { background: var(--rj-surface); }
+  main { max-width: 1180px; margin: 0 auto; padding: 32px 40px 64px; }
+  header { display: flex; align-items: center; gap: 12px; margin-bottom: 30px; }
+  .heading { flex: 1; min-width: 0; } .heading h1 { font-size: 34px; font-weight: 600; letter-spacing: -.04em; margin: 0 0 8px; } .heading p { color: var(--rj-text-dim); margin: 0; font-size: 15px; }
+  .home { width: 40px; height: 40px; display: grid; place-items: center; border: 1px solid var(--rj-border); border-radius: 12px; background: var(--rj-surface); }
   .home svg { width: 18px; height: 18px; fill: none; stroke: var(--rj-text-dim); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
-  .brand { font-size: 20px; font-weight: 700; letter-spacing: -0.02em; }
-  .spacer { width: 34px; margin-left: auto; }
-  .bar { display: flex; gap: 8px; margin-bottom: 18px; }
-  .bar input {
-    flex: 1; height: 48px; padding: 0 18px;
-    font-size: 16px; color: var(--rj-text);
-    background: var(--rj-surface); border: 1px solid transparent;
-    border-radius: var(--rj-pill); outline: none;
-    transition: border-color .15s, background .15s;
-  }
+  header>a.home { display: none; } .spacer { display: none; }
+  .bar { position: relative; display: flex; gap: 8px; margin-bottom: 20px; padding: 7px; background: var(--rj-surface); border: 1px solid var(--rj-border); border-radius: 20px; max-width: 760px; }
+  .bar input { flex: 1; min-width: 0; height: 44px; padding: 0 12px; font-size: 16px; color: var(--rj-text); background: none; border: 0; border-radius: 12px; }
   .bar input::placeholder { color: var(--rj-text-faint); }
-  .bar input:focus { border-color: rgba(255,255,255,.24); background: var(--rj-surface-2); }
-  .bar button {
-    height: 48px; padding: 0 22px; border: none; border-radius: var(--rj-pill);
-    font-size: 15px; font-weight: 700;
-    color: var(--rj-accent-ink); background: var(--rj-accent);
-  }
+  .bar button { padding: 0 20px; border: 0; border-radius: 13px; font-size: 14px; font-weight: 600; color: var(--rj-accent-ink); background: var(--rj-accent); }
   .bar button:disabled { opacity: .5; }
   .chips { display: flex; flex-wrap: wrap; gap: 8px; margin: -4px 2px 16px; }
   .chip {
@@ -1866,12 +1858,12 @@ network {stats.net} · ready {stats.ready}</pre>
   .cbiotxt.open { display: block; -webkit-line-clamp: unset; line-clamp: unset; }
   .plmore { text-align: center; font-size: 12px; color: var(--rj-text-faint); padding: 18px 0 8px; }
   .plctl { display: flex; gap: 6px; }
-  .playall.on { background: var(--rj-accent); color: #060608; border-color: var(--rj-accent); }
+  .playall.on { background: var(--rj-accent); color: var(--rj-accent-ink); border-color: var(--rj-accent); }
   .plsearch { width: 100%; box-sizing: border-box; height: 40px; margin: 0 0 10px; padding: 0 14px; border-radius: var(--rj-pill); border: 1px solid var(--rj-border); background: var(--rj-surface); color: var(--rj-text); font-size: 14px; }
   .home { background: none; border: 0; padding: 0; cursor: pointer; }
   .ktabs { display: flex; gap: 8px; margin: 0 2px 12px; }
   .ktab { height: 32px; padding: 0 14px; border: 1px solid var(--rj-border); border-radius: var(--rj-pill); background: none; color: var(--rj-text-dim); font-size: 13px; font-weight: 600; }
-  .ktab.on { color: #060608; background: var(--rj-accent); border-color: var(--rj-accent); }
+  .ktab.on { color: var(--rj-accent-ink); background: var(--rj-accent); border-color: var(--rj-accent); }
   .crow .av { width: 64px; height: 64px; border-radius: 50%; object-fit: cover; flex: none; background: var(--rj-surface); }
   .avph { display: grid; place-items: center; width: 64px; height: 64px; border-radius: 50%; background: var(--rj-surface); color: var(--rj-text-dim); font-weight: 800; font-size: 22px; text-transform: uppercase; flex: none; }
   .plph { width: 120px; height: 68px; border-radius: 10px; }
@@ -1909,13 +1901,13 @@ network {stats.net} · ready {stats.ready}</pre>
   .vo-b { width: 44px; height: 44px; border: 0; border-radius: 50%; background: rgba(0,0,0,.45); color: #fff; display: grid; place-items: center; padding: 0; cursor: pointer; }
   .vo-b:disabled { opacity: .35; }
   .vo-b svg { width: 22px; height: 22px; fill: currentColor; }
-  .vo-play { width: 62px; height: 62px; background: var(--rj-accent); color: #060608; }
+  .vo-play { width: 62px; height: 62px; background: var(--rj-accent); color: var(--rj-accent-ink); }
   .vo-play svg { width: 30px; height: 30px; }
   .vo-sm { width: 34px; height: 34px; background: none; }
   .vo-sm svg { width: 20px; height: 20px; }
   .vo-bot { display: flex; align-items: center; gap: 8px; padding: 0 10px 8px; }
   .vo-t { font-size: 12px; color: #fff; font-variant-numeric: tabular-nums; min-width: 34px; text-align: center; }
-  .vo-q.on, .qbtn.on { background: var(--rj-accent); color: #000; border-color: var(--rj-accent); }
+  .vo-q.on, .qbtn.on { background: var(--rj-accent); color: var(--rj-accent-ink); border-color: var(--rj-accent); }
   .vo-q { height: 24px; padding: 0 8px; border: 1px solid rgba(255,255,255,.4); border-radius: var(--rj-pill); background: none; color: #fff; font-size: 11px; font-weight: 700; }
   .vo-seek { flex: 1; min-width: 0; height: 28px; -webkit-appearance: none; appearance: none; background: transparent; margin: 0; }
   .vo-seek::-webkit-slider-runnable-track { height: 4px; border-radius: 2px; background: linear-gradient(to right, var(--rj-accent) var(--p), rgba(255,255,255,.3) var(--p)); }
@@ -2042,4 +2034,9 @@ network {stats.net} · ready {stats.ready}</pre>
   .player .uplabel { margin: 18px 4px 8px; font-size: 13px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--rj-text-faint); }
   @media (min-width: 1000px) { .player h1 { font-size: 22px; } .player .wactions { flex-wrap: wrap; overflow: visible; } }
   form.bar { position: relative; }
+  main { max-width: 1180px; }
+  .results { gap: 12px; } .hcard { border-color: var(--rj-border); padding: 10px; } .fygrid { grid-template-columns: repeat(auto-fill,minmax(220px,1fr)); gap: 16px; }
+  .subs-link { background: var(--rj-surface); color: var(--rj-text-dim); border: 1px solid var(--rj-border); padding: 10px 14px; border-radius: 12px; font-size: 13px; }
+  @media(min-width:1000px) { .results { grid-template-columns: repeat(2,minmax(0,1fr)); } }
+  @media(max-width:760px) { main { padding: 28px 20px 40px; } .heading h1 { font-size: 30px; } .heading p { font-size: 13px; } header { gap: 10px; } .subs-link { padding: 10px; font-size: 12px; } .bar button { padding: 0 14px; } .fygrid { grid-template-columns: repeat(2,minmax(0,1fr)); gap: 10px; } }
 </style>
