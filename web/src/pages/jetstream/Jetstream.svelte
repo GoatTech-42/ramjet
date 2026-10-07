@@ -1932,7 +1932,7 @@ network {stats.net} · ready {stats.ready}</pre>
   .backbtn:hover { color: var(--rj-text); }
   .scard { flex: 0 0 88px; height: 172px; overflow: hidden; }
   .scard .sthumb { height: 112px; aspect-ratio: 3/4; }
-  .feed { position: fixed; inset: 0; z-index: 60; background: #000; }
+  .feed { position: fixed; inset: 0; z-index: 100; background: #000; }
   .feed-scroll { height: 100%; max-width: 430px; margin: 0 auto; overflow-y: auto; scroll-snap-type: y mandatory; scrollbar-width: none; }
   .feed-scroll::-webkit-scrollbar { display: none; }
   .slide { position: relative; height: 100%; scroll-snap-align: start; scroll-snap-stop: always; background: #000; }
@@ -1958,13 +1958,13 @@ network {stats.net} · ready {stats.ready}</pre>
   .zone-open { height: 28px; padding: 0 12px; border: 1px solid var(--rj-border); border-radius: var(--rj-pill); background: none; color: var(--rj-text-dim); font-size: 12px; }
   .zone-open:hover { color: var(--rj-text); background: var(--rj-surface); }
   .subs-link { background: none; border: none; color: var(--rj-accent); font-size: 15px; font-weight: 600; padding: 6px 10px; cursor: pointer; }
-  .subspage h1 { margin: 18px 16px 12px; font-size: 24px; color: #fff; }
-  .subspage .empty { margin: 12px 16px; color: rgba(255,255,255,.6); font-size: 14px; }
+  .subspage h1 { margin: 18px 16px 12px; font-size: 24px; color: var(--rj-text); }
+  .subspage .empty { margin: 12px 16px; color: var(--rj-text-dim); font-size: 14px; }
   .subslist { display: flex; flex-direction: column; gap: 2px; margin: 0 10px; }
   .subrow { display: flex; align-items: center; gap: 10px; padding: 10px 8px; border-radius: 12px; }
-  .subrow:hover { background: rgba(255,255,255,.05); }
-  .subgo { flex: 1; text-align: left; background: none; border: none; color: #fff; font-size: 15px; font-weight: 600; cursor: pointer; padding: 4px 6px; }
-  .unsub { border: 1px solid rgba(255,255,255,.18); background: none; color: rgba(255,255,255,.75); font-size: 13px; padding: 6px 14px; border-radius: 999px; cursor: pointer; }
+  .subrow:hover { background: var(--rj-hover); }
+  .subgo { flex: 1; text-align: left; background: none; border: none; color: var(--rj-text); font-size: 15px; font-weight: 600; cursor: pointer; padding: 4px 6px; }
+  .unsub { border: 1px solid var(--rj-border); background: none; color: var(--rj-text-dim); font-size: 13px; padding: 6px 14px; border-radius: 999px; cursor: pointer; }
   .feed-search { position: absolute; top: max(12px, env(safe-area-inset-top)); left: 58px; right: 12px; z-index: 61; }
   .feed-search-btn { position: absolute; top: max(12px, env(safe-area-inset-top)); left: 58px; z-index: 61; width: 38px; height: 38px; border: none; border-radius: 50%; background: rgba(0,0,0,.5); display: grid; place-items: center; }
   .feed-search-btn svg { width: 20px; height: 20px; fill: none; stroke: #fff; stroke-width: 2; stroke-linecap: round; }
