@@ -337,4 +337,6 @@
   .home-empty { margin: 72px 0 36px; max-width: 420px; } .home-empty h2 { font-size: 26px; margin-bottom: 12px; } .home-empty p { color: var(--rj-text-dim); font-size: 15px; line-height: 1.7; margin: 0; }
   .saved-sites { margin-top: 36px; } .site-list { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 10px; } .site-list button { display: flex; gap: 12px; align-items: center; min-width: 0; border: 1px solid var(--rj-border); background: var(--rj-surface); border-radius: 14px; padding: 12px; text-align: left; font-size: 14px; } .site-list button span:nth-child(2) { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .site-letter { display: grid; place-items: center; width: 36px; height: 36px; flex: none; background: var(--rj-surface-2); border-radius: 10px; }
   @media(max-width:760px) { .site-list { grid-template-columns: minmax(0,1fr); } :global(#rjp-b) { bottom: calc(90px + env(safe-area-inset-bottom)) !important; } }
+  .grid .recent-list { grid-template-columns: repeat(2,minmax(0,1fr)); gap: 8px; border: 0; border-radius: 0; } .grid .recent-row { border: 1px solid var(--rj-border); border-radius: 16px; }
+  @media(max-width:760px) { .grid .recent-list { grid-template-columns: minmax(0,1fr); } }
 </style>
