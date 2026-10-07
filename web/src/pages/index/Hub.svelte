@@ -126,6 +126,7 @@
   const clockAp = $derived((clockT.match(/(AM|PM)$/i) || [''])[0].toLowerCase());
   const clockDate = $derived(now.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' }));
   let sq = $state(''); let smode = $state('web'); let scopeOpen = $state(false);
+  function scopeKey(e) { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); const picker = e.currentTarget.closest('details'); picker.open = false; scopeOpen = false; picker.querySelector('summary').focus(); } }
   import { readSearches, addSearch, clearSearches } from '../../lib/searchhist.js';
   let sfocus = $state(false), recentS = $state([]), recentSites = $state([]);
   function openDrop() {
@@ -217,7 +218,7 @@
       {@render drop()}
     </form>
     {#if scopeOpen}<button class="scope-dismiss" aria-label="Close search scopes" onclick={() => { scopeOpen = false; document.querySelector('.scope-picker summary')?.focus(); }}></button>{/if}
-    <div class="scope"><span>Search in</span><details class="scope-picker" bind:open={scopeOpen} onkeydown={(e) => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); e.currentTarget.open = false; scopeOpen = false; e.currentTarget.querySelector('summary').focus(); } }}><summary aria-label="Search scope">{smode === 'web' ? 'The web' : smode === 'video' ? 'Videos' : 'Sage answers'}<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 10 5 5 5-5"/></svg></summary><div class="scope-options" role="group" aria-label="Search scopes">{#each [['web','The web'],['video','Videos'],['ask','Sage answers']] as [k,n]}<button type="button" aria-pressed={smode === k} onclick={(e) => { smode = k; scopeOpen = false; e.currentTarget.closest('details').querySelector('summary').focus(); }}>{n}<span aria-hidden="true">{smode === k ? '✓' : ''}</span></button>{/each}</div></details></div>
+    <div class="scope"><span>Search in</span><details class="scope-picker" bind:open={scopeOpen}><summary aria-label="Search scope" onkeydown={scopeKey}>{smode === 'web' ? 'The web' : smode === 'video' ? 'Videos' : 'Sage answers'}<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 10 5 5 5-5"/></svg></summary><div class="scope-options" role="group" aria-label="Search scopes">{#each [['web','The web'],['video','Videos'],['ask','Sage answers']] as [k,n]}<button type="button" onkeydown={scopeKey} aria-pressed={smode === k} onclick={(e) => { smode = k; scopeOpen = false; e.currentTarget.closest('details').querySelector('summary').focus(); }}>{n}<span aria-hidden="true">{smode === k ? '✓' : ''}</span></button>{/each}</div></details></div>
   </section>
   {#if layout === 'dock'}
     <div class="deskbar">
@@ -227,7 +228,7 @@
     <section class="desk">
       {#each desk.order.filter((k) => k !== 'search' && !desk.hidden.includes(k) && (k !== 'system' || techOn())) as id (id)}
         <article class="w w-{id} sz-{sz(id)}" class:drag={dragId === id} class:wig={arranging && dragId !== id} data-wid={id}>
-          <header class="wh" onpointerdown={(e) => dstart(e, id)} class:grab={arranging}>
+          <header class="wh" role="presentation" onpointerdown={(e) => dstart(e, id)} class:grab={arranging}>
             <span>{WIDGETS.find((x) => x[0] === id)[1]}</span>
             {#if arranging}<span class="ctl"><button aria-label={'Move ' + WIDGETS.find(w => w[0] === id)[1] + ' earlier'} disabled={desk.order.filter(k => k !== 'search' && !desk.hidden.includes(k) && (k !== 'system' || techOn()))[0] === id} onpointerdown={(e) => e.stopPropagation()} onclick={(e) => moveWidget(id, -1, e)}>↑</button><button aria-label={'Move ' + WIDGETS.find(w => w[0] === id)[1] + ' later'} disabled={desk.order.filter(k => k !== 'search' && !desk.hidden.includes(k) && (k !== 'system' || techOn())).at(-1) === id} onpointerdown={(e) => e.stopPropagation()} onclick={(e) => moveWidget(id, 1, e)}>↓</button><button aria-label={'Change size of ' + WIDGETS.find(w => w[0] === id)[1]} onpointerdown={(e) => e.stopPropagation()} onclick={() => cycleSize(id)}>{sz(id)}</button><button aria-label={'Hide ' + WIDGETS.find(w => w[0] === id)[1]} onpointerdown={(e) => e.stopPropagation()} onclick={() => hide(id)}>&times;</button></span>{/if}
           </header>

@@ -105,6 +105,7 @@
 
   let renaming = $state(false);
   let renameVal = $state('');
+  function focusRename(node) { queueMicrotask(() => { node.focus(); node.select(); }); }
 
   function startRename() {
     renameVal = plName;
@@ -447,12 +448,12 @@
         </button>
         {#if renaming}
           <form class="plrename" onsubmit={saveRename}>
-            <input bind:value={renameVal} maxlength="40" autocomplete="off" autofocus />
+            <input bind:value={renameVal} maxlength="40" autocomplete="off" aria-label="Playlist name" use:focusRename />
             <button type="submit">save</button>
           </form>
         {:else}
           <span class="pltitle">{plName}</span>
-          <button class="pldel" onclick={startRename}>rename</button>
+          <button class="pldel plrename-open" onclick={startRename}>rename</button>
           <button class="pldel" onclick={deletePlaylist}>delete</button>
         {/if}
       </div>
@@ -695,4 +696,5 @@
     .toast { bottom: calc(285px + env(safe-area-inset-bottom)); } .page.hasplayer { padding-bottom: 250px; }
   }
   .sheet-close { align-self: flex-end; min-height: 40px; padding: 8px 14px; background: var(--rj-surface-2); color: var(--rj-text); border: 1px solid var(--rj-border); border-radius: 12px; }
+  .plrename-open:hover { border-color: var(--rj-accent); color: var(--rj-accent); }
 </style>
