@@ -936,4 +936,5 @@
   .menu { background: var(--rj-surface); box-shadow: var(--rj-shadow); border-radius: 16px; } .menu .mi { min-height: 44px; }
   .bm-toast { bottom: 28px; } .techchip { left: 120px; }
   @media(max-width:760px) { .shell { height: calc(100dvh - 90px - env(safe-area-inset-bottom)); } .chrome { padding: 10px 8px 0; } header { gap: 6px; } .home { padding: 36px 24px; } .home h1 { font-size: 32px; } .bm-toast { bottom: calc(100px + env(safe-area-inset-bottom)); } .techchip { left: 12px; bottom: calc(94px + env(safe-area-inset-bottom)); } }
+  .chrome { background: linear-gradient(to bottom, color-mix(in srgb, var(--rj-glass) 35%, transparent), transparent); border-bottom-color: color-mix(in srgb, var(--rj-border) 45%, transparent); }
 </style>

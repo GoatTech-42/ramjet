@@ -606,4 +606,7 @@
   .composer { padding: 14px 20px 20px; } .composer textarea { border: 1px solid var(--rj-border); border-radius: 16px; }
   .bub { border: 1px solid var(--rj-border); } .m.mine .bub { border-color: transparent; }
   @media(max-width:760px) { .app { height: calc(100dvh - 90px - env(safe-area-inset-bottom)); } .top { padding: 24px 20px 18px; } .composer { padding: 12px 14px 8px; } }
+  .side, .chat { background: transparent; }
+  .side { border-right-color: color-mix(in srgb, var(--rj-border) 45%, transparent); }
+  .top, .composer { background: transparent; border-color: color-mix(in srgb, var(--rj-border) 45%, transparent); }
 </style>

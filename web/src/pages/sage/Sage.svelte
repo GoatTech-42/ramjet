@@ -415,4 +415,6 @@
     .list { padding: 16px 20px; } .composer { padding: 12px 16px 8px; }
     .bubble { max-width: 90%; } .empty .big { font-size: 26px; }
   }
+  .side { background: transparent; border-right-color: color-mix(in srgb, var(--rj-border) 45%, transparent); }
+  .top, .composer { background: transparent; }
 </style>
