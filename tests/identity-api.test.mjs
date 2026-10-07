@@ -27,7 +27,7 @@ test('populated stopped rename preserves API login, sessions, export and encrypt
   let server;
   try {
     for(const root of roots)new Auth(root).createUser('reviewer','storage-test-password');
-    server=await start(roots[0],15431);const {api}=server;
+    server=await start(roots[0],15433);const {api}=server;
     const pl=await api('/api/apps/amp/playlists',{name:'Persisted'});assert.equal(pl.status,200);
     assert.equal((await api('/api/apps/amp/playlists/rename',{id:pl.data.playlist.id,name:'Renamed'})).status,200);
     assert.equal((await api('/api/apps/jetstream/history',{id:'dQw4w9WgXcQ',title:'Saved video',duration:'3:00'})).status,200);
@@ -41,7 +41,7 @@ test('populated stopped rename preserves API login, sessions, export and encrypt
     const exported=await api('/api/auth/export');assert.equal(exported.data.jetstream_history[0].title,'Saved video');assert.equal(exported.data.amp_playlists[0].name,'Renamed');assert.equal(exported.data.browse_bookmarks[0].name,'Example');assert.equal(exported.data.sage_conversations[0].id,conv.data.id);
     const keyBefore=readFileSync(join(roots[0],'banter2/key'));assert.equal(statSync(join(roots[0],'banter2/key')).mode&0o777,0o600);
     const logs=readdirSync(join(roots[0],'banter2/msgs'));assert(logs.length);assert(!readFileSync(join(roots[0],'banter2/msgs',logs[0]),'utf8').includes('encrypted persistence fixture'));
-    const oldCookie=server.cookie;await server.stop();const plan=planIdentity(roots[0],'reviewer','renamed');applyIdentity(roots[0],plan);server=await start(roots[0],15431,'renamed');
+    const oldCookie=server.cookie;await server.stop();const plan=planIdentity(roots[0],'reviewer','renamed');applyIdentity(roots[0],plan);server=await start(roots[0],15433,'renamed');
     const existingSession=await fetch(server.base+'/api/auth/export',{headers:{cookie:oldCookie}});assert.equal(existingSession.status,200);assert.equal((await existingSession.json()).user,'renamed');
     assert.equal((await server.api('/api/apps/amp/playlists')).data.playlists[0].name,'Renamed');
     assert.equal((await server.api('/api/apps/jetstream/history')).data.items[0].title,'Saved video');

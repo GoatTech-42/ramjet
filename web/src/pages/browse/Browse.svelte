@@ -1,4 +1,5 @@
 <script>
+  import { lazySocketTransport } from '../../lib/lazy-transport.js';
   import { modal } from '../../lib/modal.js';
   import { readSearches, addSearch, clearSearches } from '../../lib/searchhist.js';
   import Recent from '../../lib/Recent.svelte';
@@ -236,22 +237,27 @@
     })();
   }
 
-  // transport: ws (default, box-side fetch over one multiplexed socket, with a box-side asset cache), epoxy (set rj-transport=epoxy) or libcurl (http/2 + connection reuse). pick with
+  // transport: ws (default, box-side fetch over one multiplexed socket), epoxy (set rj-transport=epoxy) or libcurl (http/2 + connection reuse). pick with
   // localStorage rj-transport = 'curl' while it is being compared.
-  async function makeTransport(Epoxy, wisp) {
+  async function makeTransport(wisp,mintedAt) {
+    const abEnabled=localStorage.getItem('rj-adblock')!=='off';
+    const refresh=async(base)=>{const r=await fetch('/api/wisp-ticket'+(abEnabled?'':'?ab=0'));if(!r.ok)throw new Error('proxy ticket unavailable');const j=await r.json();if(!j.ticket)throw new Error('proxy ticket unavailable');return base.replace(/\/(wisp|pws)-t\/[a-f0-9]+/,(_,kind)=>'/'+kind+'-t/'+j.ticket);};
+    const loadEpoxy=async()=>{const url='/epoxy/index.mjs';const m=await import(/* @vite-ignore */ url);const fresh=Date.now()-mintedAt<80000?wisp:await refresh(wisp);const transport=new m.default({wisp:fresh});await transport.init();return transport;};
     if ((localStorage.getItem('rj-transport') || 'ws') === 'ws') {
-      const epoxy = new Epoxy({ wisp });
+      const sockets = lazySocketTransport(loadEpoxy);
       const ab = localStorage.getItem('rj-adblock') !== 'off';
       const pwsUrl = wisp.replace('/wisp-t/', '/pws-t/');
       const toB64 = (buf) => { let s = ''; const u = new Uint8Array(buf); for (let i = 0; i < u.length; i += 0x8000) s += String.fromCharCode.apply(null, u.subarray(i, i + 0x8000)); return btoa(s); };
       let sock = null, opening = null, nextId = 1;
       const pend = new Map();
-      const freshUrl = async () => { try { const r = await fetch('/api/wisp-ticket' + (ab ? '' : '?ab=0')); const j = await r.json(); if (j && j.ticket) return pwsUrl.replace(/\/pws-t\/[a-f0-9]+/, '/pws-t/' + j.ticket); } catch {} return pwsUrl; };
+      let initialTicket=true;
+      const freshUrl=async()=>{if(initialTicket&&Date.now()-mintedAt<80000){initialTicket=false;return pwsUrl;}initialTicket=false;return refresh(pwsUrl);};
       const open = () => sock && sock.readyState === 1 ? Promise.resolve(sock) : opening || (opening = freshUrl().then((url) => new Promise((res, rej) => {
-        const w = new WebSocket(url); w.binaryType = 'arraybuffer';
-        w.onopen = () => { sock = w; opening = null; res(w); };
-        w.onerror = () => { opening = null; rej(new TypeError('proxy socket failed')); };
-        w.onclose = () => { sock = null; for (const [, p] of pend) p.fail('proxy socket closed'); pend.clear(); };
+        const w = new WebSocket(url); w.binaryType = 'arraybuffer';let connected=false;
+        const timeout=setTimeout(()=>{try{w.close();}catch{}opening=null;rej(new TypeError('proxy socket timed out'));},15000);
+        w.onopen = () => { connected=true;clearTimeout(timeout);sock = w; opening = null; res(w); };
+        w.onerror = () => { clearTimeout(timeout);opening = null; rej(new TypeError('proxy socket failed')); };
+        w.onclose = () => { clearTimeout(timeout);if(!connected){opening=null;rej(new TypeError('proxy socket refused'));}sock = null; for (const [, p] of pend) p.fail('proxy socket closed'); pend.clear(); };
         w.onmessage = (ev) => {
           const dv = new DataView(ev.data); const id = dv.getUint32(0); const type = dv.getUint8(4); const p = pend.get(id);
           if (!p) return;
@@ -263,9 +269,9 @@
       })).catch((e) => { opening = null; throw e; }));
       return {
         ready: false,
-        async init() { await epoxy.init(); this.ready = true; },
-        meta: () => epoxy.meta?.(),
-        connect: (...a) => epoxy.connect(...a),
+        async init() { this.ready = true; },
+        meta: sockets.meta,
+        connect: sockets.connect,
         async request(remote, method, body, headers, signal) {
           let b = null;
           if (body != null) {
@@ -295,14 +301,14 @@
       return new m.default({ wisp });
     }
     if (localStorage.getItem('rj-transport') === 'server') {
-      const epoxy = new Epoxy({ wisp });
+      const sockets = lazySocketTransport(loadEpoxy);
       const ab = localStorage.getItem('rj-adblock') !== 'off';
       const toB64 = (buf) => { let s = ''; const u = new Uint8Array(buf); for (let i = 0; i < u.length; i += 0x8000) s += String.fromCharCode.apply(null, u.subarray(i, i + 0x8000)); return btoa(s); };
       return {
         ready: false,
-        async init() { await epoxy.init(); this.ready = true; },
-        meta: () => epoxy.meta?.(),
-        connect: (...a) => epoxy.connect(...a),
+        async init() { this.ready = true; },
+        meta: sockets.meta,
+        connect: sockets.connect,
         async request(remote, method, body, headers, signal) {
           let b = null;
           if (body != null) {
@@ -317,7 +323,7 @@
         },
       };
     }
-    return new Epoxy({ wisp });
+    return loadEpoxy();
   }
 
   $effect(() => {
@@ -329,13 +335,13 @@
         if (!('serviceWorker' in navigator)) { failed = 'this browser is too old for browse'; return; }
         boot = 'loading the engine...';
         const { Controller } = globalThis.$scramjetController;
-        const EpoxyTransport = window.EpoxyTransport;
-        if (!Controller || !EpoxyTransport) { failed = 'engine files did not load - check your connection and reload'; return; }
+        if (!Controller) { failed = 'engine files did not load - check your connection and reload'; return; }
         boot = 'starting the worker...';
         // the worker, the tunnel ticket and the url key are independent, so
         // they load together instead of one after another.
         // some browsers (iOS Safari) withhold cookies on websocket upgrades,
         // so the tunnel authenticates with a short-lived ticket instead.
+        const ticketStarted=Date.now();
         const tkP = fetch('/api/wisp-ticket' + (localStorage.getItem('rj-adblock') === 'off' ? '?ab=0' : '')).then((r) => r.json()).catch(() => ({}));
         const kkP = fetch('/api/apps/browse/urlkey').then((r) => r.json()).catch(() => ({}));
         const swP = (async () => {
@@ -358,16 +364,9 @@
         const urlCodec = kk.key ? makeUrlCodec(kk.key) : undefined;
         const wispBase = (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host;
         const wispUrl = tk.ticket ? `${wispBase}/wisp-t/${tk.ticket}/` : `${wispBase}/wisp/`;
-        await new Promise((res, rej) => {
-          const probe = new WebSocket(wispUrl);
-          const t = setTimeout(() => { try { probe.close(); } catch {} ; rej(new Error('the tunnel timed out after 15s - this network may be blocking websockets')); }, 15000);
-          probe.onopen = () => { clearTimeout(t); probe.close(); res(); };
-          probe.onerror = () => { /* onclose carries the detail */ };
-          probe.onclose = (ev) => { clearTimeout(t); rej(new Error(`the tunnel was refused (code ${ev.code || 'none'})`)); };
-        });
         if (cancelled) return;
         boot = 'waking the proxy...';
-        const controller = new Controller({ serviceworker: sw, transport: await makeTransport(EpoxyTransport, wispUrl), ...(urlCodec ? { config: { codec: urlCodec } } : {}) });
+        const controller = new Controller({ serviceworker: sw, transport: await makeTransport(wispUrl,ticketStarted), ...(urlCodec ? { config: { codec: urlCodec } } : {}) });
         await Promise.race([
           controller.wait(),
           new Promise((_, rej) => setTimeout(() => rej(new Error('the proxy did not wake in time - reload to try again')), 15000)),
