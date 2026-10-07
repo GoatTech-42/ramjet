@@ -3,6 +3,7 @@
   import Recent from '../../lib/Recent.svelte';
   let qf = $state(false);
   import '../../tokens.css';
+  import AppFrame from '../../lib/AppFrame.svelte';
   import { onMount } from 'svelte';
   import { api } from '../../lib/api.js';
 
@@ -368,26 +369,21 @@
 
 <svelte:head><title>amp - ramjet</title></svelte:head>
 
+<AppFrame active="/amp">
 <div class="page" class:hasplayer={!!now}>
-  <header class="top">
-    <a class="back" href="/" aria-label="back to ramjet">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
-    </a>
-    <span class="brand">amp</span>
-    <span class="tagline">every catalog, one player</span>
-  </header>
+  <header class="top"><div><h1>Amp</h1><p>Your music, one queue.</p></div><a href="/settings#apps">Playback settings</a></header>
 
   <main class="wrap">
     <form class="search" onsubmit={search}>
-      <input bind:value={q} onfocus={() => (qf = true)} onblur={() => setTimeout(() => (qf = false), 150)} placeholder="song, artist, anything" autocomplete="off" />
+      <input bind:value={q} onfocus={() => (qf = true)} onblur={() => setTimeout(() => (qf = false), 150)} aria-label="Search music" placeholder="Search songs, artists or albums" autocomplete="off" />
       <Recent items={recentQ} query={q} focused={qf} onpick={(r) => { q = r; qf = false; search({ preventDefault() {} }); }} onclear={() => (recentQ = clearSearches('amp-searches'))} />
-      <button type="submit" disabled={busy}>{busy ? '...' : 'play'}</button>
+      <button type="submit" disabled={busy}>{busy ? 'Searching...' : 'Search'}</button>
     </form>
     <div class="chips">
       {#each chips as c}<button class="chip" onclick={() => chip(c)}>{c}</button>{/each}
     </div>
 
-    {#if error}<p class="error">{error}</p>{/if}
+    {#if error}<p class="error" role="alert">{error}</p>{/if}
 
     {#if !searched && !busy}
       {#if recents.length}
@@ -421,13 +417,13 @@
         </div>
       {:else}
         <div class="empty">
-          <p class="big">one search, three catalogs.</p>
-          <p class="dim">youtube music, soundcloud and audius at once. tap a song and the list plays through.</p>
+          <p class="big">Find your next favorite.</p>
+          <p class="dim">Search YouTube Music, SoundCloud and Audius together. Play a song to start a queue.</p>
         </div>
       {/if}
       {#if showNewPl || newPlName}
         <form class="newpl" onsubmit={createPlaylist}>
-          <input bind:value={newPlName} placeholder="name a new playlist" maxlength="40" autocomplete="off" />
+          <input bind:value={newPlName} aria-label="Playlist name" placeholder="Playlist name" maxlength="40" autocomplete="off" />
           <button type="submit" disabled={!newPlName.trim()}>create</button>
         </form>
       {:else}
@@ -500,7 +496,7 @@
         {/each}
         {#if !playlists.length}<p class="sheet-sub">no playlists yet - name one below</p>{/if}
         <form class="newpl" onsubmit={createAndSave}>
-          <input bind:value={newPlName} placeholder="name a new playlist" maxlength="40" autocomplete="off" />
+          <input bind:value={newPlName} aria-label="Playlist name" placeholder="Playlist name" maxlength="40" autocomplete="off" />
           <button type="submit" disabled={!newPlName.trim()}>create</button>
         </form>
       </div>
@@ -573,31 +569,30 @@
   {/if}
 </div>
 
+</AppFrame>
+
 <style>
-  .page { min-height: 100dvh; background: var(--rj-bg); color: var(--rj-text); padding-bottom: 24px; }
-  .page.hasplayer { padding-bottom: 196px; }
-  .top { display: flex; align-items: center; gap: 10px; padding: 14px 16px; max-width: 760px; margin: 0 auto; }
-  .back { width: 38px; height: 38px; display: grid; place-items: center; border-radius: 12px; background: var(--rj-surface); color: var(--rj-text); }
-  .back svg { width: 20px; height: 20px; }
-  .brand { font-size: 22px; font-weight: 800; letter-spacing: 0.5px; color: var(--rj-accent); }
-  .tagline { font-size: 13px; color: var(--rj-text-dim); }
-  .wrap { max-width: 760px; margin: 0 auto; padding: 0 16px; }
-  .search { display: flex; gap: 8px; min-width: 0; }
-  .search input { flex: 1; min-width: 0; background: var(--rj-surface); border: 1px solid var(--rj-border); color: var(--rj-text); border-radius: 14px; padding: 13px 16px; font-size: 16px; outline: none; }
-  .search input:focus { border-color: var(--rj-accent); }
-  .search button { background: var(--rj-accent); color: var(--rj-accent-ink); border: 0; border-radius: 14px; padding: 0 22px; font-size: 15px; font-weight: 700; min-height: 44px; }
-  .chips { display: flex; gap: 8px; flex-wrap: wrap; margin: 12px 0 4px; }
-  .chip { background: var(--rj-surface); border: 1px solid var(--rj-border); color: var(--rj-text-dim); border-radius: 999px; padding: 8px 14px; font-size: 13px; min-height: 36px; }
-  .chip:hover { color: var(--rj-text); border-color: var(--rj-accent); }
-  .error { color: #ff7b72; font-size: 14px; padding: 10px 2px; }
-  .empty { text-align: center; padding: 64px 20px; }
-  .empty .big { font-size: 24px; font-weight: 800; margin: 0 0 10px; }
-  .empty .dim { color: var(--rj-text-dim); font-size: 15px; margin: 0; }
-  .list { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
-  .row { display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; background: var(--rj-surface); border: 1px solid transparent; border-radius: 14px; padding: 8px; color: var(--rj-text); min-height: 44px; }
-  .row:hover { border-color: var(--rj-border); }
-  .row.active { border-color: var(--rj-accent); }
-  .row img, .row .noart { width: 52px; height: 52px; border-radius: 10px; object-fit: cover; background: #191c22; flex: none; }
+  .page { min-height: 100dvh; padding: 32px 40px 48px; color: var(--rj-text); max-width: 1220px; margin: 0 auto; }
+  .page.hasplayer { padding-bottom: 230px; }
+  .top { display: flex; justify-content: space-between; align-items: center; gap: 20px; margin-bottom: 32px; }
+  h1 { margin: 0 0 8px; font-size: 34px; font-weight: 600; letter-spacing: -.04em; }
+  .top p { margin: 0; color: var(--rj-text-dim); font-size: 15px; } .top a { color: var(--rj-text-dim); font-size: 13px; }
+  .wrap { min-width: 0; }
+  .search { position: relative; display: flex; gap: 8px; padding: 7px; border: 1px solid var(--rj-border); background: var(--rj-surface); border-radius: 20px; max-width: 760px; }
+  .search input { flex: 1; min-width: 0; min-height: 44px; padding: 0 12px; font-size: 16px; color: var(--rj-text); background: none; border: 0; border-radius: 12px; }
+  .search input::placeholder { color: var(--rj-text-faint); }
+  .search button { border: 0; background: var(--rj-accent); color: var(--rj-accent-ink); padding: 0 20px; border-radius: 13px; font-weight: 600; font-size: 14px; }
+  .chips { display: flex; gap: 8px; flex-wrap: wrap; margin: 14px 0 30px; }
+  .chip { background: none; border: 1px solid var(--rj-border); color: var(--rj-text-dim); border-radius: 999px; min-height: 38px; padding: 8px 14px; font-size: 13px; }
+  .chip:hover { background: var(--rj-surface-2); color: var(--rj-text); }
+  .error { color: var(--rj-danger); padding: 12px 0; font-size: 14px; }
+  .empty { padding: 80px 24px; text-align: left; max-width: 500px; }
+  .empty .big { margin: 0 0 14px; font-size: 28px; font-weight: 600; letter-spacing: -.035em; }
+  .empty .dim { margin: 0; color: var(--rj-text-dim); font-size: 15px; line-height: 1.7; }
+  .list { display: grid; gap: 8px; margin-top: 18px; }
+  .row { display: flex; align-items: center; gap: 14px; width: 100%; text-align: left; padding: 12px; border: 1px solid var(--rj-border); border-radius: 16px; background: var(--rj-surface); color: var(--rj-text); min-height: 72px; }
+  .row:hover { background: var(--rj-hover); } .row.active { border-color: var(--rj-accent); }
+  .row img,.row .noart { width: 48px; height: 48px; border-radius: 10px; object-fit: cover; background: var(--rj-surface-2); flex: none; }
   .meta { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
   .title { font-size: 15px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .sub { font-size: 13px; color: var(--rj-text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -607,7 +602,7 @@
   .pls { display: flex; flex-direction: column; gap: 6px; }
   .plrow { display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; background: var(--rj-surface); border: 1px solid transparent; border-radius: 14px; padding: 8px; color: var(--rj-text); min-height: 44px; }
   .plrow:hover { border-color: var(--rj-border); }
-  .plrow img, .plart { width: 52px; height: 52px; border-radius: 10px; object-fit: cover; background: #191c22; flex: none; }
+  .plrow img, .plart { width: 52px; height: 52px; border-radius: 10px; object-fit: cover; background: var(--rj-surface-2); flex: none; }
   .plmeta { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
   .plname { font-size: 15px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .plcount { font-size: 13px; color: var(--rj-text-dim); flex: none; }
@@ -635,16 +630,16 @@
   .rowact { width: 36px; height: 36px; flex: none; border-radius: 50%; background: none; color: var(--rj-text-dim); display: grid; place-items: center; cursor: pointer; }
   .rowact:hover { color: var(--rj-accent); background: var(--rj-surface-2); }
   .rowact svg { width: 18px; height: 18px; }
-  .overlay { position: fixed; inset: 0; z-index: 40; background: rgba(0,0,0,0.6); display: flex; align-items: flex-end; justify-content: center; }
+  .overlay { position: fixed; inset: 0; z-index: 100; background: rgba(0,0,0,0.6); display: flex; align-items: flex-end; justify-content: center; }
   .sheet { width: 100%; max-width: 560px; background: var(--rj-surface); border: 1px solid var(--rj-border); border-radius: 18px 18px 0 0; padding: 18px 16px calc(18px + env(safe-area-inset-bottom)); display: flex; flex-direction: column; gap: 8px; max-height: 70dvh; overflow-y: auto; }
   .sheet-h { margin: 0; font-size: 16px; font-weight: 700; }
   .sheet-sub { margin: -2px 0 4px; font-size: 13px; color: var(--rj-text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .sheetrow { display: flex; justify-content: space-between; align-items: center; gap: 10px; width: 100%; text-align: left; background: var(--rj-bg); border: 1px solid var(--rj-border); border-radius: 12px; padding: 12px 14px; color: var(--rj-text); font-size: 15px; min-height: 44px; }
   .sheetrow:hover { border-color: var(--rj-accent); }
   .toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: 204px; z-index: 50; background: var(--rj-surface-2); border: 1px solid var(--rj-border); color: var(--rj-text); border-radius: 999px; padding: 10px 18px; font-size: 14px; white-space: nowrap; box-shadow: 0 6px 24px rgba(0,0,0,0.4); }
-  .player { position: fixed; left: 0; right: 0; bottom: 0; z-index: 20; display: flex; flex-wrap: wrap; gap: 12px; align-items: center; padding: 12px 16px calc(12px + env(safe-area-inset-bottom)); background: rgba(10, 11, 14, 0.92); backdrop-filter: blur(14px); border-top: 1px solid var(--rj-border); }
+  .player { position: fixed; left: 120px; right: 24px; bottom: 20px; z-index: 20; border-radius: 20px; border: 1px solid var(--rj-border); display: flex; flex-wrap: wrap; gap: 12px; align-items: center; padding: 12px 16px calc(12px + env(safe-area-inset-bottom)); background: var(--rj-glass); backdrop-filter: blur(14px); border-top: 1px solid var(--rj-border); }
   .p-art { padding: 0; border: 0; background: none; flex: none; }
-  .p-art img, .p-art .noart { width: 56px; height: 56px; border-radius: 12px; object-fit: cover; background: #191c22; display: block; }
+  .p-art img, .p-art .noart { width: 56px; height: 56px; border-radius: 12px; object-fit: cover; background: var(--rj-surface-2); display: block; }
   .p-meta { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
   .p-title { font-size: 15px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .plplay { display: flex; gap: 8px; margin: 4px 0 10px; }
@@ -667,7 +662,7 @@
   .p-extra button { flex: 1; min-height: 36px; border-radius: 999px; border: 1px solid var(--rj-border); background: var(--rj-surface); color: var(--rj-text-dim); font-size: 13px; font-weight: 600; }
   .p-extra button.on { color: var(--rj-accent-ink); background: var(--rj-accent); border-color: var(--rj-accent); }
   .p-btns .pp svg { width: 24px; height: 24px; }
-  .qsheet { position: fixed; left: 0; right: 0; bottom: 196px; max-height: 50dvh; overflow-y: auto; background: var(--rj-surface); border-top: 1px solid var(--rj-border); border-radius: 16px 16px 0 0; padding: 8px 12px; max-width: 760px; margin: 0 auto; z-index: 30; }
+  .qsheet { position: fixed; left: 120px; right: 24px; bottom: 220px; max-height: 50dvh; overflow-y: auto; background: var(--rj-surface); border-top: 1px solid var(--rj-border); border-radius: 16px 16px 0 0; padding: 8px 12px; max-width: 760px; margin: 0 auto; z-index: 30; }
   .qhead { display: flex; justify-content: space-between; align-items: center; padding: 6px 4px 8px; font-size: 14px; }
   .qhead button { background: none; border: 0; color: var(--rj-text-dim); font-size: 13px; min-height: 36px; }
   .qrow { display: flex; gap: 4px; align-items: center; border-bottom: 1px solid var(--rj-border); color: var(--rj-text); }
@@ -678,21 +673,14 @@
   .qt { display: flex; flex-direction: column; min-width: 0; }
   .qtt, .qa { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .qa { font-size: 12px; color: var(--rj-text-dim); }
-  @media (min-width: 1000px) { .top, .wrap { max-width: 1040px; } }
-  /* amp desktop v2 */
-  @media (min-width: 1100px) {
-    .wrap { max-width: 1240px; padding-bottom: 150px; }
-    .search { max-width: 760px; margin-left: auto; margin-right: auto; }
-    .chips { justify-content: center; }
-    .wrap .list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 20px; }
-    .wrap .pls { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px 16px; }
-    .home-h { margin-top: 28px; }
-    .wrap .empty { padding: 60px 0; text-align: center; }
+  @media (min-width: 1000px) { .list { grid-template-columns: repeat(2,minmax(0,1fr)); } .pls { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); } }
+  @media (max-width: 760px) {
+    .page { min-height: calc(100dvh - 84px - env(safe-area-inset-bottom)); padding: 28px 20px 32px; }
+    .top { gap: 12px; margin-bottom: 28px; } h1 { font-size: 30px; } .top a { max-width: 90px; text-align: right; line-height: 1.5; }
+    .search button { padding: 0 14px; } .chips { margin-bottom: 20px; } .empty { padding: 56px 4px; }
+    .player { left: 10px; right: 10px; bottom: calc(80px + env(safe-area-inset-bottom)); padding: 12px; gap: 10px; }
+    .p-art img,.p-art .noart { width: 44px; height: 44px; } .p-btns button { width: 36px; height: 40px; }
+    .qsheet { left: 10px; right: 10px; bottom: calc(275px + env(safe-area-inset-bottom)); max-height: 40dvh; }
+    .toast { bottom: calc(285px + env(safe-area-inset-bottom)); } .page.hasplayer { padding-bottom: 250px; }
   }
-  @media (min-width: 1700px) {
-    .wrap { max-width: 1560px; }
-    .wrap .list { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-    .wrap .pls { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-  }
-  form.search { position: relative; }
 </style>
