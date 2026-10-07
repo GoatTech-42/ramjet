@@ -1,4 +1,5 @@
 <script>
+  import { modal } from '../../lib/modal.js';
   import '../../tokens.css';
   import AppFrame from '../../lib/AppFrame.svelte';
   import { onMount, tick } from 'svelte';
@@ -416,7 +417,8 @@
 
 {#if sheet}
   <div class="overlay" onclick={() => (sheet = '')}>
-    <div class="sheet" onclick={(e) => e.stopPropagation()}>
+    <div class="sheet" role="dialog" aria-modal="true" aria-label="Chat options" tabindex="-1" use:modal={() => { sheet = ''; }} onclick={(e) => e.stopPropagation()}>
+        <button class="sheet-close" type="button" aria-label="Close chat options" onclick={() => { sheet = ''; }}>Close</button>
       {#if sheet === 'new'}
         <p class="sh">new group</p>
         <input class="field" placeholder="group name" maxlength="40" bind:value={draftName} onkeydown={(e) => e.key === 'Enter' && createGroup()} />
@@ -609,4 +611,5 @@
   .side, .chat { background: transparent; }
   .side { border-right-color: color-mix(in srgb, var(--rj-border) 45%, transparent); }
   .top, .composer { background: transparent; border-color: color-mix(in srgb, var(--rj-border) 45%, transparent); }
+  .sheet-close { align-self: flex-end; min-height: 40px; padding: 8px 14px; background: var(--rj-surface-2); color: var(--rj-text); border: 1px solid var(--rj-border); border-radius: 12px; }
 </style>

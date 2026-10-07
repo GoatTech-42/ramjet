@@ -1,4 +1,5 @@
 <script>
+  import { modal } from '../../lib/modal.js';
   import '../../tokens.css';
   import AppFrame from '../../lib/AppFrame.svelte';
   import { api } from '../../lib/api.js';
@@ -278,7 +279,8 @@
 
   {#if sheetOpen}
     <div class="overlay" onclick={() => { sheetOpen = false; }}>
-      <div class="sheet" onclick={(e) => e.stopPropagation()}>
+      <div class="sheet" role="dialog" aria-modal="true" aria-label="Your chats" tabindex="-1" use:modal={() => { sheetOpen = false; }} onclick={(e) => e.stopPropagation()}>
+        <button class="sheet-close" type="button" aria-label="Close your chats" onclick={() => { sheetOpen = false; }}>Close</button>
         {@render convlist()}
       </div>
     </div>
@@ -417,4 +419,5 @@
   }
   .side { background: transparent; border-right-color: color-mix(in srgb, var(--rj-border) 45%, transparent); }
   .top, .composer { background: transparent; }
+  .sheet-close { align-self: flex-end; min-height: 40px; padding: 8px 14px; background: var(--rj-surface-2); color: var(--rj-text); border: 1px solid var(--rj-border); border-radius: 12px; }
 </style>

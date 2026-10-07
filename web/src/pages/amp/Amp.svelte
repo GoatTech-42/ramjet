@@ -1,4 +1,5 @@
 <script>
+  import { modal } from '../../lib/modal.js';
   import { readSearches, addSearch, clearSearches } from '../../lib/searchhist.js';
   import Recent from '../../lib/Recent.svelte';
   let qf = $state(false);
@@ -492,7 +493,8 @@
 
   {#if saveTarget}
     <div class="overlay" onclick={() => { saveTarget = null; }}>
-      <div class="sheet" onclick={(e) => e.stopPropagation()}>
+      <div class="sheet" role="dialog" aria-modal="true" aria-label="Save to a playlist" tabindex="-1" use:modal={() => { saveTarget = null; }} onclick={(e) => e.stopPropagation()}>
+        <button class="sheet-close" type="button" aria-label="Close save to a playlist" onclick={() => { saveTarget = null; }}>Close</button>
         <p class="sheet-h">save to a playlist</p>
         <p class="sheet-sub">{saveTarget.title}</p>
         {#each playlists as p (p.id)}
@@ -692,4 +694,5 @@
     .qsheet { left: 10px; right: 10px; bottom: calc(275px + env(safe-area-inset-bottom)); max-height: 40dvh; }
     .toast { bottom: calc(285px + env(safe-area-inset-bottom)); } .page.hasplayer { padding-bottom: 250px; }
   }
+  .sheet-close { align-self: flex-end; min-height: 40px; padding: 8px 14px; background: var(--rj-surface-2); color: var(--rj-text); border: 1px solid var(--rj-border); border-radius: 12px; }
 </style>
