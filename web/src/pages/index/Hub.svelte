@@ -191,7 +191,7 @@
 <main class:desktop={layout === 'dock'} class:grid={layout === 'grid'}>
   <header class="home-heading">
     <a class="brand" href="/">ramjet<span>.</span></a>
-    <div class="account"><button class="jump" onclick={() => window.rjPalette?.open()} aria-label="Open command palette">Jump to</button><a href="/settings">{user || 'Your account'}</a><button onclick={logout}>Log out</button></div>
+    <details class="account-menu"><summary aria-label="Account menu">{user ? user.slice(0,1).toUpperCase() : 'Account'}</summary><div><p>{user}</p><a href="/settings#account">Account settings</a><button onclick={logout}>Log out</button></div></details>
   </header>
   <section class="welcome">
     <h1>{hello}{user ? ', ' + user : ''}.</h1>
@@ -204,16 +204,7 @@
       <button class="go" aria-label="Search">Search</button>
       {@render drop()}
     </form>
-    <div class="chips" aria-label="Search mode">{#each [['web', 'Web'], ['video', 'Videos'], ['ask', 'Ask Sage']] as [k, n]}<button class="chip" class:on={smode === k} aria-pressed={smode === k} onclick={() => (smode = k)}>{n}</button>{/each}</div>
-  </section>
-  <section class="launcher" aria-label="Open an app">
-    {#each apps as app}
-      <a class="app-card" href={app.path} aria-label={app.name[0].toUpperCase() + app.name.slice(1)}>
-        <span class="tile"><svg viewBox="0 0 24 24" aria-hidden="true"><path d={app.icon} /></svg></span>
-        <span class="txt"><strong>{app.name[0].toUpperCase() + app.name.slice(1)}</strong><span>{live[app.name] || app.desc}</span></span>
-        {#if app.name === 'banter' && unread}<span class="unread">{unread > 99 ? '99+' : unread}</span>{/if}
-      </a>
-    {/each}
+    <label class="scope">Search in <select bind:value={smode} aria-label="Search scope"><option value="web">The web</option><option value="video">Videos</option><option value="ask">Sage answers</option></select></label>
   </section>
   {#if layout === 'dock'}
     <div class="deskbar">
@@ -296,11 +287,11 @@
         </div>
       </section>
     {/if}
-    {#if loaded && !startOff && todo.length}
-      <section class="setup" aria-label="Get started">
-        <div class="section-heading"><h2>Make it yours</h2><button onclick={hideStart}>Hide</button></div>
-        {#each todo.slice(0, 3) as st}<a href={st.href}><b>{st.t}</b><span>{st.d}</span><span aria-hidden="true">↗</span></a>{/each}
-      </section>
+    {#if sites && sites.length}
+      <section class="saved-sites"><h2>Saved sites</h2><div class="site-list">{#each sites as site}<button onclick={() => openSite(site)}><span class="site-letter">{siteLetter(site)}</span><span>{site.name || site.url}</span><span aria-hidden="true">↗</span></button>{/each}</div></section>
+    {/if}
+    {#if loaded && !(cont && cont.length) && !music && !(sites && sites.length)}
+      <section class="home-empty"><h2>A fresh start.</h2><p>Recently watched videos, music and saved sites will live here.</p></section>
     {/if}
   {/if}
   {#if sys && layout !== 'dock'}<details class="system"><summary>System details</summary><p>Version {sys.version} · uptime {dur(sys.uptime)} · load {sys.load}/{sys.cpus} · cache {sys.cacheMB} MB · {sys.rtt} ms</p></details>{/if}
@@ -338,5 +329,12 @@
   .nt,.tf input { width: 100%; min-width: 0; padding: 10px; background: var(--rj-surface-2); color: var(--rj-text); border: 1px solid var(--rj-border); border-radius: 10px; font-size: 14px; } .nt { resize: vertical; } .tl { list-style: none; padding: 0; } .tl li { display: flex; align-items: center; gap: 7px; margin: 8px 0; font-size: 13px; } .tl li span { flex: 1; overflow-wrap: anywhere; } .tk,.tx { border: 1px solid var(--rj-border); background: var(--rj-surface-2); border-radius: 5px; min-width: 22px; height: 22px; } .done span { text-decoration: line-through; } .fm { font-size: 36px; margin: 8px 0; } .sysl { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 12px; } .sysl dd { margin: 0; } .addback { display: flex; flex-wrap: wrap; gap: 8px; }
   .sdrop { position: absolute; top: calc(100% + 8px); left: 0; right: 0; z-index: 50; border: 1px solid var(--rj-border); background: var(--rj-surface); padding: 12px; border-radius: 16px; box-shadow: var(--rj-shadow); } .sdh { display: flex; justify-content: space-between; font-size: 12px; color: var(--rj-text-dim); } .sdh button { background: none; border: 0; color: var(--rj-text-dim); } .sdi { display: flex; gap: 10px; width: 100%; align-items: center; min-height: 44px; border: 0; background: none; text-align: left; } .sdi svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.5; }
   @media(max-width: 1000px) { main { padding: 28px 24px 48px; } .launcher { grid-template-columns: repeat(2,minmax(0,1fr)); } .desk { grid-template-columns: repeat(2,minmax(0,1fr)); } .sz-l { grid-column: span 2; } }
-  @media(max-width: 760px) { :global(#rjp-b) { display: none !important; } .account .jump { font-size: 12px; } main { padding: 24px 20px 36px; } .welcome { margin-top: 40px; } .account { gap: 12px; } .app-card { padding: 18px; min-height: 148px; } .txt span { font-size: 12px; } .setup>a { grid-template-columns: 1fr 20px; gap: 7px; } .setup a span:first-of-type { grid-column: 1; grid-row: 2; } .setup a span:last-child { grid-column: 2; grid-row: 1 / span 2; } .go { padding: 0 14px; } .desk { grid-template-columns: minmax(0,1fr); } .sz-m,.sz-l { grid-column: auto; } }
+  @media(max-width: 760px) { main { padding: 24px 20px 36px; } .welcome { margin-top: 40px; } .account { gap: 12px; } .app-card { padding: 18px; min-height: 148px; } .txt span { font-size: 12px; } .setup>a { grid-template-columns: 1fr 20px; gap: 7px; } .setup a span:first-of-type { grid-column: 1; grid-row: 2; } .setup a span:last-child { grid-column: 2; grid-row: 1 / span 2; } .go { padding: 0 14px; } .desk { grid-template-columns: minmax(0,1fr); } .sz-m,.sz-l { grid-column: auto; } }
+
+  .account-menu { position: relative; } .account-menu summary { list-style: none; cursor: pointer; width: 40px; height: 40px; display: grid; place-items: center; background: var(--rj-surface-2); border: 1px solid var(--rj-border); border-radius: 50%; font-size: 14px; font-weight: 600; }
+  .account-menu summary::-webkit-details-marker { display: none; } .account-menu>div { position: absolute; right: 0; top: calc(100% + 10px); z-index: 50; min-width: 210px; padding: 10px; background: var(--rj-surface); border: 1px solid var(--rj-border); border-radius: 16px; box-shadow: var(--rj-shadow); } .account-menu p { font-size: 13px; color: var(--rj-text-dim); margin: 8px 10px 12px; } .account-menu a,.account-menu button { display: block; width: 100%; padding: 10px; text-align: left; border: 0; background: none; border-radius: 8px; font-size: 14px; } .account-menu a:hover,.account-menu button:hover { background: var(--rj-hover); }
+  .scope { display: flex; align-items: center; gap: 8px; margin-top: 12px; font-size: 13px; color: var(--rj-text-dim); } .scope select { padding: 6px 8px; background: none; color: var(--rj-text); border: 1px solid var(--rj-border); border-radius: 8px; font-size: 13px; } .scope option { background: var(--rj-surface); }
+  .home-empty { margin: 72px 0 36px; max-width: 420px; } .home-empty h2 { font-size: 26px; margin-bottom: 12px; } .home-empty p { color: var(--rj-text-dim); font-size: 15px; line-height: 1.7; margin: 0; }
+  .saved-sites { margin-top: 36px; } .site-list { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 10px; } .site-list button { display: flex; gap: 12px; align-items: center; min-width: 0; border: 1px solid var(--rj-border); background: var(--rj-surface); border-radius: 14px; padding: 12px; text-align: left; font-size: 14px; } .site-list button span:nth-child(2) { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .site-letter { display: grid; place-items: center; width: 36px; height: 36px; flex: none; background: var(--rj-surface-2); border-radius: 10px; }
+  @media(max-width:760px) { .site-list { grid-template-columns: minmax(0,1fr); } :global(#rjp-b) { bottom: calc(90px + env(safe-area-inset-bottom)) !important; } }
 </style>
