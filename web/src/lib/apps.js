@@ -5,5 +5,5 @@ export const apps = [
   { name: 'Amp', path: '/amp', icon: 'M9 18a3 3 0 1 1-2-2.8V5l11-2v12a3 3 0 1 1-2-2.8V7L9 8.5z' },
   { name: 'Sage', path: '/sage', icon: 'm12 3 2.5 6.5L21 12l-6.5 2.5L12 21l-2.5-6.5L3 12l6.5-2.5z' },
   { name: 'Banter', path: '/banter', icon: 'M3 4h18v14H9l-6 4z' },
-  { name: 'Settings', path: '/settings', icon: 'M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8M9 2h6l1 4 4 1 2 5-3 3v4l-5 3-3-3H7l-4-4 1-4-2-3 3-5h4z' },
+  { name: 'Settings', path: '/settings', icon: 'M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8zM9 3h6l1 3 3 1 2 5-2 5-3 1-1 3H9l-1-3-3-1-2-5 2-5 3-1z' },
 ];

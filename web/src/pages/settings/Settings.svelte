@@ -54,6 +54,7 @@
     look = { mode: 'system' };
     try { localStorage.removeItem('rj-theme'); } catch {}
     window.__rjTheme?.(null);
+    setWall('none');
   }
   import { techOn, setTech } from '../../lib/tech.js';
   let tech = $state(techOn());
@@ -239,7 +240,7 @@
       <div class="cols">
       <section class="card"><h3>Saved-style presets</h3>
         <div class="seg wrapseg">{#each PRESETS as [n, v]}<button class:on={isPreset(v)} onclick={() => setPreset(v)}>{n}</button>{/each}</div></section>
-      <section class="card"><h3>wallpaper</h3><p class="hint">behind every page</p>
+      <section class="card wallpaper-card"><h3>wallpaper</h3><p class="hint">behind every page</p>
         <div class="walls">{#each WALLS as [k, n]}<button class="wp2" class:on={wall === k} onclick={() => setWall(k)}><i class="wc wall-{k}"></i><span>{n}</span></button>{/each}</div></section>
       <section class="card"><h3>surface</h3>
         <div class="seg"><button class:on={look.skin !== 'glass'} onclick={() => setLook('skin', '')}>flat</button><button class:on={look.skin === 'glass'} onclick={() => setLook('skin', 'glass')}>liquid glass</button></div>
@@ -458,7 +459,7 @@
     .subtop { top: 50px; }
   }
 
-  .card { padding: 22px; border-radius: 20px; } .cols { grid-template-columns: repeat(auto-fit,minmax(min(100%,300px),1fr)); } .ph { font-size: 25px; font-weight: 600; margin-bottom: 6px; }
+  .card { padding: 22px; border-radius: 20px; } .cols { min-width: 0; grid-template-columns: repeat(2,minmax(0,1fr)); } .card { min-width: 0; } .wallpaper-card { grid-column: 1 / -1; } .walls { grid-template-columns: repeat(auto-fill,minmax(110px,1fr)); } .ph { font-size: 25px; font-weight: 600; margin-bottom: 6px; }
   .snav button { min-height: 44px; } .seg button { min-height: 40px; }
-  @media(max-width:760px) { .page { min-height: calc(100dvh - 90px - env(safe-area-inset-bottom)); padding: 28px 20px 40px; } .shell { grid-template-columns: minmax(0,1fr); gap: 20px; padding: 0; } .snav { position: static; display: flex; overflow-x: auto; gap: 5px; padding-bottom: 8px; } .snav button { flex: none; padding: 10px 12px; font-size: 13px; } .card { padding: 20px; } h1 { font-size: 30px; } }
+  @media(max-width:760px) { .cols { grid-template-columns: minmax(0,1fr); } .subtop { display: grid; grid-template-columns: minmax(0,1fr) auto; } .subtop h2 { grid-column: 1 / -1; grid-row: 2; font-size: 24px; } .back2 { justify-self: start; } .page { min-height: calc(100dvh - 90px - env(safe-area-inset-bottom)); padding: 28px 20px 40px; } .shell { grid-template-columns: minmax(0,1fr); gap: 20px; padding: 0; } .snav { position: static; display: flex; overflow-x: auto; gap: 5px; padding-bottom: 8px; } .snav button { flex: none; padding: 10px 12px; font-size: 13px; } .card { padding: 20px; } h1 { font-size: 30px; } }
 </style>
