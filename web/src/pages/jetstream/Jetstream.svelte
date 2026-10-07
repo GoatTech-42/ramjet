@@ -1604,14 +1604,13 @@ network {stats.net} · ready {stats.ready}</pre>
         <p class="hist-h">watch later</p>
         <div class="hist">
           {#each later as v (v.id)}
-            <button class="hcard" onclick={() => openLater(v)}>
+            <div class="hcard saved-card"><button class="saved-open" onclick={() => openLater(v)} aria-label={'Play saved video ' + v.title}>
               <span class="hthumb">
                 <img src={lthumb(v.id)} alt="" loading="lazy" onerror={(e) => { e.currentTarget.style.visibility = 'hidden'; }} />
-                <span class="hx" role="button" tabindex="-1" aria-label="remove from watch later" onclick={(e) => { e.stopPropagation(); toggleLater(v); }}>x</span>
               </span>
               <span class="htitle">{v.title}</span>
               <span class="hchan">{v.channel}</span>
-            </button>
+            </button><button type="button" class="hx" aria-label={'Remove saved video ' + v.title} onclick={() => toggleLater(v)}>x</button></div>
           {/each}
         </div>
       {/if}
@@ -1619,14 +1618,13 @@ network {stats.net} · ready {stats.ready}</pre>
         <p class="hist-h">keep watching</p>
         <div class="hist">
           {#each history as v (v.id)}
-            <button class="hcard" onclick={() => watch(v)}>
+            <div class="hcard saved-card"><button class="saved-open" onclick={() => watch(v)} aria-label={'Continue video ' + v.title}>
               <span class="hthumb">
                 <img src={lthumb(v.id)} alt="" loading="lazy" onerror={(e) => { e.currentTarget.style.visibility = 'hidden'; }} />
-                <span class="hx" role="button" tabindex="-1" aria-label="remove from keep watching" onclick={(e) => removeHistory(v, e)}>x</span>
               </span>
               <span class="htitle">{v.title}</span>
               <span class="hchan">{v.channel}</span>
-            </button>
+            </button><button type="button" class="hx" aria-label={'Remove continue video ' + v.title} onclick={(e) => removeHistory(v, e)}>x</button></div>
           {/each}
         </div>
       {/if}
@@ -1802,6 +1800,9 @@ network {stats.net} · ready {stats.ready}</pre>
   .err { margin: 0 6px 12px; color: var(--rj-danger); font-size: 13px; }
   .results { display: grid; gap: 4px; }
   .hist-h { font-size: 14px; font-weight: 700; color: var(--rj-text-dim); margin: 18px 2px 8px; }
+  .saved-card { position: relative; }
+  .saved-open { display: block; padding: 0; width: 100%; border: 0; background: none; color: inherit; text-align: left; }
+  .saved-card > .hx { position: absolute; top: 5px; right: 5px; border: 0; }
   .hist { display: flex; gap: 10px; overflow-x: auto; padding-bottom: 6px; scrollbar-width: none; }
   .hist::-webkit-scrollbar { display: none; }
   .fygrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px; }
