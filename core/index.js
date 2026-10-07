@@ -1,5 +1,5 @@
 import { dataPath, DATA_ROOT } from './data.js';
-import { cseGate, cseBudgetLeft } from './cse-gate.js';
+import { searchUpstream } from './search-upstream.js';
 import { createServer, request as httpRequest } from 'node:http';
 import { request as httpsRequest } from 'node:https';
 import { readFileSync, existsSync, readdirSync, statSync } from 'node:fs';
@@ -124,52 +124,28 @@ function sxCrumb(u) {
 }
 // search speed: a 5-minute result cache (repeat searches, back button, page
 // reloads answer from memory) and general searches pinned to the two engines
-// that actually return results - searxng's default fan-out spends ~0.3s more
-// waiting on engines that are suspended or slow.
+// that return results, with explicit non-CSE fallbacks during budget/cooldown.
 const SX_CACHE = new Map();
 const SX_TTL = 5 * 60 * 1000;
+const SX_BUSY = new Map();
 async function sxFetch(query, page, cat, safe) {
-	const key = [query.toLowerCase(), page, cat, safe].join('|');
-	const hit = SX_CACHE.get(key);
-	if (hit && Date.now() - hit.at < (cat === 'images' ? 30 * 60 * 1000 : SX_TTL)) return hit.v;
-	const general = !cat || cat === 'general';
-	let v = await sxFetchRaw(query, page, cat, safe, general);
-	if (cat === 'images' && page === 1 && v.data && Array.isArray(v.data.results)) {
-		const extra = []; for (const p of [2, 3, 4, 5]) { if (cseBudgetLeft() < 4) break; const ex = await sxFetchRaw(query, p, cat, safe, false); extra.push(ex); if (!ex.data || !ex.data.results || !ex.data.results.length) break; }
-		const isC = (r) => String(r.engine || '').includes('cse');
-		const seen = new Set(), all = [];
-		const add = (r) => { const k = r.img_src || r.url; if (!k || seen.has(k)) return; seen.add(k); all.push(r); };
-		v.data.results.filter(isC).forEach(add);
-		extra.forEach((e) => e.data && Array.isArray(e.data.results) && e.data.results.filter(isC).forEach(add));
-		v.data.results.filter((r) => !isC(r)).forEach(add);
-		v.data.results = all;
-	}
-	if (general && !v.down && !(v.data && v.data.results && v.data.results.length)) v = await sxFetchRaw(query, page, cat, safe, false);
-	if (!v.down && v.data && v.data.results && v.data.results.length && (cat !== 'images' || v.data.results.some((r) => String(r.engine || '').includes('cse')))) {
-		SX_CACHE.set(key, { at: Date.now(), v });
-		if (SX_CACHE.size > 200) SX_CACHE.delete(SX_CACHE.keys().next().value);
-	}
-	return v;
-}
-function sxFetchRaw(query, page, cat, safe, pin) {
-	return (cat === 'images' ? cseGate() : Promise.resolve()).then(() => new Promise((resolve) => {
-		const qs = (pin ? '?engines=bing,google+cse&q=' : '?q=') + encodeURIComponent(query) + '&format=json' + (page > 1 ? '&pageno=' + page : '') + (cat && cat !== 'general' ? '&categories=' + encodeURIComponent(cat) : '') + '&safesearch=' + (safe | 0);
-		const up = httpRequest(SEARX_UPSTREAM + '/search' + qs, {
-			headers: { accept: 'application/json', 'accept-encoding': 'identity' },
-			timeout: 15000,
-		}, (ur) => {
-			const chunks = [];
-			ur.on('data', (c) => { if (Buffer.concat(chunks).length < 4 * 1024 * 1024) chunks.push(c); });
-			ur.on('end', () => {
-				try { const dd = JSON.parse(Buffer.concat(chunks).toString('utf8')); if (cat === 'images' && dd && Array.isArray(dd.results)) { const w = (r) => (String(r.engine || '').includes('cse') ? 1 : 0); dd.results = dd.results.map((r, k) => [r, k]).sort((a, b) => (w(b[0]) - w(a[0])) || (a[1] - b[1])).map((x) => x[0]); } resolve({ down: false, data: dd }); }
-				catch { resolve({ down: true }); }
-			});
-			ur.on('error', () => resolve({ down: true }));
-		});
-		up.on('timeout', () => { up.destroy(); resolve({ down: true }); });
-		up.on('error', () => resolve({ down: true }));
-		up.end();
-	}));
+  const key = [query.toLowerCase(), page, cat, safe].join('|');
+  const hit = SX_CACHE.get(key);
+  if (hit && Date.now() - hit.at < hit.ttl) return hit.v;
+  if (SX_BUSY.has(key)) return SX_BUSY.get(key);
+  const request = (async () => {
+    let v = await searchUpstream(query, page, cat, safe);
+    if ((!cat || cat === 'general') && !v.down && !v.data?.results?.length) {
+      v = await searchUpstream(query, page, cat, safe, false);
+    }
+    const good = !v.down && Array.isArray(v.data?.results) && v.data.results.length;
+    const ttl = good && v.cseUsed && !v.cooldown ? (cat === 'images' ? 1800000 : SX_TTL) : 60000;
+    SX_CACHE.set(key, { at: Date.now(), v, ttl });
+    if (SX_CACHE.size > 200) SX_CACHE.delete(SX_CACHE.keys().next().value);
+    return v;
+  })();
+  SX_BUSY.set(key, request);
+  try { return await request; } finally { SX_BUSY.delete(key); }
 }
 
 const SX_CATS = [['general', 'all'], ['images', 'images'], ['videos', 'videos'], ['news', 'news'], ['map', 'maps']];
@@ -520,14 +496,14 @@ async function proxySearx(req, res, session, restUrl) {
 		return res.end('<!doctype html><meta charset=utf-8><title>Opening</title><body style="background:#0b0b0c;color:#aaa;font:15px system-ui;padding:24px">Opening...<script>var u=' + j + ';if(window.parent!==window)parent.postMessage({rjBrowseGo:u},"*");else location.replace(u)</script>');
 	}
 	const page = Math.max(1, parseInt(u.searchParams.get('p') || '1', 10) || 1);
-	const cat = u.searchParams.get('c') || 'general';
+	const requestedCat = u.searchParams.get('c') || 'general';
+	const cat = SX_CATS.some(c => c[0] === requestedCat) ? requestedCat : 'general';
 	const ck = parseCookies(req).rjss;
 	let safe = u.searchParams.has('s') ? parseInt(u.searchParams.get('s'), 10) : (ck != null ? parseInt(ck, 10) : 0);
 	if (![0, 1, 2].includes(safe)) safe = 0;
-	const wantImgs = q && cat === 'general' && page === 1;
-	const imgP = wantImgs ? Promise.race([sxFetch(q, 1, 'images', safe), new Promise((r) => setTimeout(() => r(null), 4000))]).catch(() => null) : null;
+	// Images are fetched only when the user opens the Images category.
 	const result = q ? await sxFetch(q, page, cat, safe) : null;
-	const imgRes = imgP ? await imgP : null;
+	const imgRes = null;
 	const hd = { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' };
 	if (u.searchParams.has('s')) hd['set-cookie'] = 'rjss=' + safe + '; Path=/searx; Max-Age=31536000; SameSite=Lax; HttpOnly';
 	res.writeHead(200, hd);

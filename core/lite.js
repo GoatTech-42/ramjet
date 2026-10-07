@@ -4,7 +4,7 @@ import { dataPath } from './data.js';
 // finished H.264+AAC mp4 (see liteApi in jetstream), page/media -> SSRF-safe
 // fetch. every outbound hop resolves once, pins the ip, and is checked against
 // a full deny list. token lives in data/lite-token.secret (mode 600).
-import { cseGate, cseBudgetLeft } from './cse-gate.js';
+import { searchUpstream } from './search-upstream.js';
 import http from 'node:http';
 import https from 'node:https';
 import net from 'node:net';
@@ -294,10 +294,9 @@ function messageImage(text) {
 const SXI_CACHE = new Map();
 const srcTag = (x) => { const e = String(x.engine || '').toLowerCase(); return e.startsWith('brave') ? 'brave' : e.includes('cse') ? 'google cse' : e.startsWith('google') ? 'google' : e.startsWith('pinterest') ? 'pinterest' : e.startsWith('wikicommons') ? 'wikimedia' : e.replace(/ images$/, ''); };
 async function searxFetchPage(q, pn, lvl) {
-  await cseGate();
-  const r = await fetch('http://127.0.0.1:8888/search?q=' + encodeURIComponent(q) + '&categories=images&format=json&pageno=' + pn + '&safesearch=' + lvl, { signal: AbortSignal.timeout(12000) });
-  if (!r.ok) throw new Error('searxng ' + r.status);
-  return (await r.json()).results || [];
+  const result = await searchUpstream(q, pn, 'images', lvl);
+  if (result.down) throw new Error('search temporarily unavailable');
+  return result.data?.results || [];
 }
 function sxItem(x, seen) {
   const full = x.img_src; if (!full || !/^https?:\/\//.test(full) || seen.has(full)) return null; seen.add(full);
@@ -305,39 +304,20 @@ function sxItem(x, seen) {
   const th = String(x.thumbnail_src || x.thumbnail || full).replace(/^http:/, 'https:');
   return { src: srcTag(x), title: String(x.title || host || 'image').replace(/<[^>]*>/g, '').replace(/[\ue000-\ue00f]/g, ''), site: host, full, thumbSrc: th };
 }
-// google cse pages are fetched one at a time and only as far as the page asked for needs;
-// brave only appears once cse has run out (global order: all cse, then brave)
-async function searxState(q, lvl) {
-  const key = q.toLowerCase() + '|' + lvl;
-  let st = SXI_CACHE.get(key);
-  if (!st || Date.now() - st.at > 1800000) {
-    st = { at: Date.now(), seen: new Set(), cse: [], rest: [], next: 1, done: false, busy: null };
-    SXI_CACHE.set(key, st); if (SXI_CACHE.size > 60) SXI_CACHE.delete(SXI_CACHE.keys().next().value);
-  }
-  return st;
-}
-async function searxMore(st, q, lvl) {
-  if (st.busy) return st.busy;
-  st.busy = (async () => {
-    try {
-      const res = await searxFetchPage(q, st.next, lvl);
-      if (st.next === 1) for (const x of res) if (srcTag(x) !== 'google cse') { const it = sxItem(x, st.seen); if (it) st.rest.push(it); }
-      let added = 0;
-      for (const x of res) if (srcTag(x) === 'google cse') { const it = sxItem(x, st.seen); if (it) { st.cse.push(it); added++; } }
-      st.next++;
-      if (!added || st.next > 5 || cseBudgetLeft() < 4) st.done = true;
-    } catch (e) { if (st.next === 1) throw e; st.done = true; } finally { st.busy = null; }
-  })();
-  return st.busy;
-}
+// One explicit Lite page means one upstream page, CSE first within that page.
 async function searxImages(q, pg, safe, n = 8) {
   const lvl = safe === 'off' ? 0 : safe === 'strict' ? 2 : 1;
-  const st = await searxState(q, lvl);
-  const end = pg * n;
-  while (!st.done && (st.cse.length < end)) await searxMore(st, q, lvl);
-  if (st.done && !st.cse.length) SXI_CACHE.delete(q.toLowerCase() + '|' + lvl);
-  const arr = st.done ? st.cse.concat(st.rest) : st.cse;
-  return arr.slice((pg - 1) * n, end);
+  const key = [q.toLowerCase(), pg, lvl].join('|');
+  let hit = SXI_CACHE.get(key);
+  if (hit && Date.now() - hit.at < hit.ttl) return (await hit.promise).slice(0, n);
+  const promise = searxFetchPage(q, pg, lvl).then(results => {
+    const seen = new Set();
+    return results.map(r => sxItem(r, seen)).filter(Boolean);
+  });
+  hit = { at: Date.now(), ttl: 60000, promise };
+  SXI_CACHE.set(key, hit);
+  if (SXI_CACHE.size > 60) SXI_CACHE.delete(SXI_CACHE.keys().next().value);
+  return (await promise).slice(0, n);
 }
 
 export async function handleLite(req, res, url) {
