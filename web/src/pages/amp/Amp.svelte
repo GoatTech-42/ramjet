@@ -466,26 +466,26 @@
 
     <div class="list">
       {#each sections as it, i (it.key)}
-        <button class="row" class:active={now && now.key === it.key} onclick={() => playAt(i)}>
+        <div class="row" class:active={now && now.key === it.key}><button class="track-main" onclick={() => playAt(i)} aria-label={'Play ' + it.title}>
           {#if it.art}<img src={it.art} alt="" loading="lazy" onerror={(e) => { e.currentTarget.style.visibility = 'hidden'; }} />{:else}<div class="noart"></div>{/if}
           <span class="meta">
             <span class="title">{it.title}</span>
             <span class="sub">{it.artist || SRC_LABEL[it.src]}{#if it.album} · {it.album}{/if}</span>
             <span class="src">{SRC_LABEL[it.src]}</span>
           </span>
-          <span class="dur">{it.dur}</span>
+          <span class="dur">{it.dur}</span></button>
           {#if view === 'playlist'}
-            {#if i > 0}<span class="rowact" role="button" tabindex="-1" aria-label="move up" onclick={(e) => { e.stopPropagation(); movePl(i, -1); }}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 15l6-6 6 6"/></svg></span>{/if}
-            {#if i < sections.length - 1}<span class="rowact" role="button" tabindex="-1" aria-label="move down" onclick={(e) => { e.stopPropagation(); movePl(i, 1); }}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></span>{/if}
-            <span class="rowact" role="button" tabindex="-1" aria-label="remove from playlist" onclick={(e) => { e.stopPropagation(); removeFromPlaylist(i); }}>
+            {#if i > 0}<button type="button" class="rowact" aria-label="move up" onclick={(e) => { e.stopPropagation(); movePl(i, -1); }}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 15l6-6 6 6"/></svg></button>{/if}
+            {#if i < sections.length - 1}<button type="button" class="rowact" aria-label="move down" onclick={(e) => { e.stopPropagation(); movePl(i, 1); }}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></button>{/if}
+            <button type="button" class="rowact" aria-label="remove from playlist" onclick={(e) => { e.stopPropagation(); removeFromPlaylist(i); }}>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M5 12h14"/></svg>
-            </span>
+            </button>
           {:else}
-            <span class="rowact" role="button" tabindex="-1" aria-label="save to playlist" onclick={(e) => { e.stopPropagation(); saveTarget = it; }}>
+            <button type="button" class="rowact" aria-label="save to playlist" onclick={(e) => { e.stopPropagation(); saveTarget = it; }}>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
-            </span>
+            </button>
           {/if}
-        </button>
+        </div>
       {/each}
     </div>
   </main>
@@ -598,6 +598,8 @@
   .empty .dim { margin: 0; color: var(--rj-text-dim); font-size: 15px; line-height: 1.7; }
   .list { display: grid; gap: 8px; margin-top: 18px; }
   .row { display: flex; align-items: center; gap: 14px; width: 100%; text-align: left; padding: 12px; border: 1px solid var(--rj-border); border-radius: 16px; background: var(--rj-surface); color: var(--rj-text); min-height: 72px; }
+  .track-main { display: flex; align-items: center; gap: 14px; flex: 1; min-width: 0; border: 0; padding: 0; background: none; color: inherit; text-align: left; }
+  .rowact { border: 0; background: none; color: inherit; }
   .row:hover { background: var(--rj-hover); } .row.active { border-color: var(--rj-accent); }
   .row img,.row .noart { width: 48px; height: 48px; border-radius: 10px; object-fit: cover; background: var(--rj-surface-2); flex: none; }
   .meta { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
