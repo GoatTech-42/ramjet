@@ -1,5 +1,6 @@
 <script>
   import '../../tokens.css';
+  import AppFrame from '../../lib/AppFrame.svelte';
   import { onMount, tick } from 'svelte';
   import { api } from '../../lib/api.js';
 
@@ -266,12 +267,13 @@
 <svelte:window onkeydown={ovKey} />
 <svelte:head><title>{totalUnread ? '(' + totalUnread + ') ' : ''}banter - ramjet</title></svelte:head>
 
+<AppFrame active="/banter">
 <div class="app" class:inchat={cur}>
   <aside class="side">
     <header class="top">
       <a class="back" href="/" aria-label="back to ramjet"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg></a>
-      <span class="brand">banter</span>
-      <button class="pill" onclick={() => { sheet = 'new'; sheetErr = ''; }}>new</button>
+      <h1 class="brand">Banter</h1>
+      <button class="pill" onclick={() => { sheet = 'new'; sheetErr = ''; }}>New chat</button>
     </header>
     {#if !loaded}
       <p class="hint">loading</p>
@@ -295,7 +297,7 @@
           {/each}
         {:else}
           <div class="addrow">
-            <input class="field" placeholder="username or friend code" bind:value={addName} onkeydown={(e) => e.key === 'Enter' && addFriend()} />
+            <input class="field" aria-label="Add a friend" placeholder="Username or friend code" bind:value={addName} onkeydown={(e) => e.key === 'Enter' && addFriend()} />
             <button class="mini" onclick={addFriend}>add</button>
           </div>
           {#each incoming as n}
@@ -456,18 +458,21 @@
   </div>
 {/if}
 
+</AppFrame>
+
 <style>
   .app { display: grid; grid-template-columns: 340px minmax(0, 1fr); height: 100dvh; width: 100%; overflow: hidden; }
   .side, .chat { display: flex; flex-direction: column; min-height: 0; min-width: 0; background: var(--rj-bg); }
-  .side { border-right: 1px solid var(--rj-border); }
-  .top { display: flex; align-items: center; gap: 10px; padding: calc(10px + env(safe-area-inset-top)) 14px 10px; border-bottom: 1px solid var(--rj-border); }
-  .brand { font-weight: 700; font-size: 17px; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .side { border-right: 1px solid var(--rj-border); background: var(--rj-surface); }
+  .side .back { display: none; }
+  .top { display: flex; align-items: center; gap: 12px; padding: 28px 22px 20px; border-bottom: 1px solid var(--rj-border); }
+  .brand { margin: 0; font-weight: 600; font-size: 28px; letter-spacing: -.04em; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .back { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; background: none; border: 0; color: var(--rj-text); }
   .back svg { width: 20px; height: 20px; }
   .pill { background: var(--rj-accent); color: var(--rj-accent-ink); border: 0; border-radius: var(--rj-pill); padding: 7px 16px; font-weight: 700; font-size: 14px; }
   .tabs { display: flex; gap: 6px; padding: 10px 14px 4px; }
   .tabs button { background: var(--rj-surface); color: var(--rj-text-dim); border: 0; border-radius: var(--rj-pill); padding: 7px 14px; font-size: 13.5px; }
-  .tabs button.on { background: var(--rj-text); color: #000; font-weight: 600; }
+  .tabs button.on { background: var(--rj-surface-2); color: var(--rj-text); font-weight: 600; }
   .rtx { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
   .rtx .rn { flex: none; }
   .rp { font-size: 13px; color: var(--rj-text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -488,7 +493,7 @@
   .emo button { width: 36px; height: 36px; border: 0; background: none; font-size: 20px; border-radius: 50%; }
   .macts { display: flex; gap: 6px; margin-top: 3px; }
   .macts button { height: 28px; padding: 0 12px; border: 1px solid var(--rj-border); border-radius: var(--rj-pill); background: none; color: var(--rj-text); font-size: 12px; font-weight: 600; }
-  .macts .dng { color: #ff6b6b; }
+  .macts .dng { color: var(--rj-danger); }
   .replychip { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 0 10px; padding: 6px 12px; border-left: 3px solid var(--rj-accent); background: var(--rj-surface); border-radius: 8px; font-size: 13px; color: var(--rj-text-dim); }
   .replychip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .replychip b { color: var(--rj-text); }
@@ -543,7 +548,7 @@
   .none { margin: auto; text-align: center; }
   .none .hint { padding-top: 6px; }
 
-  .overlay { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.6); display: flex; align-items: flex-end; justify-content: center; z-index: 10; }
+  .overlay { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.6); display: flex; align-items: flex-end; justify-content: center; z-index: 100; }
   .sheet { background: var(--rj-surface); width: min(480px, 100%); max-height: 80dvh; overflow-y: auto; border-radius: 22px 22px 0 0; padding: 18px 16px calc(20px + env(safe-area-inset-bottom)); display: flex; flex-direction: column; gap: 10px; }
   @media (min-width: 700px) { .overlay { align-items: center; } .sheet { border-radius: 22px; } }
   .sh { margin: 6px 0 0; font-weight: 700; font-size: 17px; }
@@ -567,10 +572,10 @@
   .hov { display: none; position: absolute; top: -14px; gap: 2px; padding: 2px; background: var(--rj-surface); border: 1px solid var(--rj-border); border-radius: var(--rj-pill); z-index: 3; box-shadow: 0 4px 14px rgba(0,0,0,.35); }
   .m.mine .hov { right: 0; } .m:not(.mine) .hov { left: 0; }
   .hov button { height: 26px; padding: 0 10px; border: 0; background: none; color: var(--rj-text); font-size: 12px; font-weight: 600; border-radius: var(--rj-pill); }
-  .hov button:hover { background: var(--rj-hover); } .hov .dng { color: #ff6b6b; }
+  .hov button:hover { background: var(--rj-hover); } .hov .dng { color: var(--rj-danger); }
   @media (hover: hover) and (pointer: fine) { .m:hover .hov { display: inline-flex; } }
 
-  .ov { position: fixed; inset: 0; z-index: 60; }
+  .ov { position: fixed; inset: 0; z-index: 100; }
   .ov-bd { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; padding: 0; background: color-mix(in srgb, var(--rj-bg) 55%, transparent); -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px); animation: ovf .16s ease-out; }
   .ov-emo { position: absolute; top: var(--et); left: var(--el); display: flex; gap: 2px; padding: 6px 8px; background: var(--rj-surface-2, var(--rj-surface)); border: 1px solid var(--rj-border); border-radius: 999px; box-shadow: 0 10px 30px rgba(0,0,0,.45); -webkit-backdrop-filter: blur(var(--rj-g-blur, 0px)); backdrop-filter: blur(var(--rj-g-blur, 0px)); animation: ovp .18s cubic-bezier(.2,1.2,.4,1); transform-origin: bottom center; }
   .ov-emo button { width: 40px; height: 40px; border: 0; background: none; font-size: 24px; border-radius: 50%; transition: transform .12s; }
@@ -585,7 +590,7 @@
   .ov-menu button + button { border-top: 1px solid var(--rj-border); }
   .ov-menu button:hover, .ov-menu button:active { background: var(--rj-hover); }
   .ov-menu svg { width: 19px; height: 19px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; opacity: .85; }
-  .ov-menu .dng { color: #ff6b6b; }
+  .ov-menu .dng { color: var(--rj-danger); }
   @keyframes ovf { from { opacity: 0; } to { opacity: 1; } }
   @keyframes ovp { from { opacity: 0; transform: scale(.9); } to { opacity: 1; transform: none; } }
   /* banter wide v2 */
@@ -595,4 +600,10 @@
     .chat .bub { max-width: 620px; font-size: 15.5px; }
   }
   @media (min-width: 1600px) { .app { grid-template-columns: 380px 1fr; } }
+
+  .tabs { padding: 8px 18px 14px; gap: 4px; } .tabs button { background: none; min-height: 40px; }
+  .rows { padding: 4px 14px; } .row { border-radius: 14px; } .hint { font-size: 14px; line-height: 1.7; color: var(--rj-text-dim); }
+  .composer { padding: 14px 20px 20px; } .composer textarea { border: 1px solid var(--rj-border); border-radius: 16px; }
+  .bub { border: 1px solid var(--rj-border); } .m.mine .bub { border-color: transparent; }
+  @media(max-width:760px) { .app { height: calc(100dvh - 90px - env(safe-area-inset-bottom)); } .top { padding: 24px 20px 18px; } .composer { padding: 12px 14px 8px; } }
 </style>
