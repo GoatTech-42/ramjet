@@ -361,6 +361,13 @@
     el.currentTime = ratio * total;
   }
 
+  function seekKey(e) {
+    if (!el || !total || !['ArrowLeft', 'ArrowRight', 'ArrowDown', 'ArrowUp', 'Home', 'End'].includes(e.key)) return;
+    e.preventDefault(); e.stopPropagation();
+    el.currentTime = e.key === 'Home' ? 0 : e.key === 'End' ? total : Math.max(0, Math.min(total, el.currentTime + (['ArrowRight', 'ArrowUp'].includes(e.key) ? 5 : -5)));
+    cur = el.currentTime;
+  }
+
   function fmt(s) {
     s = Math.max(0, Math.floor(s || 0));
     return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
@@ -519,7 +526,7 @@
         {:else}
           <span class="p-sub">{SRC_LABEL[now.src]}</span>
         {/if}
-        <div class="bar" onclick={seek} role="slider" aria-label="seek" aria-valuenow={Math.round(cur)} aria-valuemax={Math.round(total)}>
+        <div class="bar" onclick={seek} onkeydown={seekKey} tabindex="0" role="slider" aria-valuemin="0" aria-valuetext={`${fmt(cur)} of ${fmt(total)}`} aria-label="seek" aria-valuenow={Math.round(cur)} aria-valuemax={Math.round(total)}>
           <div class="fill" style="width: {total ? (cur / total) * 100 : 0}%"></div>
         </div>
         <span class="times">{#if loading}loading...{:else}{fmt(cur)} / {fmt(total)}{/if}</span>

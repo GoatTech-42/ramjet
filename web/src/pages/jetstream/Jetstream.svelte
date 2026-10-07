@@ -478,6 +478,15 @@
     prog = { ...prog, [i]: { cur: v.currentTime, dur: v.duration } };
   }
 
+  function seekSlideKey(i, e) {
+    const v = feedVideo(i);
+    if (!v || !isFinite(v.duration) || v.duration <= 0 || !['ArrowLeft', 'ArrowRight', 'ArrowDown', 'ArrowUp', 'Home', 'End'].includes(e.key)) return;
+    e.preventDefault(); e.stopPropagation();
+    v.currentTime = e.key === 'Home' ? 0 : e.key === 'End' ? v.duration : Math.max(0, Math.min(v.duration, v.currentTime + (['ArrowRight', 'ArrowUp'].includes(e.key) ? 5 : -5)));
+    if (feedAudio[i]) feedAudio[i].currentTime = v.currentTime;
+    prog = { ...prog, [i]: { cur: v.currentTime, dur: v.duration } };
+  }
+
   async function activateSlide(i) {
     const vid = feedVideo(i);
     if (!vid || feedErr[i]) return;
@@ -1752,7 +1761,7 @@ network {stats.net} · ready {stats.ready}</pre>
             <button class="slide-dislike" class:disliked={dislikedSet.has(v.id)} onclick={() => toggleDislike(i)} aria-label={dislikedSet.has(v.id) ? 'undo not interested' : 'not interested'}>
               <svg viewBox="0 0 24 24"><path d="M15 3H6c-.83 0-1.54.5-1.84 1.22l-3.02 7.05c-.09.23-.14.47-.14.73v2c0 1.1.9 2 2 2h6.31l-.95 4.57-.03.32c0 .41.17.79.44 1.06L9.83 23l6.59-6.59c.36-.36.58-.86.58-1.41V5c0-1.1-.9-2-2-2zm4 0v12h4V3h-4z" /></svg>
             </button>
-            <div class="slide-prog" onclick={(e) => seekSlide(i, e)} role="slider" aria-label="seek" aria-valuenow={Math.round(progPct(i))}>
+            <div class="slide-prog" onclick={(e) => seekSlide(i, e)} onkeydown={(e) => seekSlideKey(i, e)} tabindex="0" role="slider" aria-valuemin="0" aria-valuemax="100" aria-label="seek" aria-valuenow={Math.round(progPct(i))}>
               <div class="slide-prog-fill" style={`width:${progPct(i)}%`}></div>
             </div>
             <div class="slide-meta">
