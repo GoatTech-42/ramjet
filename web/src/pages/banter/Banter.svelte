@@ -406,7 +406,7 @@
         <label class="ic" aria-label="photo"><input type="file" accept="image/*" hidden onchange={pickPhoto} /><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="3"/><circle cx="9" cy="10" r="1.6"/><path d="M21 16l-5-5-8 9"/></svg></label>
         <button class="ic" aria-label="gif" onclick={() => { sheet = 'gif'; gifQ = ''; gifs = []; sheetErr = ''; }}>gif</button>
         <button class="ic" aria-label="poll" onclick={() => { sheet = 'poll'; sheetErr = ''; }}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 20V10M12 20V4M19 20v-7"/></svg></button>
-        <textarea rows="1" placeholder="message" bind:value={composer} onkeydown={onKey}></textarea>
+        <textarea rows="1" aria-label="Message" placeholder="message" bind:value={composer} onkeydown={onKey}></textarea>
         <button class="send" onclick={sendText} disabled={!composer.trim()} aria-label="send"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button>
       </div>
     {:else}
@@ -416,15 +416,15 @@
 </div>
 
 {#if sheet}
-  <div class="overlay" onclick={() => (sheet = '')}>
-    <div class="sheet" role="dialog" aria-modal="true" aria-label="Chat options" tabindex="-1" use:modal={() => { sheet = ''; }} onclick={(e) => e.stopPropagation()}>
+  <div class="overlay" role="presentation" onclick={() => (sheet = '')}>
+    <div class="sheet" role="dialog" aria-modal="true" aria-label="Chat options" tabindex="-1" use:modal={() => { sheet = ''; }} onkeydown={(e) => e.stopPropagation()} onclick={(e) => e.stopPropagation()}>
         <button class="sheet-close" type="button" aria-label="Close chat options" onclick={() => { sheet = ''; }}>Close</button>
       {#if sheet === 'new'}
         <p class="sh">new group</p>
-        <input class="field" placeholder="group name" maxlength="40" bind:value={draftName} onkeydown={(e) => e.key === 'Enter' && createGroup()} />
+        <input class="field" aria-label="Group name" placeholder="group name" maxlength="40" bind:value={draftName} onkeydown={(e) => e.key === 'Enter' && createGroup()} />
         <button class="go" onclick={createGroup}>make it</button>
         <p class="sh">join with a code</p>
-        <input class="field" placeholder="code" bind:value={draftCode} onkeydown={(e) => e.key === 'Enter' && joinGroup()} />
+        <input class="field" aria-label="Group invite code" placeholder="code" bind:value={draftCode} onkeydown={(e) => e.key === 'Enter' && joinGroup()} />
         <button class="go alt" onclick={() => joinGroup()}>join</button>
       {:else if sheet === 'group'}
         <p class="sh">{cur.title}</p>
@@ -446,12 +446,12 @@
         {:else if relOf(person) === 'sent'}<p class="hint">request sent</p>
         {:else}<button class="go" onclick={() => rel('friend')}>add friend</button>{/if}
       {:else if sheet === 'gif'}
-        <input class="field" placeholder="search gifs" bind:value={gifQ} oninput={gifInput} />
+        <input class="field" aria-label="Search GIFs" placeholder="search gifs" bind:value={gifQ} oninput={gifInput} />
         <div class="gifs">{#each gifs as g}<button class="gif" onclick={() => sendGif(g)}><img src={proxied(g.tiny)} alt="" /></button>{/each}</div>
       {:else if sheet === 'poll'}
         <p class="sh">new poll</p>
-        <input class="field" placeholder="question" maxlength="120" bind:value={pollQ} />
-        {#each pollOpts as _, i}<input class="field" placeholder="option {i + 1}" maxlength="40" bind:value={pollOpts[i]} />{/each}
+        <input class="field" aria-label="Poll question" placeholder="question" maxlength="120" bind:value={pollQ} />
+        {#each pollOpts as _, i}<input class="field" aria-label="Poll option {i + 1}" placeholder="option {i + 1}" maxlength="40" bind:value={pollOpts[i]} />{/each}
         {#if pollOpts.length < 6}<button class="mini" onclick={() => (pollOpts = [...pollOpts, ''])}>+ option</button>{/if}
         <button class="go" onclick={sendPoll}>post poll</button>
       {/if}
@@ -491,11 +491,6 @@
   .rx { display: inline-flex; align-items: center; gap: 4px; height: 26px; padding: 0 9px; border: 1px solid var(--rj-border); border-radius: var(--rj-pill); background: var(--rj-surface); color: var(--rj-text); font-size: 14px; }
   .rx b { font-size: 12px; font-weight: 600; color: var(--rj-text-dim); }
   .rx.mine { border-color: var(--rj-accent); }
-  .emo { display: flex; gap: 2px; margin-top: 4px; padding: 3px 6px; background: var(--rj-surface); border: 1px solid var(--rj-border); border-radius: var(--rj-pill); }
-  .emo button { width: 36px; height: 36px; border: 0; background: none; font-size: 20px; border-radius: 50%; }
-  .macts { display: flex; gap: 6px; margin-top: 3px; }
-  .macts button { height: 28px; padding: 0 12px; border: 1px solid var(--rj-border); border-radius: var(--rj-pill); background: none; color: var(--rj-text); font-size: 12px; font-weight: 600; }
-  .macts .dng { color: var(--rj-danger); }
   .replychip { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 0 10px; padding: 6px 12px; border-left: 3px solid var(--rj-accent); background: var(--rj-surface); border-radius: 8px; font-size: 13px; color: var(--rj-text-dim); }
   .replychip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .replychip b { color: var(--rj-text); }
@@ -512,7 +507,6 @@
   .av.sm { width: 32px; height: 32px; font-size: 14px; }
   .hint { color: var(--rj-text-faint); font-size: 14px; padding: 18px 14px; margin: 0; }
   .hint.mid { text-align: center; padding-top: 40px; }
-  .gate { padding: 28px 18px; display: flex; flex-direction: column; gap: 12px; }
   .big { font-size: 22px; font-weight: 700; margin: 0; }
   .field { background: var(--rj-surface); border: 1px solid var(--rj-border); color: var(--rj-text); border-radius: 14px; padding: 13px 14px; font-size: 16px; width: 100%; outline: none; }
   .field:focus { border-color: color-mix(in srgb, var(--rj-accent) 50%, transparent); }
@@ -555,7 +549,6 @@
   @media (min-width: 700px) { .overlay { align-items: center; } .sheet { border-radius: 22px; } }
   .sh { margin: 6px 0 0; font-weight: 700; font-size: 17px; }
   .code { margin: 0; color: var(--rj-text-dim); } .code b { color: var(--rj-accent); font-family: var(--rj-mono); font-size: 17px; }
-  .bio { margin: 0; color: var(--rj-text-dim); }
   .gifs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
   .gif { padding: 0; border: 0; border-radius: 10px; overflow: hidden; background: var(--rj-surface-2); aspect-ratio: 1; }
   .gif img { width: 100%; height: 100%; object-fit: cover; display: block; }
@@ -579,15 +572,15 @@
 
   .ov { position: fixed; inset: 0; z-index: 100; }
   .ov-bd { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; padding: 0; background: color-mix(in srgb, var(--rj-bg) 55%, transparent); -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px); animation: ovf .16s ease-out; }
-  .ov-emo { position: absolute; top: var(--et); left: var(--el); display: flex; gap: 2px; padding: 6px 8px; background: var(--rj-surface-2, var(--rj-surface)); border: 1px solid var(--rj-border); border-radius: 999px; box-shadow: 0 10px 30px rgba(0,0,0,.45); -webkit-backdrop-filter: blur(var(--rj-g-blur, 0px)); backdrop-filter: blur(var(--rj-g-blur, 0px)); animation: ovp .18s cubic-bezier(.2,1.2,.4,1); transform-origin: bottom center; }
+  .ov-emo { position: absolute; top: var(--et); left: var(--el); display: flex; gap: 2px; padding: 6px 8px; background: var(--rj-surface-2, var(--rj-surface)); border: 1px solid var(--rj-border); border-radius: 999px; box-shadow: var(--rj-shadow); -webkit-backdrop-filter: blur(var(--rj-g-blur, 0px)); backdrop-filter: blur(var(--rj-g-blur, 0px)); animation: ovp .18s cubic-bezier(.2,1.2,.4,1); transform-origin: bottom center; }
   .ov-emo button { width: 40px; height: 40px; border: 0; background: none; font-size: 24px; border-radius: 50%; transition: transform .12s; }
   .ov-emo button:hover, .ov-emo button:active { transform: scale(1.28); background: var(--rj-hover); }
   .ov-emo button.on { background: color-mix(in srgb, var(--rj-accent) 28%, transparent); }
   .ov-prev { position: absolute; top: var(--pt); left: var(--pl); width: var(--pw); max-height: var(--ph); overflow: hidden; pointer-events: none; display: flex; }
   .ov-prev.mine { justify-content: flex-end; }
-  .ov-prev .bub { max-width: 100%; box-shadow: 0 8px 28px rgba(0,0,0,.4); }
-  .ov-prev .img { max-width: 100%; max-height: var(--ph); border-radius: var(--rj-radius, 14px); box-shadow: 0 8px 28px rgba(0,0,0,.4); }
-  .ov-menu { position: absolute; top: var(--mt); left: var(--ml); width: 220px; background: var(--rj-surface-2, var(--rj-surface)); border: 1px solid var(--rj-border); border-radius: calc(var(--rj-radius, 14px) + 2px); overflow: hidden; box-shadow: 0 14px 40px rgba(0,0,0,.5); -webkit-backdrop-filter: blur(var(--rj-g-blur, 0px)); backdrop-filter: blur(var(--rj-g-blur, 0px)); animation: ovp .18s ease-out; transform-origin: top center; }
+  .ov-prev .bub { max-width: 100%; box-shadow: var(--rj-shadow); }
+  .ov-prev .img { max-width: 100%; max-height: var(--ph); border-radius: var(--rj-radius, 14px); box-shadow: var(--rj-shadow); }
+  .ov-menu { position: absolute; top: var(--mt); left: var(--ml); width: 220px; background: var(--rj-surface-2, var(--rj-surface)); border: 1px solid var(--rj-border); border-radius: calc(var(--rj-radius, 14px) + 2px); overflow: hidden; box-shadow: var(--rj-shadow); -webkit-backdrop-filter: blur(var(--rj-g-blur, 0px)); backdrop-filter: blur(var(--rj-g-blur, 0px)); animation: ovp .18s ease-out; transform-origin: top center; }
   .ov-menu button { display: flex; width: 100%; align-items: center; justify-content: space-between; min-height: 46px; padding: 0 16px; border: 0; background: none; color: var(--rj-text); font: inherit; font-size: 15.5px; text-align: left; }
   .ov-menu button + button { border-top: 1px solid var(--rj-border); }
   .ov-menu button:hover, .ov-menu button:active { background: var(--rj-hover); }

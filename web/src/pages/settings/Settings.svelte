@@ -414,19 +414,14 @@
   .tl { background: none; border: 2px solid transparent; border-radius: 14px; padding: 6px; color: var(--rj-text-dim); display: grid; gap: 8px; }
   .tl.on { border-color: var(--rj-accent); color: var(--rj-text); }
   .pv { position: relative; display: block; aspect-ratio: 4 / 3; border-radius: calc(var(--pr) + 4px); background: var(--pb); overflow: hidden; box-shadow: inset 0 0 0 1px rgba(255,255,255,.1); }
-  .pv .pva { position: absolute; left: 10%; top: 14%; width: 26%; height: 14%; border-radius: var(--pr); background: var(--pa); }
-  .pv .pvl { position: absolute; left: 10%; top: 40%; width: 80%; height: 11%; border-radius: var(--pr); background: rgba(255,255,255,.14); }
-  .pv .pvl.s { top: 58%; width: 55%; }
-  .pv b { position: absolute; right: 10%; bottom: 10%; font-size: 15px; color: #fff; }
   .pn { font-size: 13.5px; text-align: center; }
   .lays { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
   .lay { background: none; border: 2px solid transparent; border-radius: 14px; padding: 8px; color: var(--rj-text-dim); display: grid; gap: 8px; justify-items: center; font-size: 13.5px; }
   .lay.on { border-color: var(--rj-accent); color: var(--rj-text); }
   .lp { width: 100%; max-width: 220px; aspect-ratio: 4 / 3; border-radius: 10px; background: var(--rj-surface-2); display: grid; gap: 5px; padding: 9px; box-shadow: inset 0 0 0 1px var(--rj-border); }
-  .lp i { background: var(--rj-text-faint); opacity: .55; border-radius: 4px; }
   .lp-list { grid-template-rows: repeat(4, 1fr); }
-  .lp-grid { grid-template-columns: repeat(3, 1fr); grid-template-rows: repeat(2, 1fr); } .lp-grid i { border-radius: 30%; } .lp-grid i:nth-child(4) { display: none; }
-  .lp-dock { grid-template-columns: repeat(2, 1fr); grid-template-rows: 1fr 1fr 10px; } .lp-dock i:nth-child(3) { grid-column: span 2; grid-row: 3; border-radius: 6px; background: var(--rj-accent); opacity: .8; } .lp-dock i:nth-child(4) { display: none; }
+  .lp-grid { grid-template-columns: repeat(3, 1fr); grid-template-rows: repeat(2, 1fr); }
+  .lp-dock { grid-template-columns: repeat(2, 1fr); grid-template-rows: 1fr 1fr 10px; }
   .subtop { display: flex; align-items: center; gap: 12px; padding: 8px 0; }
   .subtop h2 { margin: 0; font-size: 20px; flex: 1; }
   .back2 { display: inline-flex; align-items: center; gap: 4px; background: var(--rj-surface-2); border: 1px solid var(--rj-border); color: var(--rj-text); border-radius: 99px; padding: 7px 14px 7px 8px; font-size: 14px; }

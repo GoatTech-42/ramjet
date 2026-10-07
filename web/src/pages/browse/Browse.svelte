@@ -685,7 +685,7 @@
 
   {#if dlOpen}
     <div class="hov" role="presentation" onclick={() => (dlOpen = false)}>
-      <div class="hsheet" role="dialog" aria-modal="true" aria-label="downloads" tabindex="-1" use:modal={() => { dlOpen = false; }} onclick={(e) => e.stopPropagation()}>
+      <div class="hsheet" role="dialog" aria-modal="true" aria-label="downloads" tabindex="-1" use:modal={() => { dlOpen = false; }} onkeydown={(e) => e.stopPropagation()} onclick={(e) => e.stopPropagation()}>
         <div class="hhead"><b>downloads</b><button class="hclose" onclick={() => (dlOpen = false)} aria-label="close">&times;</button></div>
         <div class="hlist">
           {#each dls as d (d.id)}
@@ -706,7 +706,7 @@
 
   {#if histOpen}
     <div class="hov" role="presentation" onclick={() => (histOpen = false)}>
-      <div class="hsheet" role="dialog" aria-modal="true" aria-label="history" tabindex="-1" use:modal={() => { histOpen = false; }} onclick={(e) => e.stopPropagation()}>
+      <div class="hsheet" role="dialog" aria-modal="true" aria-label="history" tabindex="-1" use:modal={() => { histOpen = false; }} onkeydown={(e) => e.stopPropagation()} onclick={(e) => e.stopPropagation()}>
         <div class="hhead"><b>history</b><button class="hclose" onclick={() => (histOpen = false)} aria-label="close">&times;</button></div>
         {#if closed.length}
           <p class="hsec">recently closed</p>
@@ -714,7 +714,7 @@
             <button class="hrow" onclick={() => reopenClosed(i)}><span class="ht">{c.title || hostShort(c.url)}</span><span class="hu">{hostShort(c.url)}</span></button>
           {/each}
         {/if}
-        <input class="hq" placeholder="search your history" bind:value={histQ} />
+        <input class="hq" aria-label="Search your history" placeholder="search your history" bind:value={histQ} />
         <div class="hlist">
           {#each histShown as r}
             {#if r.head}<p class="hsec">{r.head}</p>
@@ -745,8 +745,6 @@
 </AppFrame>
 
 <style>
-  .jsb { color: var(--rj-accent); }
-  .adb.on { color: var(--rj-accent); }
   .findbar { position: fixed; z-index: 30; right: 12px; top: 108px; display: flex; gap: 4px; align-items: center; padding: 6px; background: var(--rj-surface-2); border: 1px solid var(--rj-border); border-radius: 12px; box-shadow: 0 8px 28px rgba(0,0,0,.5); max-width: calc(100vw - 24px); }
   .findbar input { width: 190px; min-width: 0; font-size: 16px; background: transparent; border: 0; outline: 0; color: var(--rj-text); padding: 6px 8px; }
   @media (max-width: 640px) { .findbar { top: 146px; } }
@@ -758,7 +756,6 @@
   .back { width: 32px; height: 32px; display: grid; place-items: center; border-radius: 50%; flex: none; }
   .back:hover { background: var(--rj-surface); }
   .back svg { width: 18px; height: 18px; fill: none; stroke: var(--rj-text-dim); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
-  .brand { font-weight: 700; font-size: 17px; letter-spacing: 0.2px; }
   .navbtns { display: flex; gap: 4px; margin-left: 6px; }
   .navbtns button {
     background: var(--rj-surface); border: 1px solid var(--rj-border); color: var(--rj-text);
@@ -766,7 +763,6 @@
   }
   .navbtns button:hover { background: var(--rj-surface-2); }
   .navbtns button { display: grid; place-items: center; }
-  .navbtns button.on { background: var(--rj-accent); color: var(--rj-accent-ink); border-color: var(--rj-accent); }
   .navbtns svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
   form { flex: 1; display: flex; gap: 8px; min-width: 0; }
   input {
@@ -791,7 +787,6 @@
   .chip:disabled { opacity: 0.4; }
   .bms { margin-top: 22px; width: 100%; max-width: 420px; display: flex; flex-direction: column; gap: 6px; }
   .recents { margin-top: 18px; width: 100%; max-width: 420px; }
-  .dlb { position: relative; }
   .dlbadge { position: absolute; top: -3px; right: -3px; min-width: 16px; height: 16px; border-radius: 8px; background: var(--rj-accent); color: var(--rj-accent-ink); font-size: 10px; font-style: normal; font-weight: 800; display: grid; place-items: center; padding: 0 4px; }
   .dlrow { display: flex; flex-direction: column; gap: 6px; padding: 10px 6px; border-bottom: 1px solid var(--rj-border); }
   .dltop { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
@@ -854,7 +849,6 @@
   @media (max-width: 640px) { .tab { width: 148px; } }
   .surfing header { border-bottom: 1px solid var(--rj-border); }
   @media (max-width: 640px) {
-    .brand { display: none; }
     header { flex-wrap: wrap; }
     form { order: 3; flex: 1 1 100%; }
     .navbtns { flex: 1; margin-left: 0; }
@@ -864,20 +858,13 @@
   input::placeholder { color: var(--rj-text-faint); opacity: 1; }
   input:focus { border-color: var(--rj-accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--rj-accent) 22%, transparent); }
   header form input { padding: 10px 18px; }
-  .hero { flex: none; width: min(640px, 100%); display: flex; align-items: center; gap: 10px; margin-top: 14px; padding: 6px 6px 6px 18px; height: 56px; border-radius: var(--rj-pill); background: var(--rj-surface); border: 1px solid var(--rj-border); color: var(--rj-text-faint); backdrop-filter: blur(var(--rj-g-blur, 0px)); -webkit-backdrop-filter: blur(var(--rj-g-blur, 0px)); }
-  .hero:focus-within { border-color: var(--rj-accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--rj-accent) 22%, transparent); }
-  .hero input { background: none; border: 0; box-shadow: none; padding: 0; height: 100%; font-size: 17px; }
-  .hero input:focus { border: 0; box-shadow: none; }
-  .hero .go { height: 44px; padding: 0 24px; }
   @media (max-width: 700px) {
     header { flex-wrap: wrap; row-gap: 8px; }
     header form { order: 5; flex: 1 1 100%; }
     header form input { height: 44px; }
     header form .go { height: 44px; }
     .navbtns { margin-left: auto; }
-    .hero { height: 52px; }
   }
-  @media (max-width: 520px) { .hero { padding-left: 14px; gap: 8px; } .hero .go { padding: 0 18px; } .hero input { font-size: 16px; } }
 
   /* one chrome: bar + tabs share a surface, the active tab is the page's own colour, one overflow menu replaces the row of icon buttons */
   header form.omni { position: relative; }

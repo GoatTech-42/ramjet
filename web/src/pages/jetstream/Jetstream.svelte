@@ -1830,13 +1830,7 @@ network {stats.net} · ready {stats.ready}</pre>
   }
   .meta { font-size: 12px; color: var(--rj-text-dim); }
   .uplabel { margin: 22px 4px 10px; font-size: 13px; font-weight: 600; color: var(--rj-text-dim); }
-  .qbtn {
-    padding: 1px 10px; border: 1px solid var(--rj-border); border-radius: var(--rj-pill);
-    background: none; color: var(--rj-text); font-size: 12px; font-weight: 600;
-    vertical-align: baseline;
-  }
   .nerd { margin: 6px 0; padding: 10px 12px; background: var(--rj-surface); border: 1px solid var(--rj-border); border-radius: calc(var(--rj-radius) - 4px); font: 12px/1.55 var(--rj-mono); color: var(--rj-text-dim); white-space: pre-wrap; }
-  .sumrow { margin: 6px 0 2px; }
   .sumcard { background: var(--rj-surface); border: 1px solid var(--rj-border); border-radius: var(--rj-radius); padding: 14px 16px; margin: 8px 0 12px; }
   .sumtl { margin: 0 0 8px; font-weight: 700; font-size: 15px; line-height: 1.4; }
   .sumcard ul { margin: 0 0 10px; padding-left: 18px; color: var(--rj-text-dim); font-size: 14px; line-height: 1.5; }
@@ -1844,8 +1838,6 @@ network {stats.net} · ready {stats.ready}</pre>
   .summ button { background: var(--rj-surface-2); border: 1px solid var(--rj-border); color: var(--rj-text); border-radius: var(--rj-pill); padding: 6px 12px; font-size: 13px; }
   .summ b { color: var(--rj-accent); font-variant-numeric: tabular-nums; margin-right: 4px; }
   .sumfoot { margin: 0; font-size: 11px; color: var(--rj-text-faint); }
-  .qbtn { white-space: nowrap; }
-  .qbtn:hover { background: var(--rj-surface); }
   .chanlink { background: none; border: none; padding: 0; color: var(--rj-text); font-size: 12px; font-weight: 600; }
   .chanlink:hover { text-decoration: underline; }
   .chan-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 18px 2px 4px; }
@@ -1917,7 +1909,7 @@ network {stats.net} · ready {stats.ready}</pre>
   .vo-sm svg { width: 20px; height: 20px; }
   .vo-bot { display: flex; align-items: center; gap: 8px; padding: 0 10px 8px; }
   .vo-t { font-size: 12px; color: #fff; font-variant-numeric: tabular-nums; min-width: 34px; text-align: center; }
-  .vo-q.on, .qbtn.on { background: var(--rj-accent); color: var(--rj-accent-ink); border-color: var(--rj-accent); }
+  .vo-q.on { background: var(--rj-accent); color: var(--rj-accent-ink); border-color: var(--rj-accent); }
   .vo-q { height: 24px; padding: 0 8px; border: 1px solid rgba(255,255,255,.4); border-radius: var(--rj-pill); background: none; color: #fff; font-size: 11px; font-weight: 700; }
   .vo-seek { flex: 1; min-width: 0; height: 28px; -webkit-appearance: none; appearance: none; background: transparent; margin: 0; }
   .vo-seek::-webkit-slider-runnable-track { height: 4px; border-radius: 2px; background: linear-gradient(to right, var(--rj-accent) var(--p), rgba(255,255,255,.3) var(--p)); }

@@ -492,8 +492,8 @@
   </main>
 
   {#if saveTarget}
-    <div class="overlay" onclick={() => { saveTarget = null; }}>
-      <div class="sheet" role="dialog" aria-modal="true" aria-label="Save to a playlist" tabindex="-1" use:modal={() => { saveTarget = null; }} onclick={(e) => e.stopPropagation()}>
+    <div class="overlay" role="presentation" onclick={() => { saveTarget = null; }}>
+      <div class="sheet" role="dialog" aria-modal="true" aria-label="Save to a playlist" tabindex="-1" use:modal={() => { saveTarget = null; }} onkeydown={(e) => e.stopPropagation()} onclick={(e) => e.stopPropagation()}>
         <button class="sheet-close" type="button" aria-label="Close save to a playlist" onclick={() => { saveTarget = null; }}>Close</button>
         <p class="sheet-h">save to a playlist</p>
         <p class="sheet-sub">{saveTarget.title}</p>

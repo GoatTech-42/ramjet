@@ -254,7 +254,7 @@
 {#snippet convlist()}
         <p class="sheet-h">your chats</p>
         <button class="newchat" onclick={newChat}>new chat</button>
-        {#if convs.length > 5}<input class="convq" type="search" placeholder="search your chats" bind:value={convQ} />{/if}
+        {#if convs.length > 5}<input class="convq" type="search" aria-label="Search your chats" placeholder="search your chats" bind:value={convQ} />{/if}
         {#each shownConvs as c (c.id)}
           <div class="convrow"><button class="convopen" onclick={() => openConv(c)} aria-label={'Open conversation ' + c.title}>
             <span class="convtitle">{c.title}</span>
@@ -278,8 +278,8 @@
   </header>
 
   {#if sheetOpen}
-    <div class="overlay" onclick={() => { sheetOpen = false; }}>
-      <div class="sheet" role="dialog" aria-modal="true" aria-label="Your chats" tabindex="-1" use:modal={() => { sheetOpen = false; }} onclick={(e) => e.stopPropagation()}>
+    <div class="overlay" role="presentation" onclick={() => { sheetOpen = false; }}>
+      <div class="sheet" role="dialog" aria-modal="true" aria-label="Your chats" tabindex="-1" use:modal={() => { sheetOpen = false; }} onkeydown={(e) => e.stopPropagation()} onclick={(e) => e.stopPropagation()}>
         <button class="sheet-close" type="button" aria-label="Close your chats" onclick={() => { sheetOpen = false; }}>Close</button>
         {@render convlist()}
       </div>
@@ -374,7 +374,7 @@
   .chatsbtn { margin-left: auto; background: none; border: 1px solid var(--rj-border); color: var(--rj-text-dim); border-radius: 999px; padding: 7px 14px; font-size: 13px; }
   .chatsbtn { white-space: nowrap; flex: none; }
   .stylebtn { margin-left: auto; }
-  @media (max-width: 520px) { .top .tagline { display: none; } .top { gap: 6px; } .chatsbtn { padding: 7px 10px; font-size: 12.5px; } }
+  @media (max-width: 520px) { .top { gap: 6px; } .chatsbtn { padding: 7px 10px; font-size: 12.5px; } }
   .chatsbtn.copyall, .stylebtn + .chatsbtn { margin-left: 0; }
   .chatsbtn:hover { color: var(--rj-text); border-color: var(--rj-accent); }
   .overlay { position: fixed; inset: 0; z-index: 100; background: rgba(0,0,0,0.6); display: flex; align-items: flex-end; justify-content: center; }
