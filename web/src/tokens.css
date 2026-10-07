@@ -12,21 +12,42 @@
 .wall-grid { background-image: linear-gradient(rgba(255,255,255,.045) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.045) 1px, transparent 1px); background-size: 36px 36px; }
 .wall-dots { background-image: radial-gradient(rgba(255,255,255,.12) 1px, transparent 1.2px); background-size: 22px 22px; }
 :root {
-  --rj-bg: #000000;
-  --rj-surface: #212121;
-  --rj-surface-2: #2f2f2f;
-  --rj-hover: #171717;
-  --rj-border: rgba(255, 255, 255, 0.08);
-  --rj-text: #ececec;
-  --rj-text-dim: #b4b4b4;
-  --rj-text-faint: #8e8e8e;
-  --rj-accent: #d9f24b;
-  --rj-accent-ink: #1e230a;
-  --rj-danger: #f93a37;
-  --rj-radius: 16px;
+  color-scheme: dark;
+  --rj-bg: #111318;
+  --rj-surface: #1d2027;
+  --rj-surface-2: #292d36;
+  --rj-hover: #252933;
+  --rj-border: #393e49;
+  --rj-text: #f3f5fa;
+  --rj-text-dim: #c1c7d2;
+  --rj-text-faint: #a5aebb;
+  --rj-accent: #85b7ff;
+  --rj-accent-ink: #101d33;
+  --rj-danger: #ff9692;
+  --rj-radius: 18px;
   --rj-pill: 999px;
-  --rj-font: system-ui, -apple-system, "Segoe UI", sans-serif;
+  --rj-font: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --rj-mono: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, monospace;
+  --rj-glass: rgba(29,32,39,.86);
+  --rj-shadow: 0 24px 80px rgba(4,8,18,.2);
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-custom-theme]) {
+    color-scheme: light;
+    --rj-bg: #f3f5f9;
+    --rj-surface: #fcfdff;
+    --rj-surface-2: #e7ecf4;
+    --rj-hover: #e3e9f2;
+    --rj-border: #ccd3df;
+    --rj-text: #192332;
+    --rj-text-dim: #455268;
+    --rj-text-faint: #526078;
+    --rj-accent: #145ecb;
+    --rj-accent-ink: #ffffff;
+    --rj-danger: #ad2727;
+    --rj-glass: rgba(252,253,255,.86);
+    --rj-shadow: 0 24px 80px rgba(34,54,88,.1);
+  }
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; padding: 0; }
@@ -50,3 +71,11 @@ button { font-family: inherit; cursor: pointer; }
 /* iOS Safari zooms the page when a focused field is under 16px. keep every field at 16px on touch screens */
 @media (pointer: coarse) { input, textarea, select { font-size: 16px !important; } }
 input, textarea, select { -webkit-text-size-adjust: 100%; }
+
+button, input, textarea, select { font: inherit; }
+button, a, input, textarea, select, summary { -webkit-tap-highlight-color: transparent; }
+:focus-visible { outline: 3px solid var(--rj-accent); outline-offset: 3px; }
+button:disabled { cursor: not-allowed; }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; scroll-behavior: auto !important; }
+}
