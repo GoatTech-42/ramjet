@@ -1,8 +1,5 @@
-// One budget for every CSE request in this process, including web and Lite.
-import { readJson, writeJson } from './util.js';
-import { dataPath } from './data.js';
-
-export function createCseGate({ now = Date.now, sleep = ms => new Promise(r => setTimeout(r, ms)), budget = 24, gap = 3000, window = 600000, cooldown = 600000, state = {}, save = () => {} } = {}) {
+// Single-source pacing/circuit breaker. Limits reduce risk, not a bot-wall guarantee.
+export function createRequestBudget({ now = Date.now, sleep = ms => new Promise(r => setTimeout(r, ms)), budget = 24, gap = 3000, window = 600000, cooldown = 600000, state = {}, save = () => {} } = {}) {
   let last = Number(state.last) || 0, until = Number(state.until) || 0, chain = Promise.resolve();
   const stamps = Array.isArray(state.stamps) ? state.stamps.filter(Number.isFinite) : [];
   const trim = () => { while (stamps.length && now() - stamps[0] >= window) stamps.shift(); };
@@ -22,9 +19,3 @@ export function createCseGate({ now = Date.now, sleep = ms => new Promise(r => s
     },
   };
 }
-const file = dataPath('cse-budget.json');
-const gate = createCseGate({ state: readJson(file, {}), save: state => writeJson(file, { ...readJson(file, {}), ...state }) });
-export const cseGate = () => gate.admit();
-export const cseBudgetLeft = () => gate.left();
-export const cseCooldownLeft = () => gate.cooldown();
-export const cseFailure = () => gate.fail();

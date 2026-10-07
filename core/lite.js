@@ -4,7 +4,7 @@ import { dataPath } from './data.js';
 // finished H.264+AAC mp4 (see liteApi in jetstream), page/media -> SSRF-safe
 // fetch. every outbound hop resolves once, pins the ip, and is checked against
 // a full deny list. token lives in data/lite-token.secret (mode 600).
-import { searchUpstream } from './search-upstream.js';
+import { qwantImages } from './qwant-images.js';
 import http from 'node:http';
 import https from 'node:https';
 import net from 'node:net';
@@ -24,19 +24,13 @@ import { clientIp, esc } from './util.js';
 const MAX_HTML = 2 * 1024 * 1024, MAX_IMG = 15 * 1024 * 1024, MAX_VID = 80 * 1024 * 1024;
 let jet = null, acct = null;
 // ---- contact sheet: one numbered JPEG of the top results (thumbnail + number + short title) ----
-function getThumb(src) {
-  return new Promise((resolve, reject) => {
-    let host = 'i.ytimg.com', pth = '/vi/' + src + '/mqdefault.jpg';
-    if (/^https:\/\//.test(src)) { const u = new URL(src); if (!/^(ts\d?\.mm\.bing\.net|encrypted-tbn\d\.gstatic\.com|imgs\.search\.brave\.com)$/.test(u.hostname)) return reject(new Error('thumb host')); host = u.hostname; pth = u.pathname + u.search; }
-    const rq = https.get({ host, path: pth, timeout: 8000 }, (r) => {
-      if (r.statusCode !== 200) { r.resume(); return reject(new Error('thumb ' + r.statusCode)); }
-      const ch = []; let n = 0;
-      r.on('data', (d) => { n += d.length; if (n > 400000) { rq.destroy(); reject(new Error('thumb too big')); } else ch.push(d); });
-      r.on('end', () => resolve(Buffer.concat(ch)));
-    });
-    rq.on('error', reject); rq.on('timeout', () => rq.destroy(new Error('thumb timeout')));
-  });
+async function getThumb(src) {
+ const url=/^https:\/\//.test(src)?src:'https://i.ytimg.com/vi/'+encodeURIComponent(src)+'/mqdefault.jpg';
+ const {res}=await safeGet(url,'image/*');
+ if(res.statusCode!==200||!/^image\//i.test(res.headers['content-type']||'')){res.resume();throw new Error('thumbnail unavailable');}
+ return collect(body(res),400000,'thumbnail too large');
 }
+
 async function makeSheet(items) {
   const dir = await mkdtemp(nodePath.join(tmpdir(), 'sheet-'));
   try {
@@ -291,33 +285,18 @@ function messageImage(text) {
     ff.stdout.on('data', (c) => ch.push(c)); ff.on('close', (c) => { const o = Buffer.concat(ch); c === 0 && o.length ? resolve(o) : reject(new Error('msg image')); }); ff.on('error', reject);
   });
 }
-const SXI_CACHE = new Map();
-const srcTag = (x) => { const e = String(x.engine || '').toLowerCase(); return e.startsWith('brave') ? 'brave' : e.includes('cse') ? 'google cse' : e.startsWith('google') ? 'google' : e.startsWith('pinterest') ? 'pinterest' : e.startsWith('wikicommons') ? 'wikimedia' : e.replace(/ images$/, ''); };
-async function searxFetchPage(q, pn, lvl) {
-  const result = await searchUpstream(q, pn, 'images', lvl);
-  if (result.down) throw new Error('search temporarily unavailable');
-  return result.data?.results || [];
-}
+
 function sxItem(x, seen) {
   const full = x.img_src; if (!full || !/^https?:\/\//.test(full) || seen.has(full)) return null; seen.add(full);
   let host = ''; try { host = new URL(x.url || full).hostname.replace(/^www\./, ''); } catch {}
   const th = String(x.thumbnail_src || x.thumbnail || full).replace(/^http:/, 'https:');
-  return { src: srcTag(x), title: String(x.title || host || 'image').replace(/<[^>]*>/g, '').replace(/[\ue000-\ue00f]/g, ''), site: host, full, thumbSrc: th };
+  return { src: 'qwant', title: String(x.title || host || 'image').replace(/<[^>]*>/g, '').replace(/[\ue000-\ue00f]/g, ''), site: host, full, thumbSrc: th };
 }
-// One explicit Lite page means one upstream page, CSE first within that page.
-async function searxImages(q, pg, safe, n = 8) {
-  const lvl = safe === 'off' ? 0 : safe === 'strict' ? 2 : 1;
-  const key = [q.toLowerCase(), pg, lvl].join('|');
-  let hit = SXI_CACHE.get(key);
-  if (hit && Date.now() - hit.at < hit.ttl) return (await hit.promise).slice(0, n);
-  const promise = searxFetchPage(q, pg, lvl).then(results => {
-    const seen = new Set();
-    return results.map(r => sxItem(r, seen)).filter(Boolean);
-  });
-  hit = { at: Date.now(), ttl: 60000, promise };
-  SXI_CACHE.set(key, hit);
-  if (SXI_CACHE.size > 60) SXI_CACHE.delete(SXI_CACHE.keys().next().value);
-  return (await promise).slice(0, n);
+// Native Qwant pages are requested only by this authenticated Shortcut API.
+async function shortcutImages(q, pg, safe, n = 8) {
+ const lvl=safe==='off'?0:safe==='strict'?2:1;
+ const result=await qwantImages(q,pg,lvl),seen=new Set();
+ return result.results.map(r=>sxItem(r,seen)).filter(Boolean).slice(0,n);
 }
 
 export async function handleLite(req, res, url) {
@@ -351,7 +330,7 @@ export async function handleLite(req, res, url) {
     if (path === '/search') {
       const q = (sp.get('q') || '').trim();
       if (!q || q.length > 120) return json(res, 400, { ok: false, error: 'q required, under 120 chars' });
-      const pg = Math.max(1, Math.min(20, Number(sp.get('page')) || 1));
+      const pg = Math.max(1, Math.min(5, Math.floor(Number(sp.get('page')) || 1)));
       const all = await searchRetry(q); const rs = all.slice((pg - 1) * 8, pg * 8);
       const clip = (x, n) => { x = String(x == null ? '' : x).replace(/\s+/g, ' ').trim(); return x.length > n ? x.slice(0, n - 1).trimEnd() + '\u2026' : x; };
       const fmtViews = (x) => { if (x == null || x === '') return ''; const n = Number(String(x).replace(/[,\s]|views?/gi, '')); if (!isNaN(n)) return n >= 1e6 ? (n / 1e6).toFixed(1).replace(/\.0$/, '') + 'M views' : n >= 1e3 ? Math.round(n / 1e3) + 'K views' : n + ' views'; return clip(x, 18); };
@@ -362,7 +341,7 @@ export async function handleLite(req, res, url) {
       const q = (sp.get('q') || '').trim();
       if (!q || q.length > 120) return json(res, 400, { ok: false, error: 'q required, under 120 chars' });
       const n = Math.min(8, Math.max(1, Number(sp.get('n')) || 8));
-      const pg = Math.max(1, Math.min(20, Number(sp.get('page')) || 1));
+      const pg = Math.max(1, Math.min(5, Math.floor(Number(sp.get('page')) || 1)));
       const rs = (await searchRetry(q)).slice((pg - 1) * 8, (pg - 1) * 8 + n);
       if (!rs.length) { const m = await messageImage(pg > 1 ? 'No more results' : 'No results found'); res.writeHead(200, { 'content-type': 'image/jpeg', 'content-length': m.length, 'cache-control': 'no-store' }); return res.end(m); }
       const { buf } = await makeSheet(rs);
@@ -372,8 +351,8 @@ export async function handleLite(req, res, url) {
     if (path === '/imgsearch' || path === '/imgsheet') {
       const q = (sp.get('q') || '').trim();
       if (!q || q.length > 120) return json(res, 400, { ok: false, error: 'q required, under 120 chars' });
-      const pg = Math.max(1, Math.min(20, Number(sp.get('page')) || 1));
-      const nPer = path === '/imgsheet' ? 8 : Math.min(40, Math.max(1, Number(sp.get('n')) || 20)); let items; try { items = await searxImages(q, pg, sp.get('safe') || '', nPer); } catch (e) { return json(res, 502, { ok: false, error: 'image search failed: ' + String(e.message).slice(0, 80) }); }
+      const pg = Math.max(1, Math.min(5, Math.floor(Number(sp.get('page')) || 1)));
+      const nPer = path === '/imgsheet' ? 8 : Math.min(40, Math.max(1, Number(sp.get('n')) || 20)); let items; try { items = await shortcutImages(q, pg, sp.get('safe') || '', nPer); } catch (e) { return json(res, 502, { ok: false, error: 'image search failed: ' + String(e.message).slice(0, 80) }); }
       if (!items.length) return json(res, 404, { ok: false, error: 'no results on this page', page: pg });
       if (path === '/imgsheet') {
         const { buf } = await makeSheet(items.map((x) => ({ thumbSrc: x.thumbSrc, title: x.title })));
@@ -383,7 +362,7 @@ export async function handleLite(req, res, url) {
       const clip2 = (x, n) => { x = String(x).replace(/\s+/g, ' ').trim(); return x.length > n ? x.slice(0, n - 1).trimEnd() + '\u2026' : x; };
       const results = items.map((x, i) => { const label = (i + 1) + '. ' + clip2(x.title, 48) + (x.site ? ' - ' + clip2(x.site, 22) : '') + (x.src ? ' [' + x.src + ']' : ''); return { n: i + 1, title: x.title, site: x.site, source: x.src || '', label, line: label + '||' + (i + 1), image: mediaUrl(x.full, 'image') + '&orig=1&fb=' + encodeURIComponent(x.thumbSrc), image_small: mediaUrl(x.full, 'image') + '&fb=' + encodeURIComponent(x.thumbSrc), thumb: mediaUrl(x.thumbSrc, 'image') }; });
       const sources = {}; for (const r of results) sources[r.source || "unknown"] = (sources[r.source || "unknown"] || 0) + 1;
-      return json(res, 200, { ok: true, q, page: pg, per_page: nPer, sources, results, lines: results.map((x) => x.line), has_more: items.length === nPer, next_page: pg + 1 });
+      return json(res, 200, { ok: true, q, page: pg, per_page: nPer, sources, results, lines: results.map((x) => x.line), has_more: pg < 5 && items.length === nPer, next_page: pg < 5 ? pg + 1 : null });
     }
     if (path === '/page') {
       const d = await pageData(sp.get('u') || '');

@@ -139,10 +139,7 @@
     if (!v) return null;
     const looksLikeUrl = /^[a-z]+:\/\//i.test(v) || (/^[^\s]+\.[^\s]{2,}/.test(v) && !v.includes(' '));
     if (looksLikeUrl) return /^[a-z]+:\/\//i.test(v) ? v : 'https://' + v;
-    // self-hosted searxng, reverse-proxied same-origin at /searx/ (captcha-free):
-    // its own instance, aggregates brave/bing/
-    // google-cse. same-origin keeps result clicks routable back into the proxy.
-    return '/searx/search?q=' + encodeURIComponent(v);
+    return 'https://duckduckgo.com/?q=' + encodeURIComponent(v);
   }
 
 
@@ -380,7 +377,7 @@
         startSync(controller);
         newTab();
         ready = true; boot = '';
-        try { const h = sessionStorage.getItem('rj-open'); if (h) { sessionStorage.removeItem('rj-open'); setTimeout(() => { address = h; go(); }, 80); } } catch {}
+        try { const h = new URLSearchParams(location.search).get('q') || sessionStorage.getItem('rj-open'); if (h) { sessionStorage.removeItem('rj-open'); setTimeout(() => { address = h; go(); }, 80); } } catch {}
       } catch (e) {
         if (!cancelled && attempts < 2) { // one automatic retry, then give up loudly
           attempts += 1;
@@ -498,7 +495,7 @@
     const u = normalize(t.address || '');
     if (!u || u.startsWith('/')) return;
     t.title = 'reader';
-    v.el.src = '/searx/reader?u=' + encodeURIComponent(u);
+    v.el.src = '/browse-reader/reader?u=' + encodeURIComponent(u);
   }
 
   let recentQ = $state(readSearches('rj-browse-searches'));
@@ -517,7 +514,7 @@
     t.title = '';
     try { document.getElementById('br-omni')?.blur(); } catch {}
     syncDisplay();
-    if (url.startsWith('/searx/')) { v.el.src = url; return; }
+    if (url.startsWith('/browse-reader/')) { v.el.src = url; return; }
     v.frame.go(url);
   }
 
@@ -546,8 +543,6 @@
       if (e.altKey && !e.ctrlKey && !e.metaKey && e.code === 'KeyL') { e.preventDefault(); const a = document.querySelector('.bar input, input[placeholder*=address]'); if (a) { a.focus(); a.select(); } }
       if (e.altKey && !e.ctrlKey && !e.metaKey && /^Digit[1-9]$/.test(e.code)) { const t = tabs[+e.code.slice(5) - 1]; if (t) { e.preventDefault(); switchTab(t.id); } }
     });
-    // the /searx/ results page is same-origin, so its external links message
-    // up here instead of navigating - send them through the proxy frame.
     try { navigator.serviceWorker.addEventListener('message', (e) => onDl(e.data && e.data.rjdl)); } catch {}
     window.addEventListener('message', (e) => {
       if (e.origin !== location.origin) return;

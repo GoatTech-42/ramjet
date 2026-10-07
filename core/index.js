@@ -1,5 +1,4 @@
 import { dataPath, DATA_ROOT } from './data.js';
-import { searchUpstream } from './search-upstream.js';
 import { createServer, request as httpRequest } from 'node:http';
 import { request as httpsRequest } from 'node:https';
 import { readFileSync, existsSync, readdirSync, statSync } from 'node:fs';
@@ -16,7 +15,6 @@ import { makeBlockingSocket, stats as adStats, listSize as adListSize } from './
 const { NodeTCPSocket } = await import(new URL('../node_modules/@mercuryworkshop/wisp-js/src/server/net.mjs', import.meta.url).href);
 wisp.options.dns_result_order = 'ipv4first'; // the box has no ipv6 route
 import { randomBytes } from 'node:crypto';
-import { startSearxng, stopSearxng } from "./searxng.js";
 import { brotliCompressSync, gzipSync, constants as zc } from 'node:zlib';
 
 // short-lived, user-bound tickets so the wisp websocket upgrade authenticates
@@ -102,367 +100,11 @@ if (existsSync(ADDONS)) {
 }
 
 
-// -- /searx/* : ramjet's own search page (rebrand: reads as
-// ramjet's, no stock search chrome). The dockerized engine on loopback does
-// the fetching; this route renders ramjet-styled results from its JSON API.
-// Same-origin with browse, so result clicks message up and re-enter the proxy.
-const SEARX_UPSTREAM = 'http://127.0.0.1:8888';
-
-function sxEsc(s) {
-	return String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-}
-function sxHref(u) {
-	u = String(u || '');
-	return /^https?:\/\//i.test(u) ? u : '';
-}
-function sxCrumb(u) {
-	try {
-		const p = new URL(u);
-		const bits = p.pathname.split('/').filter(Boolean).slice(0, 3).map((b) => { try { return decodeURIComponent(b); } catch { return b; } });
-		return sxEsc(p.host) + (bits.length ? ' &rsaquo; ' + bits.map(sxEsc).join(' &rsaquo; ') : '');
-	} catch { return sxEsc(u); }
-}
-// search speed: a 5-minute result cache (repeat searches, back button, page
-// reloads answer from memory) and general searches pinned to the two engines
-// that return results, with explicit non-CSE fallbacks during budget/cooldown.
-const SX_CACHE = new Map();
-const SX_TTL = 5 * 60 * 1000;
-const SX_BUSY = new Map();
-async function sxFetch(query, page, cat, safe) {
-  const key = [query.toLowerCase(), page, cat, safe].join('|');
-  const hit = SX_CACHE.get(key);
-  if (hit && Date.now() - hit.at < hit.ttl) return hit.v;
-  if (SX_BUSY.has(key)) return SX_BUSY.get(key);
-  const request = (async () => {
-    let v = await searchUpstream(query, page, cat, safe);
-    if ((!cat || cat === 'general') && !v.down && !v.data?.results?.length) {
-      v = await searchUpstream(query, page, cat, safe, false);
-    }
-    const good = !v.down && Array.isArray(v.data?.results) && v.data.results.length;
-    const ttl = good && v.cseUsed && !v.cooldown ? (cat === 'images' ? 1800000 : SX_TTL) : 60000;
-    SX_CACHE.set(key, { at: Date.now(), v, ttl });
-    if (SX_CACHE.size > 200) SX_CACHE.delete(SX_CACHE.keys().next().value);
-    return v;
-  })();
-  SX_BUSY.set(key, request);
-  try { return await request; } finally { SX_BUSY.delete(key); }
-}
-
-const SX_CATS = [['general', 'all'], ['images', 'images'], ['videos', 'videos'], ['news', 'news'], ['map', 'maps']];
-const SX_SAFE = ['off', 'moderate', 'strict'];
-function sxSrc(r) { const e = String((r && r.engine) || '').toLowerCase(); return e.startsWith('brave') ? 'brave' : e.includes('cse') ? 'google cse' : e.startsWith('google') ? 'google' : e.startsWith('pinterest') ? 'pinterest' : e.startsWith('wikicommons') ? 'wikimedia' : e.startsWith('bing') ? 'bing' : e.replace(/ images$/, ''); }
-function sxImg(u) { return u ? '/searx/img?u=' + encodeURIComponent(u) : ''; }
-const SX_BANGS = {
-	w: 'https://en.wikipedia.org/w/index.php?search=%s', yt: 'https://www.youtube.com/results?search_query=%s',
-	g: 'https://www.google.com/search?q=%s', ddg: 'https://duckduckgo.com/?q=%s', r: 'https://www.reddit.com/search/?q=%s',
-	gh: 'https://github.com/search?q=%s', a: 'https://www.amazon.com/s?k=%s', maps: 'https://www.google.com/maps/search/%s',
-	imdb: 'https://www.imdb.com/find/?q=%s', mdn: 'https://developer.mozilla.org/en-US/search?q=%s', so: 'https://stackoverflow.com/search?q=%s',
-	tw: 'https://x.com/search?q=%s', gi: 'https://www.google.com/search?tbm=isch&q=%s', wa: 'https://www.wolframalpha.com/input?i=%s',
-	npm: 'https://www.npmjs.com/search?q=%s', tr: 'https://translate.google.com/?sl=auto&text=%s', ebay: 'https://www.ebay.com/sch/i.html?_nkw=%s',
-};
-// "!w cats" or "cats !w": jump straight to that site (opens inside the proxy frame)
-function sxBang(q) {
-	const m = /^!([a-z]{1,5})\s+(.+)$/i.exec(q) || /^(.+?)\s+!([a-z]{1,5})$/i.exec(q);
-	if (!m) return null;
-	const k = (/^!/.test(q) ? m[1] : m[2]).toLowerCase(), t = (/^!/.test(q) ? m[2] : m[1]).trim();
-	return SX_BANGS[k] ? SX_BANGS[k].replace('%s', encodeURIComponent(t)) : null;
-}
-const SX_CSS = `
-:root { --rj-bg: #000000; --rj-surface: #212121; --rj-surface-2: #2f2f2f; --rj-hover: #171717; --rj-border: rgba(255,255,255,0.08); --rj-text: #ececec; --rj-text-dim: #b4b4b4; --rj-text-faint: #8e8e8e; --rj-accent: #d9f24b; --rj-accent-ink: #1e230a; --rj-radius: 16px; --rj-pill: 999px; --rj-font: system-ui, -apple-system, "Segoe UI", sans-serif; }
-:root { color-scheme: dark; }
-* { box-sizing: border-box; }
-html, body { margin: 0; padding: 0; }
-body { background: var(--rj-bg); color: var(--rj-text); font-family: var(--rj-font); -webkit-font-smoothing: antialiased; min-height: 100dvh; animation: sxin .28s ease-out backwards; }
-@keyframes sxin { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
-@view-transition { navigation: auto; }
-a { color: inherit; text-decoration: none; }
-.bar { position: sticky; top: 0; z-index: 20; display: flex; align-items: center; gap: 12px; padding: 12px max(16px, env(safe-area-inset-right)) 10px max(16px, env(safe-area-inset-left)); padding-top: calc(12px + env(safe-area-inset-top)); background: color-mix(in srgb, var(--rj-bg) 80%, transparent); -webkit-backdrop-filter: blur(var(--rj-g-blur, 18px)) saturate(1.4); backdrop-filter: blur(var(--rj-g-blur, 18px)) saturate(1.4); border-bottom: 1px solid var(--rj-border); }
-.bar-in { width: 100%; max-width: 1180px; margin: 0 auto; display: flex; align-items: center; gap: 14px; }
-.back { flex: none; width: 36px; height: 36px; display: grid; place-items: center; border-radius: 50%; color: var(--rj-text-dim); }
-.back:hover { background: var(--rj-hover); color: var(--rj-text); }
-.back svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
-.mark { flex: none; font-weight: 700; font-size: 19px; letter-spacing: -0.02em; }
-.mark b { color: var(--rj-accent); font-weight: 700; }
-.box { position: relative; display: flex; gap: 8px; flex: 1; min-width: 0; max-width: 760px; }
-.box .ic { position: absolute; left: 16px; top: 50%; transform: translateY(-50%); width: 17px; height: 17px; fill: none; stroke: var(--rj-text-dim); stroke-width: 2; stroke-linecap: round; pointer-events: none; }
-.box input[type=text] { flex: 1; min-width: 0; background: var(--rj-surface); border: 1px solid var(--rj-border); border-radius: var(--rj-pill); padding: 0 18px 0 42px; height: 44px; color: var(--rj-text); font: inherit; font-size: 16px; outline: none; transition: border-color .15s, box-shadow .15s; }
-.box input[type=text]:focus { border-color: var(--rj-accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--rj-accent) 22%, transparent); }
-.box input::placeholder { color: var(--rj-text-dim); opacity: .85; }
-.box button { flex: none; width: 44px; height: 44px; display: grid; place-items: center; background: var(--rj-accent); color: var(--rj-accent-ink); border: 0; border-radius: 50%; cursor: pointer; }
-.box button svg { width: 19px; height: 19px; fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
-.tabsrow { border-bottom: 1px solid var(--rj-border); }
-.tabs { width: 100%; max-width: 1180px; margin: 0 auto; padding: 0 16px; display: flex; align-items: center; gap: 2px; overflow-x: auto; scrollbar-width: none; white-space: nowrap; }
-.tabs::-webkit-scrollbar { display: none; }
-.tabset { display: flex; gap: 2px; }
-.tab { padding: 12px 14px 11px; font-size: 14.5px; color: var(--rj-text-dim); border-bottom: 2px solid transparent; margin-bottom: -1px; }
-.tab:hover { color: var(--rj-text); }
-.tab.on { color: var(--rj-text); border-bottom-color: var(--rj-accent); font-weight: 600; }
-.safe { margin-left: auto; display: inline-flex; flex: none; padding: 2px; border: 1px solid var(--rj-border); border-radius: var(--rj-pill); background: var(--rj-surface); }
-.sf { padding: 5px 11px; border-radius: var(--rj-pill); font-size: 12.5px; color: var(--rj-text-faint); }
-.sf.on { background: var(--rj-surface-2); color: var(--rj-text); }
-.wrap { width: 100%; max-width: 1180px; margin: 0 auto; padding: 20px 16px 56px; }
-.col { max-width: 820px; }
-.count { color: var(--rj-text-faint); font-size: 12.5px; margin: 0 2px 16px; }
-.hits { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
-.hit { padding: 12px 14px; margin: 0 -14px; border-radius: calc(var(--rj-radius) - 2px); animation: sxin .3s ease-out both; transition: background .15s; }
-.hit:hover { background: var(--rj-hover); }
-.hit-site { display: flex; align-items: center; gap: 9px; min-width: 0; margin-bottom: 4px; }
-.fav { flex: none; width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; font-size: 12px; font-weight: 700; text-transform: uppercase; color: var(--rj-accent-ink); background: var(--rj-accent); }
-.hit-crumb { color: var(--rj-text-dim); font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
-.hit-title { display: block; font-size: 19px; color: var(--rj-accent); line-height: 1.3; overflow-wrap: anywhere; font-weight: 500; }
-.hit-title:hover { text-decoration: underline; text-underline-offset: 3px; }
-.hit-snip { color: var(--rj-text-dim); font-size: 14.5px; line-height: 1.55; margin: 6px 0 0; overflow-wrap: anywhere; }
-.hit-meta { color: var(--rj-text-faint); font-size: 12px; margin-top: 6px; }
-.hit.has-th { display: flex; gap: 16px; align-items: flex-start; }
-.hit-body { min-width: 0; flex: 1; }
-.hit-th { width: 168px; flex: none; border-radius: calc(var(--rj-radius) - 4px); background: var(--rj-surface); object-fit: cover; aspect-ratio: 16/9; order: 2; }
-.hit-th.news { width: 96px; aspect-ratio: 1; }
-.answer { background: var(--rj-surface); border: 1px solid var(--rj-border); border-left: 3px solid var(--rj-accent); border-radius: var(--rj-radius); padding: 16px 18px; font-size: 16px; line-height: 1.5; margin-bottom: 20px; }
-.correction { color: var(--rj-text-dim); font-size: 14.5px; margin-bottom: 16px; }
-.correction a { color: var(--rj-accent); }
-.notice { background: var(--rj-surface); border: 1px solid var(--rj-border); border-radius: var(--rj-radius); padding: 18px; color: var(--rj-text-dim); font-size: 14.5px; margin-bottom: 20px; }
-.pager { display: flex; gap: 10px; margin-top: 28px; }
-.pill { background: var(--rj-surface); border: 1px solid var(--rj-border); border-radius: var(--rj-pill); padding: 10px 20px; font-size: 14px; color: var(--rj-text); }
-.pill:hover { background: var(--rj-surface-2); }
-.grid { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
-.tile a { position: relative; display: block; aspect-ratio: 1; border-radius: calc(var(--rj-radius) - 2px); overflow: hidden; background: var(--rj-surface); }
-.tile img { width: 100%; height: 100%; object-fit: cover; display: block; transition: transform .25s; }
-.tile a:hover img { transform: scale(1.05); }
-.src-chip { position: absolute; left: 6px; bottom: 6px; max-width: calc(100% - 12px); padding: 2px 8px; border-radius: 999px; font-size: 10.5px; line-height: 16px; letter-spacing: .02em; color: #fff; background: rgba(18,18,22,.46); -webkit-backdrop-filter: blur(10px) saturate(1.4); backdrop-filter: blur(10px) saturate(1.4); border: 1px solid rgba(255,255,255,.18); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none; }
-.tile-cap { color: var(--rj-text-faint); font-size: 11.5px; margin-top: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.wrap.wide .col { max-width: none; }
-.home-hero { min-height: calc(100dvh - 120px); display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; padding: 0 16px 6vh; }
-.home-hero .mark { font-size: clamp(34px, 6vw, 52px); margin-bottom: 22px; }
-.home-hero .box { width: 100%; max-width: 640px; }
-.home-hero .box input[type=text] { height: 54px; font-size: 17px; }
-.home-hero .box button { width: 54px; height: 54px; }
-.recent { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 18px; max-width: 640px; }
-.recent a, .recent button { background: var(--rj-surface); border: 1px solid var(--rj-border); color: var(--rj-text-dim); border-radius: var(--rj-pill); padding: 7px 14px; font: inherit; font-size: 13.5px; cursor: pointer; }
-.recent a:hover { color: var(--rj-text); }
-.framed .back, .framed .mark { display: none; }
-.framed .bar { display: none; }
-.lb { position: fixed; left: 0; top: 0; width: 100vw; height: 100vh; height: 100dvh; max-height: 100dvh; overflow: hidden; z-index: 100; display: none; flex-direction: column; background: rgba(0,0,0,.92); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
-.lb.on { display: flex; animation: lbin .16s ease; }
-.lb, .lb * { touch-action: none; overscroll-behavior: contain; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
-.lb-img { -webkit-user-drag: none; pointer-events: none; }
-@keyframes lbin { from { opacity: 0; } to { opacity: 1; } }
-.lb-top { display: flex; align-items: center; gap: 12px; padding: 12px 16px; color: var(--rj-text-dim); font-size: 13px; }
-.lb-top .lb-n { flex: none; }
-.lb-top .lb-t { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--rj-text); }
-.lb-btn { flex: none; background: var(--rj-surface); border: 1px solid var(--rj-border); color: var(--rj-text); width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center; cursor: pointer; padding: 0; font: inherit; }
-.lb-btn:hover { background: var(--rj-hover); }
-.lb-btn svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
-.lb-stage { position: relative; flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; padding: 0 56px; }
-.lb-img { max-width: 100%; max-height: 100%; object-fit: contain; border-radius: 6px; transition: opacity .15s; }
-.lb-img.ld { opacity: .55; }
-.lb-nav { position: absolute; top: 50%; transform: translateY(-50%); }
-.lb-prev { left: 10px; } .lb-next { right: 10px; }
-.lb-bot { display: flex; align-items: center; justify-content: center; gap: 10px; padding: 12px 16px calc(14px + env(safe-area-inset-bottom)); flex-wrap: wrap; }
-.lb-pill { background: var(--rj-surface); border: 1px solid var(--rj-border); color: var(--rj-text); border-radius: var(--rj-pill); padding: 8px 16px; font: inherit; font-size: 13.5px; text-decoration: none; cursor: pointer; }
-.lb-pill:hover { background: var(--rj-hover); }
-.lb-pill.go { background: var(--rj-accent); color: var(--rj-accent-ink, #111); border-color: transparent; font-weight: 600; }
-@media (max-width: 700px) { .lb-stage { padding: 0 8px; } .lb-nav { display: none; } }
-@media (prefers-reduced-motion: reduce) { .lb.on { animation: none; } }
-
-.strip { list-style: none; margin: 4px 0 22px; padding: 0; }
-.strip-row { display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none; padding-bottom: 2px; }
-.strip-row::-webkit-scrollbar { display: none; }
-.strip-row a { flex: 0 0 auto; width: 118px; height: 118px; border-radius: calc(var(--rj-radius) - 2px); overflow: hidden; background: var(--rj-surface); }
-.strip-row img { width: 100%; height: 100%; object-fit: cover; display: block; }
-.strip-more { display: inline-block; margin-top: 8px; color: var(--rj-text-dim); font-size: 13px; text-decoration: none; }
-.strip-more:hover { color: var(--rj-text); }
-.foot { margin-top: 44px; color: var(--rj-text-faint); font-size: 11.5px; }
-html[data-skin=glass] .hit { background: var(--rj-surface); border: 1px solid var(--rj-border); margin: 0; padding: 14px 16px; -webkit-backdrop-filter: blur(var(--rj-g-blur, 18px)); backdrop-filter: blur(var(--rj-g-blur, 18px)); }
-html[data-skin=glass] .hits { gap: 10px; }
-html[data-skin=glass] .tabsrow, html[data-skin=glass] .bar { border-color: var(--rj-border); }
-html[data-skin=glass] .tab.on { color: var(--rj-text); }
-@media (max-width: 700px) {
-  .mark { display: none; }
-  .back { width: 32px; }
-  .hit-title { font-size: 17.5px; }
-  .hit-th { width: 104px; }
-  .hit-th.news { width: 72px; }
-  .hit.has-th { gap: 12px; }
-  .safe .sf { padding: 5px 9px; }
-  .tabs { padding: 0 8px; flex-wrap: wrap; overflow-x: visible; row-gap: 0; }
-  .tabset { flex: none; }
-  .safe { margin: 2px 6px 10px 6px; }
-}
-@media (min-width: 1100px) {
-  .bar-in, .tabs, .wrap { padding-left: 24px; padding-right: 24px; }
-  .bar-in { padding: 0; }
-  .col { max-width: 880px; }
-}
-`;
-const SX_JS = `
-(function () {
-  /*rjimgfb*/ document.addEventListener('error', function (e) { var t = e.target; if (!t || t.tagName !== 'IMG') return; var a = t.getAttribute('data-alt'); if (a) { t.removeAttribute('data-alt'); t.src = a; } else { var li = t.closest('li.tile'); if (li) li.style.display = 'none'; else t.style.visibility = 'hidden'; } }, true);
-  var K = 'rj-browse-searches', de = document.documentElement;
-  try { if (window.parent !== window) de.classList.add('framed'); } catch (e) { de.classList.add('framed'); }
-  function lite() { try { var ds = localStorage.getItem('rj-datasaver'); if (ds === 'on') return true; if (ds === 'off') return false; var c = navigator.connection; if (c) { if (c.saveData || c.type === 'cellular') return true; if (c.type === 'wifi' || c.type === 'ethernet') return false; return /^(slow-2g|2g|3g)$/.test(c.effectiveType || ''); } return /iPhone|Android.*Mobile/.test(navigator.userAgent); } catch (e) { return false; } }
-  if (!lite()) document.querySelectorAll('img[data-full]').forEach(function (im) { var f = im.getAttribute('data-full'); var t = new Image(); t.onload = function () { im.src = f; im.removeAttribute('data-alt'); }; t.referrerPolicy = 'no-referrer'; t.src = f; });
-
-  /* image preview: click a tile in the images tab to open it big, with next/prev, swipe, and a link to the page it came from */
-  (function () {
-    var tiles = [].slice.call(document.querySelectorAll('li.tile > a'));
-    if (!tiles.length) return;
-    var I = function (d) { return '<svg viewBox="0 0 24 24"><path d="' + d + '"/></svg>'; };
-    var lb = document.createElement('div'); lb.className = 'lb'; lb.setAttribute('role', 'dialog'); lb.setAttribute('aria-modal', 'true');
-    lb.innerHTML = '<div class="lb-top"><span class="lb-n"></span><span class="lb-t"></span><button class="lb-btn lb-x" type="button" aria-label="close">' + I('M6 6l12 12M18 6L6 18') + '</button></div>' +
-      '<div class="lb-stage"><button class="lb-btn lb-nav lb-prev" type="button" aria-label="previous">' + I('M15 5l-7 7 7 7') + '</button><img class="lb-img" alt="" referrerpolicy="no-referrer"><button class="lb-btn lb-nav lb-next" type="button" aria-label="next">' + I('M9 5l7 7-7 7') + '</button></div>' +
-      '<div class="lb-bot"><a class="lb-pill go lb-visit" href="#">visit page</a><a class="lb-pill lb-open" href="#" target="_blank" rel="noopener noreferrer">open image</a><button class="lb-pill lb-full" type="button" style="display:none">load full quality</button></div>';
-    document.documentElement.appendChild(lb); /* not inside body: the body's entrance animation leaves a transform that would pin fixed children to the page instead of the screen */
-    var q = function (c) { return lb.querySelector(c); };
-    var img = q('.lb-img'), cur = -1, startX = 0, startY = 0;
-    function info(i) { var a = tiles[i], im = a.querySelector('img'); return { thumb: im.getAttribute('src'), full: im.getAttribute('data-full') || im.getAttribute('data-alt') || im.getAttribute('src'), page: a.getAttribute('href'), title: a.getAttribute('title') || '' }; }
-    function show(i, forceFull) {
-      if (i < 0 || i >= tiles.length) return;
-      cur = i; var d = info(i), small = lite() && !forceFull && d.full !== d.thumb;
-      q('.lb-n').textContent = (i + 1) + ' / ' + tiles.length; q('.lb-t').textContent = d.title;
-      q('.lb-visit').setAttribute('href', d.page);
-      var raw = d.full; try { var m = new URL(d.full, location.href).searchParams.get('u'); if (m) raw = m; } catch (e) {}
-      q('.lb-open').setAttribute('href', raw);
-      var fb = q('.lb-full'); fb.style.display = small ? '' : 'none';
-      img.classList.add('ld'); img.src = d.thumb;
-      if (!small && d.full !== d.thumb) { var t = new Image(), at = i; t.referrerPolicy = 'no-referrer'; t.onload = function () { if (cur === at) { img.src = d.full; img.classList.remove('ld'); } }; t.onerror = function () { if (cur === at) img.classList.remove('ld'); }; t.src = d.full; } else img.classList.remove('ld');
-      img.onload = function () { if (small || d.full === d.thumb) img.classList.remove('ld'); };
-      [i - 1, i + 1].forEach(function (n) { if (tiles[n]) { var p = new Image(); p.src = info(n).thumb; } });
-    }
-    var sy = 0;
-    function lock() { sy = window.pageYOffset || 0; var b = document.body.style; b.position = 'fixed'; b.top = (-sy) + 'px'; b.left = '0'; b.right = '0'; b.width = '100%'; document.documentElement.style.overflow = 'hidden'; }
-    function unlock() { var b = document.body.style; b.position = ''; b.top = ''; b.left = ''; b.right = ''; b.width = ''; document.documentElement.style.overflow = ''; window.scrollTo(0, sy); }
-    function open(i) { lb.classList.add('on'); lock(); show(i); }
-    function close() { if (cur < 0 && !lb.classList.contains('on')) return; lb.classList.remove('on'); unlock(); cur = -1; img.removeAttribute('src'); }
-    tiles.forEach(function (a, i) { a.addEventListener('click', function (e) { e.preventDefault(); e.stopPropagation(); open(i); }, true); });
-    q('.lb-x').onclick = close; q('.lb-prev').onclick = function () { show(cur - 1); }; q('.lb-next').onclick = function () { show(cur + 1); };
-    q('.lb-full').onclick = function () { show(cur, true); };
-    q('.lb-stage').addEventListener('click', function (e) { if (e.target === q('.lb-stage')) close(); });
-    document.addEventListener('keydown', function (e) { if (cur < 0) return; if (e.key === 'Escape') close(); else if (e.key === 'ArrowLeft') show(cur - 1); else if (e.key === 'ArrowRight') show(cur + 1); });
-    lb.addEventListener('touchmove', function (e) { e.preventDefault(); }, { passive: false });
-    lb.addEventListener('wheel', function (e) { e.preventDefault(); }, { passive: false });
-    var st = q('.lb-stage');
-    st.addEventListener('touchstart', function (e) { var t = e.touches[0]; startX = t.clientX; startY = t.clientY; }, { passive: true });
-    st.addEventListener('touchend', function (e) { var t = e.changedTouches[0], dx = t.clientX - startX, dy = t.clientY - startY; if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.4) show(cur + (dx < 0 ? 1 : -1)); else if (dy > 90 && Math.abs(dy) > Math.abs(dx) * 1.4) close(); }, { passive: true });
-  })();
-  (function () { var el = document.getElementById('sxlite'); if (!el || !lite()) return; var ds = ''; try { ds = localStorage.getItem('rj-datasaver') || ''; } catch (e) {} if (ds === 'on') return; el.innerHTML = '<br>smaller thumbnails to save data. for full quality on wifi: settings, data saver, off.'; })();
-  function on() { try { return localStorage.getItem('rj-save-searches') === 'on'; } catch (e) { return false; } }
-  function read() { if (!on()) return []; try { var a = JSON.parse(localStorage.getItem(K) || '[]'); return Array.isArray(a) ? a.slice(0, 12) : []; } catch (e) { return []; } }
-  function add(q) { q = String(q || '').trim().slice(0, 120); if (!q || !on()) return; var n = [q].concat(read().filter(function (x) { return x.toLowerCase() !== q.toLowerCase(); })).slice(0, 12); try { localStorage.setItem(K, JSON.stringify(n)); } catch (e) {} }
-  var f = document.querySelector('form.box'); var i = f && f.querySelector('input[name=q]');
-  if (i && i.value) add(i.value);
-  if (f) f.addEventListener('submit', function () { if (i) add(i.value); });
-  var dl = document.getElementById('sxdl'); var list = read();
-  if (dl) dl.innerHTML = list.map(function (x) { return '<option value="' + x.replace(/"/g, '&quot;') + '">'; }).join('');
-  var r = document.getElementById('sxrecent');
-  if (r && list.length) {
-    r.innerHTML = list.slice(0, 8).map(function (x) { return '<a href="/searx/search?q=' + encodeURIComponent(x) + '"></a>'; }).join('') + '<button type="button" id="sxclr">clear</button>';
-    r.querySelectorAll('a').forEach(function (a, n) { a.textContent = list[n]; });
-    var c = document.getElementById('sxclr'); if (c) c.onclick = function () { try { localStorage.removeItem(K); localStorage.setItem(K, '[]'); } catch (e) {} r.innerHTML = ''; };
-  }
-  document.addEventListener('click', function (e) { var a = e.target && e.target.closest ? e.target.closest('a[href]') : null; if (!a) return; if (a.closest('li.tile')) return; var h = a.getAttribute('href') || ''; if (/^https?:\\/\\//i.test(h) && window.parent !== window) { e.preventDefault(); e.stopPropagation(); parent.postMessage({ rjBrowseGo: h }, '*'); } }, true);
-})();
-`;
-function sxHost(u) { try { return new URL(u).hostname; } catch { return ''; } }
-function sxPage(query, page, result, cat, safe, imgRes) {
-	cat = SX_CATS.some((c) => c[0] === cat) ? cat : 'general';
-	safe = [0, 1, 2].includes(safe) ? safe : 0;
-	const qs = (o) => { const m = Object.assign({ q: query, c: cat, s: safe }, o || {}); return '/searx/search?' + Object.entries(m).filter(([k, v]) => v !== '' && v != null && !(k === 'c' && v === 'general')).map(([k, v]) => k + '=' + encodeURIComponent(v)).join('&'); };
-	const down = !!(result && result.down);
-	const data = (result && result.data) || {};
-	const results = Array.isArray(data.results) ? data.results : [];
-	const answers = (Array.isArray(data.answers) ? data.answers : [])
-		.map((a) => (typeof a === 'string' ? a : (a && a.answer) || '')).filter(Boolean).slice(0, 2);
-	const corrections = (Array.isArray(data.corrections) ? data.corrections : []).filter(Boolean).slice(0, 1);
-	const total = Number(data.number_of_results) || 0;
-
-	const safeNote = cat === 'images' ? '<p class="safe-note">Qwant supports off, moderate and strict. Google API backup filters both moderate and strict; off stays off.</p>' : '';
-	let strip = '';
-	if (cat === 'general' && page === 1 && imgRes && imgRes.data && Array.isArray(imgRes.data.results)) {
-		const ims = imgRes.data.results.map((r) => ({ t: sxHref(r.thumbnail_src || r.thumbnail || '') || sxHref(r.img_src || ''), f: sxHref(r.img_src || ''), a: String(r.title || '') })).filter((x) => x.t).slice(0, 9);
-		if (ims.length >= 4) strip = '<li class="strip"><div class="strip-row">' + ims.map((x) => '<a href="' + sxEsc('/searx/search?q=' + encodeURIComponent(query) + '&c=images') + '"><img loading="lazy" referrerpolicy="no-referrer" alt="' + sxEsc(x.a.slice(0, 80)) + '" src="' + sxEsc(sxImg(x.t)) + '"' + (x.f && x.f !== x.t ? ' data-full="' + sxEsc(sxImg(x.f)) + '"' : '') + ' /></a>').join('') + '</div><a class="strip-more" href="' + sxEsc('/searx/search?q=' + encodeURIComponent(query) + '&c=images') + '">more images &rarr;</a></li>';
-	}
-	const cards = [];
-	for (const r of results) {
-		const href = sxHref(r.url);
-		if (!href) continue;
-		const engines = Array.isArray(r.engines) ? [...new Set(r.engines)].slice(0, 3).join(' · ') : (r.engine || '');
-		const date = r.publishedDate ? String(r.publishedDate).slice(0, 10) : '';
-		const meta = [engines, date].filter(Boolean).join(' · ');
-		const th = sxHref(r.thumbnail_src || r.thumbnail || '');
-		if (cat === 'images') {
-			const full = sxHref(r.img_src);
-			cards.push('<li class="tile"><a href="' + sxEsc(href) + '" title="' + sxEsc(r.title || '') + '"><img loading="lazy" referrerpolicy="no-referrer" alt="' + sxEsc(r.title || '') + '" src="' + sxEsc(sxImg(th || full)) + '"' + (th && full ? ' data-alt="' + sxEsc(sxImg(full)) + '"' : '') + (th && full ? ' data-full="' + sxEsc(sxImg(full)) + '"' : '') + ' /><span class="src-chip">' + sxEsc(sxSrc(r)) + '</span></a><div class="tile-cap">' + sxEsc(String(r.title || '').slice(0, 60)) + '</div></li>');
-			continue;
-		}
-		const thumbHtml = (th && (cat === 'videos' || cat === 'news')) ? '<img class="hit-th ' + cat + '" loading="lazy" referrerpolicy="no-referrer" alt="" src="' + sxEsc(sxImg(th)) + '" />' : '';
-		const extra = cat === 'map' && r.latitude ? ' &middot; ' + sxEsc(Number(r.latitude).toFixed(3) + ', ' + Number(r.longitude).toFixed(3)) : '';
-		const dur = cat === 'videos' && r.length ? ' &middot; ' + sxEsc(r.length) : '';
-		cards.push(
-			'<li class="hit' + (thumbHtml ? ' has-th' : '') + '">' + thumbHtml + '<div class="hit-body">' +
-				'<div class="hit-site"><span class="fav" aria-hidden="true">' + sxEsc(sxHost(href).replace(/^www\./, '').slice(0, 1) || '?') + '</span><div class="hit-crumb">' + sxCrumb(href) + '</div></div>' +
-				'<a class="hit-title" href="' + sxEsc(href) + '">' + sxEsc(r.title || href) + '</a>' +
-				(r.content ? '<p class="hit-snip">' + sxEsc(String(r.content).slice(0, 320)) + '</p>' : '') +
-				(meta ? '<div class="hit-meta">' + sxEsc(meta) + extra + dur + '</div>' : '') +
-			'</div></li>'
-		);
-	}
-
-	const qAttr = sxEsc(query);
-	const home = !query;
-	let body = '';
-	if (down) {
-		body += '<div class="notice">search is down right now - the backend on the box needs a kick. it will be back shortly.</div>';
-	} else if (query && !cards.length) {
-		body += '<div class="notice">no results for &ldquo;' + qAttr + '&rdquo;. try different words.</div>';
-	}
-	if (answers.length) {
-		body += answers.map((a) => '<div class="answer">' + sxEsc(a) + '</div>').join('');
-	}
-	if (corrections.length) {
-		body += '<div class="correction">did you mean <a href="/searx/search?q=' + encodeURIComponent(corrections[0]) + '">' + sxEsc(corrections[0]) + '</a>?</div>';
-	}
-	if (cards.length) {
-		body += '<div class="count">' + (total ? 'about ' + total.toLocaleString('en-US') + ' results' : cards.length + ' results') + '</div>';
-		if (strip) cards.splice(Math.min(2, cards.length), 0, strip);
-		body += '<ol class="' + (cat === 'images' ? 'grid' : 'hits') + '">' + cards.join('') + '</ol>';
-		body += '<div class="pager">';
-		if (page > 1) body += '<a class="pill" href="' + qs({ p: page - 1 }) + '">&larr; back</a>';
-		body += '<a class="pill" href="' + qs({ p: page + 1 }) + '">more &rarr;</a>';
-		body += '</div>';
-	}
-
-	const SVG_S = '<svg class="ic" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>';
-	const formHtml =
-		'<form class="box" action="/searx/search" method="get">' + SVG_S +
-			'<input type="text" name="q" aria-label="Search the web" value="' + qAttr + '" placeholder="search the web" autocomplete="off" enterkeyhint="search" list="sxdl"' + (home ? ' autofocus' : '') + ' />' +
-			'<datalist id="sxdl"></datalist>' +
-			'<input type="hidden" name="c" value="' + cat + '" /><input type="hidden" name="s" value="' + safe + '" />' +
-			'<button type="submit" aria-label="search"><svg viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button>' +
-		'</form>';
-	const tabsHtml = '<div class="tabsrow"><nav class="tabs"><span class="tabset">' + SX_CATS.map((c) => '<a class="tab' + (c[0] === cat ? ' on' : '') + '" href="' + qs({ c: c[0], p: '' }) + '">' + c[1] + '</a>').join('') + '</span>' +
-		'<span class="safe" role="group" aria-label="safe search">' + SX_SAFE.map((n, i) => '<a class="sf' + (i === safe ? ' on' : '') + '" href="' + qs({ s: i, p: '' }) + '">' + n + '</a>').join('') + '</span></nav></div>';
-	const BACK = '<a class="back" href="/" aria-label="back to ramjet"><svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg></a>';
-	const headBar = '<header class="bar"><div class="bar-in">' + BACK + '<a class="mark" href="/searx/search">ramjet<b>search</b></a>' + formHtml + '</div></header>';
-
-	return '<!doctype html>' +
-'<html lang="en"><head><meta charset="utf-8" />' +
-'<meta name="viewport" content="width=device-width, initial-scale=1" />' +
-'<title>' + (query ? qAttr + ' - ' : '') + 'ramjet search</title>' +
-'<meta name="theme-color" content="#000000" /><link rel="stylesheet" href="/cloak/walls.css?v=1" /><script src="/cloak/theme-boot.js?v=9"></script>' +
-'<style>' + SX_CSS + '</style><link rel="stylesheet" href="/cloak/search-theme.css?v=2" /></head>' +
-'<body>' +
-(home
-	? '<header class="bar"><div class="bar-in">' + BACK + '</div></header>' +
-	  '<main class="home-hero"><div class="mark">ramjet<b>search</b></div>' + formHtml + '<div class="recent" id="sxrecent"></div></main>'
-	: headBar + (query ? tabsHtml : '') + '<main class="wrap' + (cat === 'images' ? ' wide' : '') + '"><div class="col">' + safeNote + body + '<div class="foot">served from your own box &middot; queries go straight from the box to the engines<span id="sxlite"></span></div></div></main>') +
-'<script>' + SX_JS + '<' + '/script>' +
-'</body></html>';
-}
-
-async function proxySearx(req, res, session, restUrl) {
-	if (!session) return redirect(res, '/login');
-	if (req.method !== 'GET' && req.method !== 'HEAD') { res.writeHead(405); return res.end(); }
-	const u = new URL(restUrl, 'http://x');
+// Reader rendering and image proxy remain independent of search.
+async function browseReader(req,res,session,restUrl){
+ if(!session)return redirect(res,'/login');
+ if(req.method!=='GET'&&req.method!=='HEAD'){res.writeHead(405);return res.end();}
+ const u=new URL(restUrl,'http://x');
 	if (u.pathname === '/img') {
 		let t; try { t = new URL(u.searchParams.get('u') || ''); } catch { res.writeHead(400); return res.end(); }
 		if (!/^https?:$/.test(t.protocol)) { res.writeHead(400); return res.end(); }
@@ -470,7 +112,7 @@ async function proxySearx(req, res, session, restUrl) {
 		if (!imgGuard) { res.writeHead(400); return res.end(); }
 		const mod = t.protocol === 'https:' ? httpsRequest : httpRequest;
 		const ur = mod(t, { headers: { accept: 'image/*', 'user-agent': 'Mozilla/5.0' }, lookup: safeLookup, timeout: 10000 }, (ir) => {
-			if (ir.statusCode >= 300 && ir.statusCode < 400 && ir.headers.location && (parseInt(u.searchParams.get('h') || '0', 10) < 3)) { ir.resume(); let nx; try { nx = new URL(ir.headers.location, t); } catch { res.writeHead(404); return res.end(); } res.writeHead(302, { location: '/searx/img?h=' + (parseInt(u.searchParams.get('h') || '0', 10) + 1) + '&u=' + encodeURIComponent(nx.href) }); return res.end(); }
+			if (ir.statusCode >= 300 && ir.statusCode < 400 && ir.headers.location && (parseInt(u.searchParams.get('h') || '0', 10) < 3)) { ir.resume(); let nx; try { nx = new URL(ir.headers.location, t); } catch { res.writeHead(404); return res.end(); } res.writeHead(302, { location: '/browse-reader/img?h=' + (parseInt(u.searchParams.get('h') || '0', 10) + 1) + '&u=' + encodeURIComponent(nx.href) }); return res.end(); }
 			const ct = String(ir.headers['content-type'] || '');
 			if (ir.statusCode !== 200 || !/^image\/(jpeg|png|webp|gif|avif)/.test(ct)) { ir.resume(); res.writeHead(404); return res.end(); }
 			res.writeHead(200, { 'content-type': ct, 'cache-control': 'private, max-age=86400', 'x-content-type-options': 'nosniff' });
@@ -485,30 +127,7 @@ async function proxySearx(req, res, session, restUrl) {
 		res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'content-security-policy': "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'" });
 		return res.end(await readerPage(tu));
 	}
-	if (u.pathname !== '/search' && u.pathname !== '/' && u.pathname !== '') {
-		res.writeHead(302, { location: '/searx/search' });
-		return res.end();
-	}
-	const q = (u.searchParams.get('q') || '').trim();
-	const bang = sxBang(q);
-	if (bang) {
-		const j = JSON.stringify(bang).replace(/</g, '\\u003c');
-		res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
-		return res.end('<!doctype html><meta charset=utf-8><title>Opening</title><body style="background:#0b0b0c;color:#aaa;font:15px system-ui;padding:24px">Opening...<script>var u=' + j + ';if(window.parent!==window)parent.postMessage({rjBrowseGo:u},"*");else location.replace(u)</script>');
-	}
-	const page = Math.max(1, parseInt(u.searchParams.get('p') || '1', 10) || 1);
-	const requestedCat = u.searchParams.get('c') || 'general';
-	const cat = SX_CATS.some(c => c[0] === requestedCat) ? requestedCat : 'general';
-	const ck = parseCookies(req).rjss;
-	let safe = u.searchParams.has('s') ? parseInt(u.searchParams.get('s'), 10) : (ck != null ? parseInt(ck, 10) : 0);
-	if (![0, 1, 2].includes(safe)) safe = 0;
-	// Images are fetched only when the user opens the Images category.
-	const result = q ? await sxFetch(q, page, cat, safe) : null;
-	const imgRes = null;
-	const hd = { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' };
-	if (u.searchParams.has('s')) hd['set-cookie'] = 'rjss=' + safe + '; Path=/searx; Max-Age=31536000; SameSite=Lax; HttpOnly';
-	res.writeHead(200, hd);
-	res.end(sxPage(q, page, result, cat, safe, imgRes));
+ res.writeHead(404);res.end();
 }
 
 // accounts:
@@ -717,8 +336,11 @@ const server = createServer(async (req, res) => {
       return servePage(res, 'claim');
     }
     if (path === '/auth/ai-key') return sendJson(res, 200, { has: false });
+    if(path.startsWith('/browse-reader/'))return browseReader(req,res,session,path.slice(14)+(url.search||''));
     if (path.startsWith('/searx/')) {
-      return proxySearx(req, res, session, path.slice(6) + (url.search || ''));
+      if (!session) return redirect(res, '/login');
+      const query = url.searchParams.get('q') || '';
+      return redirect(res, '/browse?q=' + encodeURIComponent(query));
     }
     if (path.startsWith('/assets/') || /^\/(favicon\.svg|favicon-32\.png|icon-192\.png|apple-touch-icon\.png|logo-512\.png|manifest\.webmanifest)$/.test(path) || path.startsWith('/cloak/') || path.startsWith('/scramjet/') || path.startsWith('/controller/') || path.startsWith('/epoxy/') || path.startsWith('/libcurl/') || path === '/browse-sw.js') {
       if (serveStatic(res, path)) return;
@@ -786,6 +408,5 @@ server.on('upgrade', (req, socket, head) => {
 });
 
 server.listen(PORT, HOST, () => console.log(`ramjet2 on ${HOST}:${PORT}, data ${DATA}, addons: ${[...addons.keys()].join(', ') || 'none'}`));
-process.on("SIGTERM", () => { stopSearxng(); guard.flush(); process.exit(0); });
-process.on("SIGINT", () => { stopSearxng(); guard.flush(); process.exit(0); });
-startSearxng();
+process.on("SIGTERM", () => { guard.flush(); process.exit(0); });
+process.on("SIGINT", () => { guard.flush(); process.exit(0); });

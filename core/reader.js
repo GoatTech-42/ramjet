@@ -1,6 +1,6 @@
 // reader mode: the box fetches a page, pulls out the article, and serves a
 // clean dark reading view (text + images only). no scripts from the source
-// page ever reach the browser, and images come through the /searx/img proxy.
+// page ever reach the browser, and images come through the /browse-reader/img proxy.
 import http from 'node:http';
 import https from 'node:https';
 import zlib from 'node:zlib';
@@ -76,7 +76,7 @@ function render(n, base, out, st) {
 		if (!/^https?:/.test(abs)) return;
 		const w = parseInt(n.attribs.width || '0', 10), h = parseInt(n.attribs.height || '0', 10);
 		if ((w && w < 80) || (h && h < 60)) return;
-		st.imgs++; out.push('<img loading="lazy" alt="' + esc(n.attribs.alt || '') + '" src="/searx/img?u=' + encodeURIComponent(abs) + '">'); return;
+		st.imgs++; out.push('<img loading="lazy" alt="' + esc(n.attribs.alt || '') + '" src="/browse-reader/img?u=' + encodeURIComponent(abs) + '">'); return;
 	}
 	if (!ALLOW.has(nm)) { for (const c of n.children || []) render(c, base, out, st); return; }
 	if (nm === 'a') {
