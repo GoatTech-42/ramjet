@@ -179,10 +179,10 @@
 {#snippet drop()}
               {#if sfocus && (recentS.length || recentSites.length)}
                 <div class="sdrop" role="listbox">
-                  {#if recentS.length}<p class="sdh">recent searches <button type="button" onmousedown={(e) => { e.preventDefault(); recentS = clearSearches('rj-browse-searches'); }}>clear</button></p>
-                    {#each recentS.filter((r) => !sq || r.toLowerCase().includes(sq.toLowerCase())).slice(0, 6) as r}<button type="button" class="sdi" onmousedown={(e) => { e.preventDefault(); pickS(r); }}><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>{r}</button>{/each}{/if}
+                  {#if recentS.length}<p class="sdh">recent searches <button type="button" onmousedown={(e) => e.preventDefault()} onclick={() => { recentS = clearSearches('rj-browse-searches'); }}>clear</button></p>
+                    {#each recentS.filter((r) => !sq || r.toLowerCase().includes(sq.toLowerCase())).slice(0, 6) as r}<button type="button" class="sdi" onmousedown={(e) => e.preventDefault()} onclick={() => pickS(r)}><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>{r}</button>{/each}{/if}
                   {#if recentSites.length && !sq}<p class="sdh">recent sites</p>
-                    {#each recentSites as st}<button type="button" class="sdi" onmousedown={(e) => { e.preventDefault(); openSite(st); }}><b class="sdl">{siteLetter(st)}</b>{st.name}</button>{/each}{/if}
+                    {#each recentSites as st}<button type="button" class="sdi" onmousedown={(e) => e.preventDefault()} onclick={() => openSite(st)}><b class="sdl">{siteLetter(st)}</b>{st.name}</button>{/each}{/if}
                 </div>
               {/if}
 {/snippet}
@@ -200,7 +200,7 @@
   <section class="search-area" aria-label="Search">
     <form class="sform" onsubmit={doSearch}>
       <label class="sr-only" for="home-search">Search Ramjet</label>
-      <input id="home-search" bind:value={sq} placeholder={smode === 'web' ? 'Search the web or enter a site' : smode === 'video' ? 'Search videos' : 'Ask Sage anything'} autocomplete="off" onfocus={openDrop} onblur={() => setTimeout(() => (sfocus = false), 160)} />
+      <input id="home-search" bind:value={sq} placeholder={smode === 'web' ? 'Search the web or enter a site' : smode === 'video' ? 'Search videos' : 'Ask Sage anything'} autocomplete="off" onfocus={openDrop} onblur={() => setTimeout(() => { if (!document.activeElement?.closest('.sdrop')) sfocus = false; }, 160)} />
       <button class="go" aria-label="Search">Search</button>
       {@render drop()}
     </form>
@@ -222,7 +222,7 @@
             <p class="cdate">{clockDate}</p>
           {:else if id === 'search'}
             <form class="sform" onsubmit={doSearch}>
-              <input bind:value={sq} placeholder={smode === 'web' ? 'search the web or type a site' : smode === 'video' ? 'search videos' : 'ask sage anything'} autocomplete="off" onfocus={openDrop} onblur={() => setTimeout(() => (sfocus = false), 160)} />
+              <input bind:value={sq} placeholder={smode === 'web' ? 'search the web or type a site' : smode === 'video' ? 'search videos' : 'ask sage anything'} autocomplete="off" onfocus={openDrop} onblur={() => setTimeout(() => { if (!document.activeElement?.closest('.sdrop')) sfocus = false; }, 160)} />
               <button class="go" aria-label="go">&#8594;</button>
               {@render drop()}
             </form>
