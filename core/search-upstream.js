@@ -21,7 +21,8 @@ async function readPage(query, page, cat, safe, engines) {
   const params = new URLSearchParams({ q: query, format: 'json', safesearch: String(safe | 0) });
   if (engines) params.set('engines', engines);
   if (page > 1) params.set('pageno', String(page));
-  if (cat !== 'general') params.set('categories', cat);
+  // SearX adds category defaults to explicit engines, so never combine them.
+  if (!engines && cat !== 'general') params.set('categories', cat);
   const response = await fetch('http://127.0.0.1:8888/search?' + params, { headers: {accept:'application/json','accept-encoding':'identity'}, signal: AbortSignal.timeout(15000) });
   if (!response.ok) throw new Error('search unavailable');
   const chunks=[];let size=0;
@@ -67,7 +68,7 @@ const stored = readJson(cacheFile, {});
 const shared = new Map(Object.entries(stored));
 const pending = new Map();
 export async function searchUpstream(query, page, category, safe, allowCse = true) {
-  const key = JSON.stringify(['qwant-first-v1',String(query).trim().toLowerCase(), category || 'general', safe | 0, Math.max(1,page | 0), allowCse]);
+  const key = JSON.stringify(['qwant-first-native-v2',String(query).trim().toLowerCase(), category || 'general', safe | 0, Math.max(1,page | 0), allowCse]);
   const hit = shared.get(key);
   if (hit && Date.now() < hit.expires) return hit.value;
   if (pending.has(key)) return pending.get(key);

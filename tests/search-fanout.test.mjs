@@ -25,7 +25,7 @@ test('shared web/Lite/restart cache avoids admissions; lazy pages and Qwant cool
   const login=await fetch(base+'/api/auth/login',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({username:'reviewer',password:'fixture-password'})});const cookie=login.headers.get('set-cookie').split(';')[0];
   const search=async path=>{const r=await fetch(base+'/searx/search?'+path,{headers:{cookie}});assert.equal(r.status,200);return r.text();};
   await Promise.all([search('q=general'),search('q=general')]);assert.equal(calls.length,1);assert(!calls[0].searchParams.has('categories'));assert(calls[0].searchParams.get('engines').includes('google cse'));
-  await search('q=image&c=images&s=1');assert.equal(calls.length,2);assert.equal(calls[1].searchParams.get('engines'),'qwant images');assert(!calls[1].searchParams.has('pageno'));
+  await search('q=image&c=images&s=1');assert.equal(calls.length,2);assert.equal(calls[1].searchParams.get('engines'),'qwant images');assert(!calls[1].searchParams.has('pageno'));assert(!calls[1].searchParams.has('categories'));
   await search('q=image&c=images&s=1&p=2');assert.equal(calls.length,3);assert.equal(calls[2].searchParams.get('pageno'),'2');
   const headers={authorization:'Basic '+Buffer.from('reviewer:fixture-password').toString('base64')};
   const lite=await fetch(base+'/api/lite/imgsearch?q=image&n=40&page=1&format=json',{headers});assert.equal(lite.status,200);await lite.arrayBuffer();assert.equal(calls.length,3);
