@@ -1,0 +1,54 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdtempSync, readFileSync, writeFileSync, readdirSync, rmSync, statSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { spawn } from 'node:child_process';
+import { once } from 'node:events';
+import {planIdentity,applyIdentity} from '../core/identity-migration.js';
+import { Auth } from '../core/auth.js';
+
+async function start(root, port, username='reviewer') {
+  const child = spawn(process.execPath, ['core/index.js'], { env: { ...process.env, RJ_HOST:'127.0.0.1', RJ_PORT:String(port), RJ_DATA:root, RJ_ADMIN:'reviewer' }, stdio:['ignore','ignore','pipe'] });
+  let log=''; child.stderr.on('data',b=>log+=b);
+  const base=`http://127.0.0.1:${port}`;
+  for(let i=0;i<100;i++) {
+    if(child.exitCode!==null)throw new Error('server exited: '+log);
+    try { if((await fetch(base+'/login')).ok)break; }catch{}
+    await new Promise(r=>setTimeout(r,100));
+  }
+  const login=await fetch(base+'/api/auth/login',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({username,password:'storage-test-password'})});
+  assert.equal(login.status,200); const cookie=login.headers.get('set-cookie').split(';')[0];
+  return { child, cookie, base, async stop(){child.kill('SIGTERM');await once(child,'exit');}, async raw(path){return fetch(base+path,{headers:{cookie}});}, async api(path,data){const r=await fetch(base+path,{method:data?'POST':'GET',headers:{cookie,'content-type':'application/json'},body:data?JSON.stringify(data):undefined});return {status:r.status,data:await r.json()};} };
+}
+
+test('populated stopped rename preserves API login, sessions, export and encrypted chat access',async()=>{
+  const roots=[mkdtempSync(join(tmpdir(),'rj-api-a-')),mkdtempSync(join(tmpdir(),'rj-api-b-'))];
+  let server;
+  try {
+    for(const root of roots)new Auth(root).createUser('reviewer','storage-test-password');
+    server=await start(roots[0],15431);const {api}=server;
+    const pl=await api('/api/apps/amp/playlists',{name:'Persisted'});assert.equal(pl.status,200);
+    assert.equal((await api('/api/apps/amp/playlists/rename',{id:pl.data.playlist.id,name:'Renamed'})).status,200);
+    assert.equal((await api('/api/apps/jetstream/history',{id:'dQw4w9WgXcQ',title:'Saved video',duration:'3:00'})).status,200);
+    assert.equal((await api('/api/apps/browse/bookmarks',{name:'Example',url:'https://example.com/'})).status,200);
+    const conv=await api('/api/apps/sage/conversations',{messages:[{role:'user',content:'Persist this conversation'}]});assert.equal(conv.status,200);
+    const group=await api('/api/apps/banter/group',{name:'Storage test'});assert.equal(group.status,200);
+    const room=group.data.room.id;
+    assert.equal((await api('/api/apps/banter/msg',{room,type:'text',text:'encrypted persistence fixture'})).status,200);
+    const image=Buffer.from('storage-image-fixture');
+    assert.equal((await api('/api/apps/banter/msg',{room,type:'image',data:image.toString('base64')})).status,200);
+    const exported=await api('/api/auth/export');assert.equal(exported.data.jetstream_history[0].title,'Saved video');assert.equal(exported.data.amp_playlists[0].name,'Renamed');assert.equal(exported.data.browse_bookmarks[0].name,'Example');assert.equal(exported.data.sage_conversations[0].id,conv.data.id);
+    const keyBefore=readFileSync(join(roots[0],'banter2/key'));assert.equal(statSync(join(roots[0],'banter2/key')).mode&0o777,0o600);
+    const logs=readdirSync(join(roots[0],'banter2/msgs'));assert(logs.length);assert(!readFileSync(join(roots[0],'banter2/msgs',logs[0]),'utf8').includes('encrypted persistence fixture'));
+    const oldCookie=server.cookie;await server.stop();const plan=planIdentity(roots[0],'reviewer','renamed');applyIdentity(roots[0],plan);server=await start(roots[0],15431,'renamed');
+    const existingSession=await fetch(server.base+'/api/auth/export',{headers:{cookie:oldCookie}});assert.equal(existingSession.status,200);assert.equal((await existingSession.json()).user,'renamed');
+    assert.equal((await server.api('/api/apps/amp/playlists')).data.playlists[0].name,'Renamed');
+    assert.equal((await server.api('/api/apps/jetstream/history')).data.items[0].title,'Saved video');
+    const msgs=(await server.api('/api/apps/banter/msgs?room='+room)).data.msgs;assert(msgs.some(m=>m.text==='encrypted persistence fixture'));const media=msgs.find(m=>m.type==='image');assert(media);const decrypted=await server.raw('/api/apps/banter/media?id='+media.media);assert.equal(decrypted.status,200);assert.deepEqual(Buffer.from(await decrypted.arrayBuffer()),image);
+    assert.deepEqual(readFileSync(join(roots[0],'banter2/key')),keyBefore);
+    const exportedAfter=await server.api('/api/auth/export');assert.equal(exportedAfter.data.user,'renamed');assert.equal(exportedAfter.data.amp_playlists[0].name,'Renamed');assert.equal(exportedAfter.data.browse_bookmarks[0].name,'Example');assert.equal(exportedAfter.data.sage_conversations[0].id,conv.data.id);assert.equal((await server.api('/api/apps/banter/members?room='+room)).data.members[0].name,'renamed');
+    const blocked=await server.api('/api/auth/claim-username',{name:'another'});assert.equal(blocked.status,409);assert(blocked.data.error.includes('maintenance'));
+    assert.equal(new Auth(roots[0]).verify('reviewer','storage-test-password'),null);assert(new Auth(roots[0]).verify('renamed','storage-test-password'));
+  }finally{if(server&&server.child.exitCode===null)await server.stop();for(const root of roots)rmSync(root,{recursive:true});}
+});

@@ -1,3 +1,4 @@
+import { serverIdentityLock } from './identity-migration.js';
 import { dataPath, DATA_ROOT } from './data.js';
 import { createServer, request as httpRequest } from 'node:http';
 import { request as httpsRequest } from 'node:https';
@@ -30,6 +31,7 @@ const DATA = DATA_ROOT;
 const DIST = new URL('../web/dist', import.meta.url).pathname;
 const ADDONS = new URL('./addons', import.meta.url).pathname;
 
+serverIdentityLock(DATA);
 const auth = new Auth(DATA);
 const guard = new Guard(DATA);
 
@@ -302,10 +304,7 @@ const server = createServer(async (req, res) => {
         return sendJson(res, 200, { ok: true });
       }
       if (path === '/api/auth/claim-username' && req.method === 'POST') {
-        const body = JSON.parse((await readBody(req)).toString() || '{}');
-        try { var name = auth.renameUser(session.user, body.name); }
-        catch (e) { return sendJson(res, 400, { ok: false, error: e.message }); }
-        return sendJson(res, 200, { ok: true, user: name });
+        return sendJson(res, 409, { ok: false, error: 'Username changes need a short maintenance pause to keep your saved data together. Ask the administrator to rename your account.' });
       }
       if (path.startsWith('/api/apps/') || path.startsWith('/api/banter/')) {
         const addonName = path.startsWith('/api/banter/') ? 'banter' : path.split('/')[3];

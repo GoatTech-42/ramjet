@@ -33,17 +33,7 @@ export class Auth {
     return name;
   }
   renameUser(oldName, newName) {
-    const o = String(oldName || '').trim().toLowerCase();
-    const n = String(newName || '').trim().toLowerCase();
-    if (!NAME_RE.test(n)) throw new Error('usernames are 2-24 chars: letters, numbers, . _ -');
-    if (!this.users[o]) throw new Error('no such user');
-    if (this.users[n]) throw new Error('that name is taken');
-    this.users[n] = this.users[o];
-    delete this.users[o];
-    writeJson(this.usersPath, this.users);
-    for (const sess of this.sessions.values()) if (sess.user === o) sess.user = n;
-    this.persistSessions();
-    return n;
+    throw new Error('username changes require stopped-only identity migration');
   }
   setPassword(username, password) {
     const name = String(username || '').trim().toLowerCase();
