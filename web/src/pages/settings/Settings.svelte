@@ -43,7 +43,7 @@
     if (v.skin === 'glass') { if (!wasGlass) { try { localStorage.setItem('rj-layout-pre', layout); } catch {} } setLayout('dock'); }
     else if (wasGlass) { let pre = 'list'; try { pre = localStorage.getItem('rj-layout-pre') || 'list'; } catch {} setLayout(pre); }
   }
-  let look = $state({ accent: '#d9f24b', base: 'black', round: 'soft', font: 'system' });
+  let look = $state({ mode: 'system' });
   try { const t = JSON.parse(localStorage.getItem('rj-theme') || 'null'); if (t) look = { ...look, ...t }; } catch {}
   function setLook(k, v) {
     look = { ...look, [k]: v };
@@ -51,7 +51,7 @@
     window.__rjTheme?.(look);
   }
   function resetLook() {
-    look = { accent: '#d9f24b', base: 'black', round: 'soft', font: 'system' };
+    look = { mode: 'system' };
     try { localStorage.removeItem('rj-theme'); } catch {}
     window.__rjTheme?.(null);
   }
@@ -64,6 +64,7 @@
   function saveAc() { writeCfg(ac); }
   import { setCloak } from '../../lib/cloak.js';
   import '../../tokens.css';
+  import AppFrame from '../../lib/AppFrame.svelte';
   import { onMount } from 'svelte';
   import { api } from '../../lib/api.js';
 
@@ -223,12 +224,9 @@
 <svelte:head><title>settings - ramjet</title></svelte:head>
 <svelte:window onkeydown={onKey} />
 
+<AppFrame active="/settings">
 <div class="page">
-  <header class="top">
-    <a class="back" href="/" aria-label="back to ramjet"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg></a>
-    <span class="brand">settings</span>
-    <span class="tagline">{user}</span>
-  </header>
+  <header class="top"><div><h1>Settings</h1><p>Make Ramjet feel like yours.</p></div></header>
 
   <div class="shell">
     <nav class="snav" aria-label="settings sections">
@@ -239,8 +237,8 @@
     {#if sec === 'look' && sub === 'theme'}
       <div class="subtop"><button class="back2" onclick={() => (sub = '')}><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>appearance</button><h2>advanced theming</h2><button class="x" onclick={() => (sub = '')} aria-label="close advanced theming">done</button></div>
       <div class="cols">
-      <section class="card"><h3>more styles</h3>
-        <div class="seg wrapseg">{#each PRESETS.filter((p) => !MODE_NAMES.includes(p[0])) as [n, v]}<button class:on={isPreset(v)} onclick={() => setPreset(v)}>{n}</button>{/each}</div></section>
+      <section class="card"><h3>Saved-style presets</h3>
+        <div class="seg wrapseg">{#each PRESETS as [n, v]}<button class:on={isPreset(v)} onclick={() => setPreset(v)}>{n}</button>{/each}</div></section>
       <section class="card"><h3>wallpaper</h3><p class="hint">behind every page</p>
         <div class="walls">{#each WALLS as [k, n]}<button class="wp2" class:on={wall === k} onclick={() => setWall(k)}><i class="wc wall-{k}"></i><span>{n}</span></button>{/each}</div></section>
       <section class="card"><h3>surface</h3>
@@ -255,14 +253,8 @@
 
     {:else if sec === 'look'}
       <h2 class="ph">appearance</h2>
-      <section class="card"><h3>mode</h3>
-        <div class="tiles">{#each PRESETS.filter((p) => MODE_NAMES.includes(p[0])) as [n, v]}
-          <button class="tl" class:on={isPreset(v)} onclick={() => setPreset(v)} aria-pressed={isPreset(v)}>
-            <span class="pv" style="--pb:{pvBg(v)};--pa:{v.accent};--pr:{PVR[v.round]}px;font-family:{PVF[v.font]}"><i class="pva"></i><i class="pvl"></i><i class="pvl s"></i><b>Aa</b></span>
-            <span class="pn">{n}</span>
-          </button>{/each}</div></section>
-      <section class="card"><h3>home screen</h3>
-        <div class="lays">{#each LAYOUTS as [k, n]}<button class="lay" class:on={layout === k} onclick={() => setLayout(k)}><span class="lp lp-{k}"><i></i><i></i><i></i><i></i></span><span>{n}</span></button>{/each}</div></section>
+      <section class="card"><h3>Color mode</h3><p class="hint">Follow your device, or choose a look.</p><div class="seg">{#each [['system','System'],['light','Light'],['dark','Dark']] as [k,n]}<button class:on={(look.mode || 'system') === k} aria-pressed={(look.mode || 'system') === k} onclick={() => setLook('mode', k)}>{n}</button>{/each}</div></section>
+      <section class="card"><h3>Home layout</h3><div class="seg">{#each LAYOUTS as [k,n]}<button class:on={layout === k} onclick={() => setLayout(k)}>{k === 'dock' ? 'Widgets' : k === 'grid' ? 'Compact' : 'Simple'}</button>{/each}</div></section>
       <section class="card list">
         <button class="nav" onclick={() => (sub = 'theme')}><span class="rt"><b>advanced theming</b><small>wallpaper, glass, font, accent, corners</small></span><span class="chv">&rsaquo;</span></button>
         <button class="nav" onclick={resetLook}><span class="rt"><b>reset appearance</b><small>back to the default ramjet look</small></span></button>
@@ -367,21 +359,19 @@
   </div>
 </div>
 
+</AppFrame>
+
 <style>
-  .page { min-height: 100dvh; }
-  .top { display: flex; align-items: center; gap: 12px; padding: 14px 18px; max-width: 1360px; margin: 0 auto; }
-  .back { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; background: var(--rj-surface-2); border: 1px solid var(--rj-border); color: var(--rj-text); }
-  .back svg { width: 18px; height: 18px; }
-  .brand { font-size: 20px; font-weight: 700; letter-spacing: -.01em; }
-  .tagline { color: var(--rj-text-faint); font-size: 13px; }
-  .shell { max-width: 1360px; margin: 0 auto; padding: 4px 18px 60px; display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 32px; align-items: start; }
+  .page { min-height: 100dvh; max-width: 1260px; margin: 0 auto; padding: 32px 40px 64px; }
+  .top { margin-bottom: 32px; } h1 { margin: 0 0 8px; font-size: 34px; font-weight: 600; letter-spacing: -.04em; } .top p { margin: 0; color: var(--rj-text-dim); font-size: 15px; }
+  .shell { display: grid; grid-template-columns: 190px minmax(0,1fr); gap: 32px; align-items: start; }
   .snav { position: sticky; top: 16px; display: grid; gap: 2px; }
   .snav button { text-align: left; padding: 11px 14px; border-radius: 10px; border: 0; background: none; color: var(--rj-text-dim); font-size: 15px; }
   .snav button:hover { background: var(--rj-surface); color: var(--rj-text); }
   .snav button.on { background: var(--rj-surface-2); color: var(--rj-text); font-weight: 600; box-shadow: inset 2px 0 0 var(--rj-accent); }
   .pane { min-width: 0; display: grid; gap: 14px; align-content: start; }
   .ph { margin: 2px 2px 2px; font-size: 26px; letter-spacing: -.02em; }
-  h3 { margin: 0 0 10px; font-size: 12px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--rj-text-faint); }
+  h3 { margin: 0 0 10px; font-size: 16px; font-weight: 600; letter-spacing: -.02em; color: var(--rj-text-faint); }
   .card { background: var(--rj-surface); border: 1px solid var(--rj-border); border-radius: var(--rj-radius); padding: 16px 18px; display: grid; gap: 10px; align-content: start; }
   .card.list { padding: 4px 18px; gap: 0; }
   .cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 14px; align-items: start; }
@@ -466,4 +456,8 @@
     .ph { font-size: 22px; }
     .subtop { top: 50px; }
   }
+
+  .card { padding: 22px; border-radius: 20px; } .cols { grid-template-columns: repeat(auto-fit,minmax(min(100%,300px),1fr)); } .ph { font-size: 25px; font-weight: 600; margin-bottom: 6px; }
+  .snav button { min-height: 44px; } .seg button { min-height: 40px; }
+  @media(max-width:760px) { .page { min-height: calc(100dvh - 90px - env(safe-area-inset-bottom)); padding: 28px 20px 40px; } .shell { grid-template-columns: minmax(0,1fr); gap: 20px; padding: 0; } .snav { position: static; display: flex; overflow-x: auto; gap: 5px; padding-bottom: 8px; } .snav button { flex: none; padding: 10px 12px; font-size: 13px; } .card { padding: 20px; } h1 { font-size: 30px; } }
 </style>
