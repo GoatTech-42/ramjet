@@ -255,12 +255,13 @@
         <button class="newchat" onclick={newChat}>new chat</button>
         {#if convs.length > 5}<input class="convq" type="search" placeholder="search your chats" bind:value={convQ} />{/if}
         {#each shownConvs as c (c.id)}
-          <button class="convrow" onclick={() => openConv(c)}>
+          <div class="convrow"><button class="convopen" onclick={() => openConv(c)} aria-label={'Open conversation ' + c.title}>
             <span class="convtitle">{c.title}</span>
             <span class="convmeta">{c.count} {c.count === 1 ? 'message' : 'messages'}</span>
-            <span class="convdel convren" role="button" tabindex="-1" aria-label="rename conversation" onclick={(e) => renameConv(c, e)}>&#9998;</span>
-            <span class="convdel" role="button" tabindex="-1" aria-label="delete conversation" onclick={(e) => deleteConv(c, e)}>x</span>
           </button>
+            <button type="button" class="convdel convren" aria-label={'Rename conversation ' + c.title} onclick={(e) => renameConv(c, e)}>&#9998;</button>
+            <button type="button" class="convdel" aria-label={'Delete conversation ' + c.title} onclick={(e) => deleteConv(c, e)}>x</button>
+          </div>
         {:else}
           <p class="convempty">{convQ.trim() ? 'no chats match' : 'nothing yet - ask sage something and it saves here'}</p>
         {/each}
@@ -378,6 +379,8 @@
   .sheet { width: 100%; max-width: 560px; background: var(--rj-surface); border: 1px solid var(--rj-border); border-radius: 18px 18px 0 0; padding: 18px 16px calc(18px + env(safe-area-inset-bottom)); display: flex; flex-direction: column; gap: 8px; max-height: 70dvh; overflow-y: auto; }
   .sheet-h { margin: 0; font-size: 16px; font-weight: 700; }
   .newchat { background: var(--rj-accent); color: var(--rj-accent-ink); border: 0; border-radius: 12px; padding: 12px; font-size: 15px; font-weight: 700; }
+  .convopen { display: flex; flex: 1; align-items: center; gap: 8px; min-width: 0; padding: 0; border: 0; background: none; color: inherit; text-align: left; font: inherit; }
+  .convdel { border: 0; background: none; color: inherit; }
   .convrow { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; background: var(--rj-bg); border: 1px solid var(--rj-border); border-radius: 12px; padding: 12px 14px; color: var(--rj-text); min-height: 44px; }
   .convrow:hover { border-color: var(--rj-accent); }
   .convtitle { flex: 1; min-width: 0; font-size: 14.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
