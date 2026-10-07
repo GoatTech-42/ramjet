@@ -1,7 +1,7 @@
 <script>
   import '../../tokens.css';
   import AppFrame from '../../lib/AppFrame.svelte';
-  import { onMount } from 'svelte';
+  import { onMount, tick } from 'svelte';
   import { api } from '../../lib/api.js';
 
   const apps = [
@@ -63,6 +63,18 @@
   } catch {}
   const saveDesk = () => { try { localStorage.setItem('rj-desk', JSON.stringify(desk)); } catch {} };
   let arranging = $state(false);
+  let arrangementStatus = $state('');
+  async function moveWidget(id, direction, event) {
+    const button = event.currentTarget;
+    const visible = desk.order.filter(k => k !== 'search' && !desk.hidden.includes(k) && (k !== 'system' || techOn()));
+    const index = visible.indexOf(id), other = visible[index + direction];
+    if (!other) return;
+    const order = desk.order.slice(), from = order.indexOf(id), to = order.indexOf(other);
+    [order[from], order[to]] = [order[to], order[from]];
+    desk = { ...desk, order }; saveDesk();
+    await tick(); button.focus();
+    arrangementStatus = WIDGETS.find(w => w[0] === id)[1] + ' moved to position ' + (index + direction + 1);
+  }
   const sz = (id) => desk.size[id] || DEF_SIZE[id] || 's';
   function cycleSize(id) { const o = ['s', 'm', 'l']; desk = { ...desk, size: { ...desk.size, [id]: o[(o.indexOf(sz(id)) + 1) % 3] } }; saveDesk(); }
   function hide(id) { desk = { ...desk, hidden: [...desk.hidden, id] }; saveDesk(); }
@@ -211,12 +223,13 @@
     <div class="deskbar">
       <button class="arr" class:on={arranging} onclick={() => (arranging = !arranging)}>{arranging ? 'done' : 'arrange'}</button>
     </div>
+    <p class="arrangement-status" role="status">{arrangementStatus}</p>
     <section class="desk">
       {#each desk.order.filter((k) => k !== 'search' && !desk.hidden.includes(k) && (k !== 'system' || techOn())) as id (id)}
         <article class="w w-{id} sz-{sz(id)}" class:drag={dragId === id} class:wig={arranging && dragId !== id} data-wid={id}>
           <header class="wh" onpointerdown={(e) => dstart(e, id)} class:grab={arranging}>
             <span>{WIDGETS.find((x) => x[0] === id)[1]}</span>
-            {#if arranging}<span class="ctl"><button aria-label="change size" onpointerdown={(e) => e.stopPropagation()} onclick={() => cycleSize(id)}>{sz(id)}</button><button aria-label="hide" onpointerdown={(e) => e.stopPropagation()} onclick={() => hide(id)}>&times;</button></span>{/if}
+            {#if arranging}<span class="ctl"><button aria-label={'Move ' + WIDGETS.find(w => w[0] === id)[1] + ' earlier'} disabled={desk.order.filter(k => k !== 'search' && !desk.hidden.includes(k) && (k !== 'system' || techOn()))[0] === id} onpointerdown={(e) => e.stopPropagation()} onclick={(e) => moveWidget(id, -1, e)}>↑</button><button aria-label={'Move ' + WIDGETS.find(w => w[0] === id)[1] + ' later'} disabled={desk.order.filter(k => k !== 'search' && !desk.hidden.includes(k) && (k !== 'system' || techOn())).at(-1) === id} onpointerdown={(e) => e.stopPropagation()} onclick={(e) => moveWidget(id, 1, e)}>↓</button><button aria-label={'Change size of ' + WIDGETS.find(w => w[0] === id)[1]} onpointerdown={(e) => e.stopPropagation()} onclick={() => cycleSize(id)}>{sz(id)}</button><button aria-label={'Hide ' + WIDGETS.find(w => w[0] === id)[1]} onpointerdown={(e) => e.stopPropagation()} onclick={() => hide(id)}>&times;</button></span>{/if}
           </header>
           {#if id === 'clock'}
             <p class="clk">{clockMain}<small>{clockAp}</small></p>
@@ -340,4 +353,5 @@
   @media(max-width:760px) { .site-list { grid-template-columns: minmax(0,1fr); } :global(#rjp-b) { bottom: calc(90px + env(safe-area-inset-bottom)) !important; } }
   .grid .recent-list { grid-template-columns: repeat(2,minmax(0,1fr)); gap: 8px; border: 0; border-radius: 0; } .grid .recent-row { border: 1px solid var(--rj-border); border-radius: 16px; }
   @media(max-width:760px) { .grid .recent-list { grid-template-columns: minmax(0,1fr); } }
+  .arrangement-status { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); } .wh { flex-wrap: wrap; } .ctl { flex-wrap: wrap; } .ctl button { min-width: 34px; min-height: 34px; }
 </style>
