@@ -596,8 +596,8 @@
   .empty { padding: 80px 24px; text-align: left; max-width: 500px; }
   .empty .big { margin: 0 0 14px; font-size: 28px; font-weight: 600; letter-spacing: -.035em; }
   .empty .dim { margin: 0; color: var(--rj-text-dim); font-size: 15px; line-height: 1.7; }
-  .list { display: grid; gap: 8px; margin-top: 18px; }
-  .row { display: flex; align-items: center; gap: 14px; width: 100%; text-align: left; padding: 12px; border: 1px solid var(--rj-border); border-radius: 16px; background: var(--rj-surface); color: var(--rj-text); min-height: 72px; }
+  .list { display: grid; grid-template-columns: minmax(0, 1fr); min-width: 0; gap: 8px; margin-top: 18px; }
+  .row { min-width: 0; max-width: 100%; display: flex; align-items: center; gap: 14px; width: 100%; text-align: left; padding: 12px; border: 1px solid var(--rj-border); border-radius: 16px; background: var(--rj-surface); color: var(--rj-text); min-height: 72px; }
   .track-main { display: flex; align-items: center; gap: 14px; flex: 1; min-width: 0; border: 0; padding: 0; background: none; color: inherit; text-align: left; }
   .rowact { border: 0; background: none; color: inherit; }
   .row:hover { background: var(--rj-hover); } .row.active { border-color: var(--rj-accent); }
@@ -640,10 +640,10 @@
   .rowact:hover { color: var(--rj-accent); background: var(--rj-surface-2); }
   .rowact svg { width: 18px; height: 18px; }
   .overlay { position: fixed; inset: 0; z-index: 100; background: rgba(0,0,0,0.6); display: flex; align-items: flex-end; justify-content: center; }
-  .sheet { width: 100%; max-width: 560px; background: var(--rj-surface); border: 1px solid var(--rj-border); border-radius: 18px 18px 0 0; padding: 18px 16px calc(18px + env(safe-area-inset-bottom)); display: flex; flex-direction: column; gap: 8px; max-height: 70dvh; overflow-y: auto; }
+  .sheet { min-width: 0; width: 100%; max-width: 560px; background: var(--rj-surface); border: 1px solid var(--rj-border); border-radius: 18px 18px 0 0; padding: 18px 16px calc(18px + env(safe-area-inset-bottom)); display: flex; flex-direction: column; gap: 8px; max-height: 70dvh; overflow-y: auto; }
   .sheet-h { margin: 0; font-size: 16px; font-weight: 700; }
   .sheet-sub { margin: -2px 0 4px; font-size: 13px; color: var(--rj-text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .sheetrow { display: flex; justify-content: space-between; align-items: center; gap: 10px; width: 100%; text-align: left; background: var(--rj-bg); border: 1px solid var(--rj-border); border-radius: 12px; padding: 12px 14px; color: var(--rj-text); font-size: 15px; min-height: 44px; }
+  .sheetrow { min-width: 0; display: flex; justify-content: space-between; align-items: center; gap: 10px; width: 100%; text-align: left; background: var(--rj-bg); border: 1px solid var(--rj-border); border-radius: 12px; padding: 12px 14px; color: var(--rj-text); font-size: 15px; min-height: 44px; }
   .sheetrow:hover { border-color: var(--rj-accent); }
   .toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: 204px; z-index: 50; background: var(--rj-surface-2); border: 1px solid var(--rj-border); color: var(--rj-text); border-radius: 999px; padding: 10px 18px; font-size: 14px; white-space: nowrap; box-shadow: 0 6px 24px rgba(0,0,0,0.4); }
   .player { position: fixed; left: 120px; right: 24px; bottom: 20px; z-index: 20; border-radius: 20px; border: 1px solid var(--rj-border); display: flex; flex-wrap: wrap; gap: 12px; align-items: center; padding: 12px 16px calc(12px + env(safe-area-inset-bottom)); background: var(--rj-glass); backdrop-filter: blur(14px); border-top: 1px solid var(--rj-border); }
