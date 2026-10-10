@@ -403,11 +403,16 @@
     try {
       const u = new URL(url);
       const name = u.hostname.replace(/^www\./, '');
-      recents = [{ name, url: u.origin + '/' }, ...recents.filter((r) => r.name !== name)].slice(0, 30);
+      const prev = recents.find((r) => r.name === name);
+      recents = [{ name, url: u.origin + '/', n: Math.min((prev?.n || 0) + 1, 9999) }, ...recents.filter((r) => r.name !== name)].slice(0, 30);
       localStorage.setItem('rj-browse-recent', JSON.stringify(recents));
     } catch {}
   }
   let allRecents = $state(false);
+  // most visited: the same device-local list, ranked by opens instead of
+  // recency, so the sites he keeps coming back to stay put instead of
+  // scrolling off the recent row. needs three opens before a site earns a tile.
+  const topVisited = $derived([...recents].filter((r) => (r.n || 1) >= 3).sort((a, b) => (b.n || 1) - (a.n || 1)).slice(0, 6));
   function dropRecent(n) { recents = recents.filter((r) => r.name !== n); try { localStorage.setItem('rj-browse-recent', JSON.stringify(recents)); } catch {} }
   function clearRecents() { recents = []; try { localStorage.removeItem('rj-browse-recent'); } catch {} }
   // history (this device only, never recorded while the cloak is on) and recently closed tabs
@@ -656,6 +661,14 @@
           <button class="chip" onclick={() => open(s)} disabled={!ready}>{s.name}</button>
         {/each}
       </div>
+      {#if topVisited.length}
+        <div class="recents">
+          <p class="bm-h">most visited</p>
+          <div class="chips">
+            {#each topVisited as r (r.name)}<button class="chip" onclick={() => open(r)} disabled={!ready}>{r.name}</button>{/each}
+          </div>
+        </div>
+      {/if}
       {#if recents.length}
         <div class="recents">
           <p class="bm-h">recent <button class="rc-clear" onclick={clearRecents}>clear</button></p>
