@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { readJson, writeJson, readBody } from '../../util.js';
 import { existsSync, statSync, mkdirSync, readdirSync, unlinkSync, createReadStream, utimesSync } from 'node:fs';
 import { open as fsOpen, rename as fsRename } from 'node:fs/promises';
+import { applyWs } from './ws-update.js';
 import { gvFetch } from './gv-fetch.js';
 import { parseSearch, searchToken } from './search-page.js';
 import { rankShorts, shortsSeeds, trainingRows, buildProfile as shortsProfile, createShortsFeed, parseSecs as shortSecs } from './shorts-rank.js';
@@ -1567,7 +1568,7 @@ export async function register(req, res, ctx) {
     // and stale the feed cache so the next batch learns from it.
     if (ws != null && mine0.some((v) => v.id === id)) {
       const hit0 = mine0.find((v) => v.id === id);
-      hit0.ws = ws;
+      if (!applyWs(hit0, ws, body.seq)) return sendJson(res, 200, { ok: true, stale: true }); // reordered delivery
       writeJson(HIST_FILE, all);
       const rc = recCache.get(session.user);
       if (rc) rc.at = 0; // next batch re-learns from this outcome
@@ -1582,7 +1583,7 @@ export async function register(req, res, ctx) {
       completed: false,
       at: Date.now(),
     };
-    if (ws != null) item.ws = ws;
+    if (ws != null) applyWs(item, ws, body.seq); // stores wsSeq too, so a late older report can't overwrite after insert
     const mine = mine0.filter((v) => v.id !== id);
     mine.unshift(item);
     all[session.user] = mine.slice(0, HIST_CAP);
