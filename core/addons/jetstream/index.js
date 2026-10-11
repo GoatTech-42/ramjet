@@ -1,3 +1,4 @@
+import { dataPath } from '../../data.js';
 import os from 'node:os';
 import { execFile, spawn } from 'node:child_process';
 import { promisify } from 'node:util';
@@ -5,18 +6,21 @@ import { fileURLToPath } from 'node:url';
 import { readJson, writeJson, readBody } from '../../util.js';
 import { existsSync, statSync, mkdirSync, readdirSync, unlinkSync, createReadStream, utimesSync } from 'node:fs';
 import { open as fsOpen, rename as fsRename } from 'node:fs/promises';
+import { gvFetch } from './gv-fetch.js';
+import { parseSearch, searchToken } from './search-page.js';
+import { rankShorts, shortsSeeds, trainingRows, buildProfile as shortsProfile, createShortsFeed, parseSecs as shortSecs } from './shorts-rank.js';
 
 // watch history: per-account "keep watching" list. the client records a
 // video once its stream actually resolves; most recent first, deduped,
 // capped small - it is a shelf, not an archive.
-const HIST_FILE = fileURLToPath(new URL('../../../data/jetstream-history.json', import.meta.url));
+const HIST_FILE = dataPath('jetstream-history.json');
 // storage cap is the algorithm's memory, not the shelf (Tue 4:39 PM): at 25,
 // a short scroll session flushed every long-form signal. shelf display still
 // filters through shelfHist - this cap only bounds how much taste persists.
 const HIST_CAP = 200;
-
-
-
+// keep watching is a shelf, not an archive: entries age
+// out, shorts never sit on it, and a video you finished leaves it. the full
+// history still feeds recommendations - only the shelf filters.
 const HIST_TTL = 3 * 24 * 3600 * 1000;
 function shelfHist(user) {
   const now = Date.now();
@@ -37,7 +41,7 @@ function userHist(user) {
 // likes: per-account, newest first, capped. a like is the strongest signal
 // the account gives - liked channels and title words weigh heavy in the
 // one ranking system, and liked videos leave the feed (you've seen them).
-const LIKES_FILE = fileURLToPath(new URL('../../../data/jetstream-likes.json', import.meta.url));
+const LIKES_FILE = dataPath('jetstream-likes.json');
 const LIKES_CAP = 100;
 function loadLikes() { return readJson(LIKES_FILE, {}); }
 function userLikes(user) {
@@ -48,22 +52,22 @@ function userLikes(user) {
 // not-interested: the negative twin of a like. disliked videos never come
 // back, their channels sink hard, and their title words weigh against every
 // candidate. per account, capped like the other lists.
-const DIS_FILE = fileURLToPath(new URL('../../../data/jetstream-dislikes.json', import.meta.url));
+const DIS_FILE = dataPath('jetstream-dislikes.json');
 const DIS_CAP = 100;
 function loadDislikes() { return readJson(DIS_FILE, {}); }
 
-
-
-
-const SUBS_FILE = fileURLToPath(new URL('../../../data/jetstream-subs.json', import.meta.url));
+// subscriptions: per-account channel subs.
+// a sub is a standing "more from this channel" - it folds into the taste
+// profile as channel weight, like a like that never leaves.
+const SUBS_FILE = dataPath('jetstream-subs.json');
 const SUBS_CAP = 100;
 function loadSubs() { return readJson(SUBS_FILE, {}); }
 function userSubs(user) { return loadSubs()[user] || []; }
 
-
-
-
-const DEAD_FILE = fileURLToPath(new URL('../../../data/jetstream-dead.json', import.meta.url));
+// dead pool: a video that can't play - restricted, no
+// formats - never surfaces again. global: if ytdlp can't resolve it from
+// the box, no account can play it. feeds + channel pages filter it out.
+const DEAD_FILE = dataPath('jetstream-dead.json');
 function loadDead() {
   const d = new Set(readJson(DEAD_FILE, { ids: [] }).ids || []);
   for (const id of Object.keys(blockedMem || {})) d.add(id); // age-gated ids found by the pre-check leave every feed too
@@ -75,7 +79,7 @@ function markDead(id) {
   d.ids.unshift(id);
   d.ids = d.ids.slice(0, 500);
   writeJson(DEAD_FILE, d);
-  recCache.clear(); // dead ids must leave every cached feed now
+  recCache.clear(); shortsFeed.clear(); // dead ids must leave every cached feed now
 }
 function userDislikes(user) {
   const d = loadDislikes();
@@ -94,10 +98,10 @@ const REC_TTL = 10 * 60 * 1000;
 // n rotates the seed window so re-ranks explore different pools.
 const recCache = new Map();
 const GENERIC_SEEDS = ['trending now', 'viral clips'];
-
-
-
-
+// platform-filler words are taste poison: "challenge", "tiktok", "viral"
+// say nothing about what a video IS, but they swarm titles - and they were
+// the top taste words, which made feeds of one topic fill with random
+// stuff. filler never enters the profile.
 const STOPWORDS = new Set('the and for with that this from your you are was were have has had not but all can will its his her she him they them their our out about into over after before between under again once here there when where why how what which who whom been being both each few more most other some such only own same than too very just challenge challenges tiktok viral viralvideo ytshorts shorts short video videos youtube reels fyp foryou trending compilation bigbank goon gyatt feat wait till end'.split(' '));
 
 function parseViews(t) {
@@ -128,14 +132,14 @@ function parseSecs(t) {
 
 // watch-history settings, per account: pause + clear live on the ramjet
 // settings page (all settings centralized there, not inside apps).
-const SET_FILE = fileURLToPath(new URL('../../../data/jetstream-settings.json', import.meta.url));
+const SET_FILE = dataPath('jetstream-settings.json');
 function loadSettings() { return readJson(SET_FILE, {}); }
 function histPaused(user) { return !!loadSettings()[user]?.paused; }
 
-
-
-
-
+// taste profile: learn the TYPE of video, not just the
+// channel, and learn it from what he actually did. a 2-second skip used to
+// teach the feed "more of this" - now it teaches the opposite. content words
+// carry the signal, channel rides along as a hint. weights can go negative.
 function histProfile(hist, likes = [], subs = []) {
   const chan = new Map(); const words = new Map();
   const add = (map, k, w) => map.set(k, (map.get(k) || 0) + w);
@@ -155,7 +159,7 @@ function histProfile(hist, likes = [], subs = []) {
     if (ws != null && dur > 0) {
       const ratio = ws / dur;
       if (ws < 3 || (dur > 20 && ratio < 0.15)) return fold(v, -3 * rec); // quick skip: hard no
-      if (ratio >= 0.7 || ws >= 25) return fold(v, 6 * rec);              
+      if (ratio >= 0.7 || ws >= 25) return fold(v, 6 * rec);              // watched through: the loudest organic signal - one topic floods the next batch
       return fold(v, 0.5 * rec);                                          // sampled, mild yes
     }
     fold(v, rec); // legacy row without an outcome: count the view
@@ -179,9 +183,9 @@ function chanWordProfile(list) {
 }
 
 function recSeeds(profile, n = 0) {
-
-
-
+  // rotation: the same top seeds every re-rank froze the
+  // feed. take a wider window and rotate through it so each re-rank pulls a
+  // different pool - the profile stays the compass, the heading changes.
   const chans = [...profile.chan.entries()].filter(([, w]) => w > 0.5).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([c]) => c);
   const kws = [...profile.words.entries()].filter(([, w]) => w > 0.5).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([w]) => w);
   const all = [];
@@ -270,7 +274,7 @@ async function buildRanked(user, hit) {
     if (!data) continue;
     for (const v of parseSearch(data)) {
       if (seen.has(v.id)) continue;
-      if (deadIds.has(v.id)) continue; 
+      if (deadIds.has(v.id)) continue; // restricted: never surface
       if (hit && hit.served.has(v.id)) continue; // a new batch is NEW shorts
       seen.add(v.id);
       cands.push(v);
@@ -302,9 +306,9 @@ async function buildRanked(user, hit) {
   return [...head, ...tail];
 }
 
-
-
-
+// stale-while-revalidate: opens used to block on a full
+// cold re-rank - that was the "forever to load". now a cached list answers
+// instantly while a background re-rank builds the next batch behind it.
 async function rankedRecs(user, fresh = false) {
   let hit = recCache.get(user);
   if (!hit) {
@@ -331,16 +335,60 @@ async function rankedRecs(user, fresh = false) {
 
 const stripRec = ({ score, secs, ...rest }) => rest;
 
+// ── shorts ranker (separate from for-you) ──
+// own candidate pool (shorts-first phrasing, channels that loop for this
+// account, exploration seed), own scoring (shorts-only training rows, loop/skip
+// outcomes, duration + freshness + velocity, MMR diversity, explore slots).
+// for-you still uses rankedRecs/buildRanked above.
+const SHORTS_BATCH = REC_CAP * 2; // two screens of ranked shorts per build so served ids can be skipped without a rebuild
+async function buildShorts(user, hit, { embedWaitMs = 2500 } = {}) {
+  const state = { hist: userHist(user), likes: userLikes(user), dislikes: userDislikes(user), subs: userSubs(user), dead: loadDead(), served: hit ? hit.served : new Set() };
+  const profile = shortsProfile(trainingRows(state.hist, state.likes, state.dislikes), state.subs);
+  const seeds = shortsSeeds(profile, hit ? hit.n : 0);
+  if (!seeds.length) seeds.push('trending shorts');
+  const pools = await Promise.all(seeds.map((q) => ytSearch(q).catch(() => null)));
+  const seenIds = new Set([...state.hist, ...state.likes, ...state.dislikes].map((v) => v.id));
+  const cands = []; const dup = new Set();
+  for (const data of pools) {
+    if (!data) continue;
+    for (const v of parseSearch(data)) {
+      if (dup.has(v.id)) continue;
+      dup.add(v.id);
+      const secs = shortSecs(v.duration);
+      // drop everything that can't be served BEFORE paying for embeddings
+      if (secs == null || secs > 61 || seenIds.has(v.id) || state.dead.has(v.id) || state.served.has(v.id)) continue;
+      cands.push({ ...v, secs });
+    }
+  }
+  // embeddings: only candidates that survived the filter, only ones not already
+  // embedded or in flight, capped, and skipped entirely if the worker queue is
+  // already deep (a 16GB CPU-only box must not amplify its own queue)
+  if (!embedBroken && cands.length && embedQueue.length < 24 && embedWaitMs > 0) {
+    loadEmbed();
+    const need = cands.filter((c) => !embedMem[c.id] && !embedInflight.has(c.id)).slice(0, 20);
+    if (need.length) {
+      await Promise.race([
+        Promise.all(need.map((c) => embedAsync(c.id, embedText({ t: c.title, desc: c.desc })).catch(() => null))),
+        new Promise((d) => setTimeout(d, embedWaitMs)),
+      ]);
+    }
+  }
+  const embed = (id) => (embedMem && embedMem[id] && Array.isArray(embedMem[id].v) ? embedMem[id].v : null);
+  return rankShorts(cands, state, { embed, limit: SHORTS_BATCH });
+}
+// stale-while-revalidate, single-flight per account, served-skipping (see createShortsFeed)
+const shortsFeed = createShortsFeed({ build: buildShorts });
 
-
-
-
-
-
-
-
-
-
+// jetstream: search YouTube (InnerTube, no API key), play through ramjet's own
+// backend - the client never touches Google domains.
+// HD (Mon late evening): adaptive video-only (up to 1080p avc1) + best m4a
+// audio, both proxied byte-for-byte; the client plays them as a synced
+// video+audio pair (no server transcode, cpu stays idle) - the exact pattern
+// the old ramjet used, where 1080p worked. The server passes each browser
+// range request through transparently and caps open-ended reads at 1MB, so
+// googlevideo sees ordinary browser traffic and the browser natively retries
+// the occasional 403. Server-side chunked fetching (16MB bursts) got the box
+// IP rate-walled within seconds; this pattern does not.
 
 const API = 'https://www.youtube.com/youtubei/v1';
 const CLIENT = {
@@ -367,52 +415,7 @@ async function yt(endpoint, body) {
   return r.json();
 }
 
-function parseSearch(data) {
-  const out = [];
-  const walk = (node) => {
-    if (!node || typeof node !== 'object') return;
-    const v = node.videoRenderer || node.compactVideoRenderer;
-    if (v) {
-      const text = (t) => (t?.runs ? t.runs.map((r) => r.text).join('') : t?.simpleText) || '';
-      if (v.videoId && text(v.title) && text(v.lengthText)) { // no length = live or upcoming: not playable here
-        const byline = v.ownerText || v.longBylineText || v.shortBylineText;
-        let channelId = '';
-        try { channelId = byline?.runs?.[0]?.navigationEndpoint?.browseEndpoint?.browseId || ''; } catch {}
-        out.push({
-          id: v.videoId,
-          title: text(v.title),
-          channel: text(byline),
-          channelId,
-          duration: text(v.lengthText),
-          views: text(v.viewCountText),
-          published: text(v.publishedTimeText),
-          desc: text(v.descriptionSnippet),
-        });
-      }
-      return;
-    }
-    for (const val of Object.values(node)) {
-      if (Array.isArray(val)) val.forEach(walk);
-      else if (val && typeof val === 'object') walk(val);
-    }
-  };
-  walk(data);
-  const seen = new Set();
-  return out.filter((v) => (seen.has(v.id) ? false : (seen.add(v.id), true))).slice(0, 20);
-}
 
-function pickHd(adaptive) {
-  const videos = adaptive.filter((f) =>
-    f.url && f.mimeType?.includes('video/mp4') && f.mimeType?.includes('avc1') && (f.height || 0) > 360
-  );
-  videos.sort((a, b) => (b.height || 0) - (a.height || 0));
-  const video = videos.find((f) => (f.height || 0) <= 1080) || videos[videos.length - 1];
-  const audios = adaptive.filter((f) => f.url && f.mimeType?.includes('audio/mp4'));
-  audios.sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0));
-  const audio = audios[0];
-  if (!video || !audio) return null;
-  return { videoUrl: video.url, audioUrl: audio.url, quality: video.qualityLabel || `${video.height}p` };
-}
 
 const execFileP = promisify(execFile);
 const YTDLP = process.env.YTDLP || new URL("../../../bin/yt-dlp", import.meta.url).pathname;
@@ -464,26 +467,23 @@ async function resolveViaYtdlp(id) {
   const videos = fmts.filter((f) => direct(f) && (!f.acodec || f.acodec === 'none') && (f.vcodec || '').startsWith('avc1') && eff(f) > 360);
   videos.sort((a, b) => eff(b) - eff(a));
   // 60fps doubles the phone's decode cost. drop to 30fps ONLY at the same
-  // resolution - never trade pixels for frames.
-  const within = videos.filter((f) => eff(f) <= 1080);
-  const best = within[0] || videos[videos.length - 1];
-  const video = within.find((f) => (f.fps || 30) <= 30 && eff(f) === eff(best)) || best;
-  const audios = fmts.filter((f) => direct(f) && (!f.vcodec || f.vcodec === 'none') && (f.ext === 'm4a' || (f.acodec || '').startsWith('mp4a')));
-  audios.sort((a, b) => (b.abr || 0) - (a.abr || 0));
-  const audio = audios[0];
-  const vp9s = fmts.filter((f) => direct(f) && (!f.acodec || f.acodec === 'none') && /^(vp9|vp09)/.test(f.vcodec || '') && eff(f) > 360);
-  vp9s.sort((a, b) => eff(b) - eff(a));
-  const vwithin = vp9s.filter((f) => eff(f) <= 1080);
-  const vbest = vwithin[0] || vp9s[vp9s.length - 1];
-  const vpick = vbest ? (vwithin.find((f) => (f.fps || 30) <= 30 && eff(f) === eff(vbest)) || vbest) : null;
-  // low-data tier for phones: 720 short side (a 390pt phone shows a 720p short
-  // pixel for pixel), same codec + 30fps preference. roughly half the bytes of 1080.
+  // resolution - never trade pixels for frames. cap = max short side.
   const pickCap = (list, cap) => {
     const w = list.filter((f) => eff(f) <= cap);
     const b = w[0] || list[list.length - 1];
     return b ? (w.find((f) => (f.fps || 30) <= 30 && eff(f) === eff(b)) || b) : null;
   };
+  const video = pickCap(videos, 1080);
+  const audios = fmts.filter((f) => direct(f) && (!f.vcodec || f.vcodec === 'none') && (f.ext === 'm4a' || (f.acodec || '').startsWith('mp4a')));
+  audios.sort((a, b) => (b.abr || 0) - (a.abr || 0));
+  const audio = audios[0];
+  const vp9s = fmts.filter((f) => direct(f) && (!f.acodec || f.acodec === 'none') && /^(vp9|vp09)/.test(f.vcodec || '') && eff(f) > 360);
+  vp9s.sort((a, b) => eff(b) - eff(a));
+  const vpick = pickCap(vp9s, 1080);
+  // low-data tier for phones: 720 short side (a 390pt phone shows a 720p short
+  // pixel for pixel), same codec + 30fps preference. roughly half the bytes of 1080.
   const lvideo = pickCap(videos, 720), lvpick = pickCap(vp9s, 720);
+  const hdOf = (v) => (v && audio ? { videoUrl: v.url, audioUrl: audio.url, quality: v.format_note || `${v.height}p` } : null);
   const hdOk = !!((video && audio) || (vpick && audio));
   let pick = null;
   if (!hdOk) {
@@ -498,13 +498,13 @@ async function resolveViaYtdlp(id) {
     quality: pick ? (pick.format_note || `${pick.height || '?'}p`) : ((video || vpick).format_note || `${(video || vpick).height}p`),
     channel: String(data.channel || data.uploader || '').slice(0, 200),
     channelId: String(data.channel_id || data.uploader_id || '').slice(0, 64),
-    hd: video && audio ? { videoUrl: video.url, audioUrl: audio.url, quality: video.format_note || `${video.height}p` } : null,
-    hdVp9: vpick && audio ? { videoUrl: vpick.url, audioUrl: audio.url, quality: vpick.format_note || `${vpick.height}p` } : null,
-    hdL: lvideo && audio ? { videoUrl: lvideo.url, audioUrl: audio.url, quality: lvideo.format_note || `${lvideo.height}p` } : null,
-    hdLVp9: lvpick && audio ? { videoUrl: lvpick.url, audioUrl: audio.url, quality: lvpick.format_note || `${lvpick.height}p` } : null,
+    hd: hdOf(video),
+    hdVp9: hdOf(vpick),
+    hdL: hdOf(lvideo),
+    hdLVp9: hdOf(lvpick),
     duration: Number(data.duration) || 0,
     lite: {
-      v: videos.map((f) => ({ h: eff(f), fps: f.fps || 30, url: f.url, size: f.filesize || f.filesize_approx || 0, tbr: f.tbr || 0 })).slice(0, 12),
+      v: fmts.filter((f) => direct(f) && (!f.acodec || f.acodec === 'none') && (f.vcodec || '').startsWith('avc1') && eff(f) <= 1080).map((f) => ({ h: eff(f), fps: f.fps || 30, url: f.url, size: f.filesize || f.filesize_approx || 0, tbr: f.tbr || 0 })),
       a: audios.map((f) => ({ abr: f.abr || 0, url: f.url, size: f.filesize || f.filesize_approx || 0 })).slice(0, 3),
     },
     expires: Date.now() + 10 * 60 * 1000,
@@ -540,6 +540,9 @@ async function resolveStream(id, force = false) {
   return job;
 }
 
+// release an unused fetch response body
+const dropBody = (r) => { try { r.body?.cancel()?.catch(() => {}); } catch {} };
+
 // byte proxy for googlevideo. one upstream fetch per browser request, statuses
 // passed through truthfully (a hidden 403 strands the player; a visible one
 // gets retried natively). googlevideo throttles long reads to a stall, but
@@ -560,18 +563,18 @@ async function gvProxy(u, req, res, track, refresh, capBytes) {
     else {
       let pr;
       try {
-        pr = await fetch(u, { headers: { 'user-agent': GV_UA, range: `bytes=${start}-${start}` }, redirect: 'follow', signal: AbortSignal.timeout(30000) });
+        pr = await gvFetch(u, { headers: { 'user-agent': GV_UA, range: `bytes=${start}-${start}` }, signal: AbortSignal.timeout(30000) });
       } catch { res.writeHead(502); return res.end(); }
-      if (pr.status === 416) { try { pr.body?.cancel()?.catch(() => {}); } catch {} res.writeHead(416); return res.end(); }
+      if (pr.status === 416) { dropBody(pr); res.writeHead(416); return res.end(); }
       if (pr.status === 403 || pr.status === 410) {
-        try { pr.body?.cancel()?.catch(() => {}); } catch {}
+        dropBody(pr);
         await new Promise((d) => setTimeout(d, 400));
         try {
-          pr = await fetch(u, { headers: { 'user-agent': GV_UA, range: `bytes=${start}-${start}` }, redirect: 'follow', signal: AbortSignal.timeout(30000) });
+          pr = await gvFetch(u, { headers: { 'user-agent': GV_UA, range: `bytes=${start}-${start}` }, signal: AbortSignal.timeout(30000) });
         } catch { res.writeHead(502); return res.end(); }
       }
       if (pr.status !== 206 && pr.status !== 200) {
-        try { pr.body?.cancel()?.catch(() => {}); } catch {}
+        dropBody(pr);
         if (refresh && (pr.status === 403 || pr.status === 410)) {
           const nu = await refresh().catch(() => null);
           if (nu && nu !== u) return gvProxy(nu, req, res, track, null, capBytes);
@@ -579,7 +582,7 @@ async function gvProxy(u, req, res, track, refresh, capBytes) {
         res.writeHead(pr.status || 502); return res.end();
       }
       const crm = /\/(\d+)\s*$/.exec(pr.headers.get('content-range') || '');
-      try { pr.body?.cancel()?.catch(() => {}); } catch {}
+      dropBody(pr);
       if (crm) {
         size = parseInt(crm[1], 10);
         if (Number.isSafeInteger(size) && size > 0) {
@@ -595,11 +598,11 @@ async function gvProxy(u, req, res, track, refresh, capBytes) {
   let r = null;
   for (let attempt = 0; attempt < 5; attempt++) {
     try {
-      r = await fetch(u, { headers, redirect: 'follow', signal: AbortSignal.timeout(30000) });
+      r = await gvFetch(u, { headers, signal: AbortSignal.timeout(30000) });
     } catch { res.writeHead(502); return res.end(); }
     if (r.status === 200 || r.status === 206) break;
     const st = r.status;
-    try { r.body?.cancel()?.catch(() => {}); } catch {}
+    dropBody(r);
     if ((st === 403 || st === 410) && attempt < 4) {
       await new Promise((d) => setTimeout(d, 300 * (attempt + 1)));
       if (attempt === 2 && refresh) {
@@ -610,7 +613,7 @@ async function gvProxy(u, req, res, track, refresh, capBytes) {
     }
     res.writeHead(st); return res.end();
   }
-  res.once('close', () => { try { r.body?.cancel()?.catch(() => {}); } catch {} });
+  res.once('close', () => { dropBody(r); });
   const h = { 'content-type': r.headers.get('content-type') || 'video/mp4', 'cache-control': 'private, no-store' };
   for (const k of ['content-length', 'content-range', 'accept-ranges']) {
     const v = r.headers.get(k);
@@ -627,22 +630,21 @@ async function gvProxy(u, req, res, track, refresh, capBytes) {
   return res.end();
 }
 
-
-
-
-
-
-
-
-const CACHE_DIR = fileURLToPath(new URL('../../../data/stream-cache', import.meta.url));
+// ── warm stream cache ──
+// some networks filter googlevideo, so every byte played flows through this
+// box live. live proxying means every swipe pays an upstream handshake. the
+// fix: the moment a feed batch is ranked, the box pulls the next slides'
+// streams to its own disk in the background; the phone then downloads from
+// the box at full local speed. swipes stop paying the upstream tax.
+const CACHE_DIR = dataPath('stream-cache');
 try { mkdirSync(CACHE_DIR, { recursive: true }); } catch {}
 
-
-
-
-
-
-const THUMB_DIR = fileURLToPath(new URL('../../../data/thumb-cache', import.meta.url));
+// thumb cache: posters used to ride i.ytimg upstream on EVERY cold request
+// (the buffering background, the watch poster, every feed grid image). on
+// a filtered network the box is the fast path, so every fetched
+// poster lands on disk and repeats serve in milliseconds. lru by mtime,
+// capped by bytes - plain multiplication, bitshifts overflow past 2^31.
+const THUMB_DIR = dataPath('thumb-cache');
 try { mkdirSync(THUMB_DIR, { recursive: true }); } catch {}
 const THUMB_CAP = 128 * 1024 * 1024;
 const thumbPath = (id, lite) => THUMB_DIR + '/' + id + (lite ? '.l' : '') + '.jpg';
@@ -757,9 +759,9 @@ function serveCached(path, req, res, track, ctype = 'video/mp4') {
 // proxy uses for the browser.
 async function downloadToCache(url, dest) {
   if (existsSync(dest)) return;
-  const pr = await fetch(url, { headers: { 'user-agent': GV_UA, range: 'bytes=0-0' }, redirect: 'follow', signal: AbortSignal.timeout(30000) });
+  const pr = await gvFetch(url, { headers: { 'user-agent': GV_UA, range: 'bytes=0-0' }, signal: AbortSignal.timeout(30000) });
   const crm = /\/(\d+)\s*$/.exec(pr.headers.get('content-range') || '');
-  try { pr.body?.cancel()?.catch(() => {}); } catch {}
+  dropBody(pr);
   if (pr.status !== 206 && pr.status !== 200) throw new Error('probe ' + pr.status);
   const size = crm ? parseInt(crm[1], 10) : 0;
   if (!size || !Number.isSafeInteger(size)) throw new Error('no size');
@@ -774,8 +776,8 @@ async function downloadToCache(url, dest) {
       let ok = false;
       for (let a = 0; a < 3 && !ok; a++) {
         try {
-          const r = await fetch(url, { headers: { 'user-agent': GV_UA, range: 'bytes=' + off + '-' + last }, redirect: 'follow', signal: AbortSignal.timeout(45000) });
-          if (r.status !== 206 && r.status !== 200) { try { r.body?.cancel()?.catch(() => {}); } catch {} await new Promise((d) => setTimeout(d, 400 * (a + 1))); continue; }
+          const r = await gvFetch(url, { headers: { 'user-agent': GV_UA, range: 'bytes=' + off + '-' + last }, signal: AbortSignal.timeout(45000) });
+          if (r.status !== 206 && r.status !== 200) { dropBody(r); await new Promise((d) => setTimeout(d, 400 * (a + 1))); continue; }
           const buf = Buffer.from(await r.arrayBuffer());
           await fh.write(buf, 0, buf.length, off);
           off += buf.length;
@@ -878,14 +880,14 @@ async function pumpWarm() {
   } finally { warmBusy = false; }
 }
 
-
-
-
+// channel pages: one page per channel - their videos, their
+// shorts, subscribe. listings are yt-dlp flat playlists of the channel tabs,
+// cached 30 min: they change slowly and a cold resolve takes seconds.
 const chanCache = new Map(); // `id:tab` -> { at, name, items }
 
 // ---- video summary helpers ----
-const SUM_FILE = fileURLToPath(new URL('../../../data/jetstream-summaries.json', import.meta.url));
-const AI_CONF = fileURLToPath(new URL('../../../data/sage-provider.json', import.meta.url));
+const SUM_FILE = dataPath('jetstream-summaries.json');
+const AI_CONF = dataPath('sage-provider.json');
 const sumLimit = new Map();
 function aiProvider() {
   try {
@@ -1000,7 +1002,7 @@ async function channelTab(id, tab) {
 // both sides have vectors; TF-IDF cosine is the fallback. semantic = it
 // knows an obstacle course video and a ninja warrior video are neighbors
 // even with zero shared words.
-const EMB_FILE = fileURLToPath(new URL('../../../data/jetstream-embed.json', import.meta.url));
+const EMB_FILE = dataPath('jetstream-embed.json');
 const EMB_WORKER = fileURLToPath(new URL('../../../models/embed-worker.mjs', import.meta.url));
 const EMB_CAP = 2000;
 let embedMem = null;
@@ -1107,17 +1109,16 @@ function embedAsync(id, text) {
 function requestEmbed(id, text) { if (!embedInflight.has(id)) embedAsync(id, text).catch(() => {}); }
 function cosArr(a, b) { let s = 0; for (let i = 0; i < a.length; i++) s += a[i] * b[i]; return s; } // both sides normalized
 
-
-
-
-
-
-
-
-
-
-
-const META_FILE = fileURLToPath(new URL('../../../data/jetstream-meta.json', import.meta.url));
+// ── the taste model: a small model trained off the watch history ──
+// every resolved video's full metadata (title, tags, description, category)
+// lands in a persistent store - yt-dlp already paid for it. each video
+// becomes a TF-IDF document over title x3 + tags x2 + description x1. each
+// account's watch outcomes train a taste CENTROID: full-watch pulls in,
+// quick-skip pushes out, likes pull hard, all recency-decayed. candidates
+// rank by cosine similarity to that centroid - so "ninja warrior" matches a
+// watched "obstacle course" through shared tag/description vocabulary even
+// when the titles share no words. that is the "it understands" feel.
+const META_FILE = dataPath('jetstream-meta.json');
 const META_CAP = 3000;
 let metaMem = null;
 let metaVer = 0;
@@ -1152,7 +1153,7 @@ function docTerms({ title, tags, desc, cat }) {
   const add = (words, w) => { for (const t of words) tf.set(t, (tf.get(t) || 0) + w); };
   add(tok(title), 3);
   add((tags || []).flatMap((t) => tok(t)), 2);
-  add(tok(cat || ''), 2); 
+  add(tok(cat || ''), 2); // the category is what it IS
   add(tok(String(desc || '').slice(0, 600)), 1);
   return tf;
 }
@@ -1295,9 +1296,9 @@ function tasteCentroid(user) {
 export const __taste = { docVec, tasteCentroid, cosine };
 
 
-
-
-
+// ── channel + playlist search, playlist pages, channel playlists tab ──
+// the ANDROID client hands back opaque element blobs for these result types,
+// the WEB client returns the real renderers, so these calls use WEB.
 const WEB_CTX = { client: { clientName: 'WEB', clientVersion: '2.20250925.01.00', hl: 'en', gl: 'US' } };
 async function ytWeb(endpoint, body) {
   const r = await fetch(`${API}/${endpoint}?prettyPrint=false`, {
@@ -1343,10 +1344,7 @@ function parseKindSearch(data, kind) {
       }
       return;
     }
-    for (const val of Object.values(node)) {
-      if (Array.isArray(val)) val.forEach(walk);
-      else if (val && typeof val === 'object') walk(val);
-    }
+    Object.values(node).forEach(walk);
   };
   walk(data);
   const seen = new Set();
@@ -1354,13 +1352,13 @@ function parseKindSearch(data, kind) {
 }
 
 
-
-
-
-
-
-
-const BLOCK_FILE = fileURLToPath(new URL('../../../data/jetstream-blocked.json', import.meta.url));
+// ── restricted / unplayable pre-check ──
+// the ANDROID player endpoint tells us up front, per video, whether it is playable
+// without a login: OK, or LOGIN_REQUIRED ("may be inappropriate" = age-gated),
+// or ERROR/UNPLAYABLE (private, removed, blocked). cached: blocked ids persist in
+// data/jetstream-blocked.json (30 days), OK ids stay in memory 12 hours. a network
+// failure is "unknown": never cached, never blocks.
+const BLOCK_FILE = dataPath('jetstream-blocked.json');
 let blockedMem = null;
 function blockedMap() { if (!blockedMem) blockedMem = readJson(BLOCK_FILE, {}); return blockedMem; }
 const okMem = new Map(); // id -> ts
@@ -1514,12 +1512,26 @@ export async function register(req, res, ctx) {
         return sendJson(res, 502, { ok: false, error: 'search timed out - try again' });
       }
     }
+    // paging: first page and every ?token= page come from the WEB client, whose
+    // responses carry continuation tokens (ANDROID's never do). the body adds
+    // `next` (opaque token or null); old clients that ignore it keep working.
+    const tokenIn = (url.searchParams.get('token') || '').trim();
+    if (tokenIn && !/^[A-Za-z0-9_%=.-]{20,4000}$/.test(tokenIn)) return sendJson(res, 400, { ok: false, error: 'bad page token' });
     try {
-      const data = await yt('search', { query: q });
+      const data = tokenIn ? await ytWeb('search', { continuation: tokenIn }) : await ytWeb('search', { query: q, params: 'EgIQAQ==' });
       guard.trackBytes(session.user, 4096);
-      return sendJson(res, 200, { ok: true, q, results: parseSearch(data) });
+      const results = parseSearch(data, 40);
+      if (!results.length && !tokenIn) throw new Error('empty web page');
+      return sendJson(res, 200, { ok: true, q, results, next: searchToken(data) });
     } catch {
-      return sendJson(res, 502, { ok: false, error: 'search timed out - try again' });
+      if (tokenIn) return sendJson(res, 502, { ok: false, error: 'search timed out - try again' });
+      try {
+        const data = await yt('search', { query: q });
+        guard.trackBytes(session.user, 4096);
+        return sendJson(res, 200, { ok: true, q, results: parseSearch(data), next: null });
+      } catch {
+        return sendJson(res, 502, { ok: false, error: 'search timed out - try again' });
+      }
     }
   }
 
@@ -1559,6 +1571,7 @@ export async function register(req, res, ctx) {
       writeJson(HIST_FILE, all);
       const rc = recCache.get(session.user);
       if (rc) rc.at = 0; // next batch re-learns from this outcome
+      shortsFeed.touch(session.user);
       return sendJson(res, 200, { ok: true });
     }
     const item = {
@@ -1606,13 +1619,13 @@ export async function register(req, res, ctx) {
     const all = loadHist();
     all[session.user] = [];
     writeJson(HIST_FILE, all);
-    recCache.delete(session.user);
+    recCache.delete(session.user); shortsFeed.invalidate(session.user);
     return sendJson(res, 200, { ok: true });
   }
 
-
-
-
+  // clearing history must clear the algorithm too - likes,
+    // not-interested marks and watch-outcome rows are all training data, so a
+    // clear is a real fresh start - nothing about the account survives it.
     if (sub === '/history/clear' && req.method === 'POST') {
     const all = loadHist();
     all[session.user] = [];
@@ -1625,8 +1638,8 @@ export async function register(req, res, ctx) {
     writeJson(DIS_FILE, ds);
     const sb = loadSubs();
     sb[session.user] = [];
-    writeJson(SUBS_FILE, sb); 
-    recCache.delete(session.user); // the learned profile goes with it
+    writeJson(SUBS_FILE, sb); // the one clear nukes subs too
+    recCache.delete(session.user); shortsFeed.reset(session.user); // the learned profile goes with it - full reset, served ids too
     return sendJson(res, 200, { ok: true });
   }
 
@@ -1639,37 +1652,27 @@ export async function register(req, res, ctx) {
       const q = (url.searchParams.get('q') || '').trim();
       let ranked;
       if (q) {
-        const dislikes = userDislikes(session.user);
-        const profile = histProfile(userHist(session.user), userLikes(session.user));
-        const dis = chanWordProfile(dislikes);
-        const taste = tasteCentroid(session.user);
-        const seen = new Set([...userHist(session.user), ...userLikes(session.user), ...dislikes].map((v) => v.id));
         const pools = await Promise.all([q, `${q} shorts`].map((x) => yt('search', { query: x }).catch(() => null)));
         const done = new Set(); const pool = [];
         for (const data of pools) {
           if (!data) continue;
           for (const v of parseSearch(data)) {
             if (done.has(v.id)) continue;
-            const score = scoreCandidate(v, profile, seen, dis, taste);
-            if (score < 0) continue;
             done.add(v.id);
-            pool.push({ id: v.id, title: v.title, channel: v.channel, channelId: v.channelId || '', duration: v.duration, views: v.views, desc: v.desc || '', secs: parseSecs(v.duration), score });
+            pool.push({ ...v, secs: parseSecs(v.duration) });
           }
         }
-        pool.sort((a, b) => b.score - a.score);
-        ranked = pool;
+        const embed = (id) => (embedMem && embedMem[id] && Array.isArray(embedMem[id].v) ? embedMem[id].v : null);
+        // a query is a request: no exploration slots, no served filter, wider batch
+        ranked = rankShorts(pool, { hist: userHist(session.user), likes: userLikes(session.user), dislikes: userDislikes(session.user), subs: userSubs(session.user), dead: loadDead() }, { embed, limit: 24, exploreFrac: 0, perChan: 4 });
       } else {
         // ?fresh=1 re-ranks on the spot - feed opens and "more shorts" calls
         // use it so the feed actually refreshes instead of serving the same
         // cached row.
-        ranked = await rankedRecs(session.user, url.searchParams.get('fresh') === '1');
+        ranked = await shortsFeed.get(session.user, { fresh: url.searchParams.get('fresh') === '1', limit: REC_CAP });
       }
-      const shorts = ranked.filter((v) => v.secs != null && v.secs <= 61).slice(0, REC_CAP);
-      const h = recCache.get(session.user);
-      if (h) {
-        for (const v of shorts) h.served.add(v.id);
-        while (h.served.size > 60) h.served.delete(h.served.values().next().value);
-      }
+      const shorts = ranked.filter((v) => v.secs != null && v.secs <= 61).slice(0, q ? 24 : REC_CAP);
+      shortsFeed.serve(session.user, shorts);
       const items = shorts.map(stripRec);
       guard.trackBytes(session.user, 8192);
       prefetchSlides(shorts.map((v) => v.id), req.headers['user-agent']); // warm the box for the next swipes
@@ -1699,7 +1702,7 @@ export async function register(req, res, ctx) {
     });
     try {
       const { appendFileSync, statSync, readFileSync, writeFileSync } = await import('node:fs');
-      const LOG = fileURLToPath(new URL('../../../data/jetstream-clientlog.jsonl', import.meta.url));
+      const LOG = dataPath('jetstream-clientlog.jsonl');
       try { if (statSync(LOG).size > 262144) { const lines = readFileSync(LOG, 'utf8').split('\n'); writeFileSync(LOG, lines.slice(-500).join('\n')); } } catch {}
       appendFileSync(LOG, line + '\n');
     } catch {}
@@ -1727,7 +1730,7 @@ export async function register(req, res, ctx) {
     }
     all[session.user] = mine;
     writeJson(LIKES_FILE, all);
-    recCache.delete(session.user); // a like reshapes the feed right away
+    recCache.delete(session.user); shortsFeed.invalidate(session.user); // a like reshapes the feed right away
     return sendJson(res, 200, { ok: true, liked });
   }
 
@@ -1752,7 +1755,7 @@ export async function register(req, res, ctx) {
     }
     all[session.user] = mine;
     writeJson(DIS_FILE, all);
-    recCache.delete(session.user); // same instant effect as a like
+    recCache.delete(session.user); shortsFeed.invalidate(session.user); // same instant effect as a like
     return sendJson(res, 200, { ok: true, disliked });
   }
 
@@ -1813,7 +1816,7 @@ export async function register(req, res, ctx) {
     else { mine.unshift({ id, name, ts: Date.now() }); mine.length = Math.min(mine.length, SUBS_CAP); subbed = true; }
     all[session.user] = mine;
     writeJson(SUBS_FILE, all);
-    recCache.delete(session.user); // a sub reshapes the feed right away too
+    recCache.delete(session.user); shortsFeed.invalidate(session.user); // a sub reshapes the feed right away too
     return sendJson(res, 200, { ok: true, subbed });
   }
 
@@ -1930,9 +1933,9 @@ export async function register(req, res, ctx) {
     if (!/^[A-Za-z0-9_-]{11}$/.test(id)) return sendJson(res, 400, { ok: false, error: 'bad video id' });
     try {
       const s = await resolveStream(id);
-
-
-
+      // direct-first: hand the client the CDN urls too - it
+      // plays direct when the network doesn't filter them, proxy fallback
+      // when it does. the proxy stays the product on filtered networks.
       const body = { ok: true, id, quality: s.quality, stream: `/api/apps/jetstream/stream?id=${id}`, direct: s.url, channel: s.channel || '', channelId: s.channelId || '' };
       const wantVp9 = url.searchParams.get('vp9') === '1' && s.hdVp9;
       const lite = url.searchParams.get('lite') === '1' && (wantVp9 ? s.hdLVp9 : s.hdL);
@@ -2039,9 +2042,9 @@ function liteSerial(fn) {
   return run;
 }
 async function liteHop(url, dest, cap) {
-  const pr = await fetch(url, { headers: { 'user-agent': GV_UA, range: 'bytes=0-0' }, redirect: 'follow', signal: AbortSignal.timeout(30000) });
+  const pr = await gvFetch(url, { headers: { 'user-agent': GV_UA, range: 'bytes=0-0' }, signal: AbortSignal.timeout(30000) });
   const crm = /\/(\d+)\s*$/.exec(pr.headers.get('content-range') || '');
-  try { pr.body?.cancel()?.catch(() => {}); } catch {}
+  dropBody(pr);
   if (pr.status !== 206 && pr.status !== 200) throw new Error('probe ' + pr.status);
   const size = crm ? parseInt(crm[1], 10) : 0;
   if (!size || !Number.isSafeInteger(size)) throw new Error('no size');
@@ -2055,8 +2058,8 @@ async function liteHop(url, dest, cap) {
       let ok = false;
       for (let a = 0; a < 3 && !ok; a++) {
         try {
-          const r = await fetch(url, { headers: { 'user-agent': GV_UA, range: 'bytes=' + off + '-' + last }, redirect: 'follow', signal: AbortSignal.timeout(45000) });
-          if (r.status !== 206 && r.status !== 200) { try { r.body?.cancel()?.catch(() => {}); } catch {} await new Promise((d) => setTimeout(d, 400 * (a + 1))); continue; }
+          const r = await gvFetch(url, { headers: { 'user-agent': GV_UA, range: 'bytes=' + off + '-' + last }, signal: AbortSignal.timeout(45000) });
+          if (r.status !== 206 && r.status !== 200) { dropBody(r); await new Promise((d) => setTimeout(d, 400 * (a + 1))); continue; }
           const buf = Buffer.from(await r.arrayBuffer());
           await fh.write(buf, 0, buf.length, off);
           off += buf.length;
@@ -2097,6 +2100,7 @@ async function liteMakeVideo(id, q, entry) {
         const u = await muxUrl(entry);
         if (!u) throw new Error('no playable stream for this one');
         await liteHop(u, tmpo, LITE_MAX_BYTES);
+        if (statSync(tmpo).size > LITE_MAX_BYTES) throw new Error('too big');
         await fsRename(tmpo, out);
       } else {
         await liteHop(plan.v.url, tmpv, LITE_MAX_BYTES);
@@ -2108,6 +2112,7 @@ async function liteMakeVideo(id, q, entry) {
           ff.on('close', (c) => { clearTimeout(to); c === 0 ? resolve() : reject(new Error('mux failed ' + err.slice(0, 120))); });
           ff.on('error', reject);
         });
+        if (statSync(tmpo).size > LITE_MAX_BYTES) throw new Error('too big');
         await fsRename(tmpo, out);
       }
       evictCache();
