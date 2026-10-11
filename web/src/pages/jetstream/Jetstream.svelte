@@ -4,8 +4,13 @@
   import Recent from '../../lib/Recent.svelte';
   let qf = $state(false);
   import '../../tokens.css';
+  import AppFrame from '../../lib/AppFrame.svelte';
   import { onMount, tick } from "svelte";
   import { api } from '../../lib/api.js';
+  import { createWatchTracker } from './watch-tracker.js';
+  import { createWatchReporter } from './watch-reporter.js';
+  import { createSearchPager, searchUrl } from './search-pager.js';
+  import { createFreshGate, createIntent } from './fresh-gate.js';
 
   let q = $state('');
   let results = $state([]);
@@ -90,13 +95,17 @@
     } catch {}
     window.addEventListener('popstate', () => { if (pushed > 0) pushed--; fromPop = true; goBack(); });
     window.addEventListener('scroll', () => {
-      if (searched || watching || chanPage || subsPage || feedOpen) return;
+      if (searched) {
+        if (kind === 'video' && !watching && !chanPage && !subsPage && !plPage && !feedOpen && window.innerHeight + window.scrollY > document.body.scrollHeight - 900) moreSearch();
+        return;
+      }
+      if (watching || chanPage || subsPage || feedOpen) return;
       if (window.innerHeight + window.scrollY > document.body.scrollHeight - 900) loadMoreForYou();
     }, { passive: true });
     // app backgrounded / tab closed mid-watch: the last slide's outcome is
     // the one a plain close never reports - beacon it out on the way down.
-    window.addEventListener('pagehide', () => flushOutcomes(true));
-    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flushOutcomes(true); });
+    window.addEventListener('pagehide', () => { flushOutcomes(true); reportLong(true); });
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') { shortRep.pauseAll(); wt?.tr.pause(); flushOutcomes(true); reportLong(true); } });
   });
 
   async function loadMoreForYou() {
@@ -113,9 +122,10 @@
     }
   }
 
-
-
+  // subscriptions manager: every sub, tap through to the
+  // channel, unsubscribe in place.
   async function openSubs() {
+    intent.bump();
     back();
     chanPage = null;
     subsPage = { list: null };
@@ -156,7 +166,7 @@
   let feedOpen = $state(false);
   let feedWrap = $state(null);
   let feedQ = $state('');
-  let feedSearchOpen = $state(false); 
+  let feedSearchOpen = $state(false); // the search pill stays out of the way until asked for
   let feedMode = $state('foryou'); // 'foryou' = your ranked feed, 'search' = searched shorts
   let feedSearchErr = $state('');
   let liked = $state(new Set());
@@ -174,7 +184,7 @@
     if (watching?.id !== id) return;
     sum = r.ok && r.data?.ok ? { data: r.data } : { error: r.data?.error || "couldn't summarize this one" };
   }
-  function jumpTo(t) { if (videoEl) { try { videoEl.currentTime = t; videoEl.play?.(); } catch {} } }
+  function jumpTo(t) { if (videoEl) { wt?.tr.pause(); try { videoEl.currentTime = t; videoEl.play?.(); } catch {} } }
   import { techOn } from './../../lib/tech.js';
   let statsOpen = $state(false), stats = $state(null);
   let statsTimer = null;
@@ -189,7 +199,7 @@
     if (statsOpen) { readStats(); statsTimer = setInterval(readStats, 700); }
   }
   let newSubs = $state([]); // fresh uploads from subscribed channels
-  let subsPage = $state(null); 
+  let subsPage = $state(null); // subscriptions manager
   let fyBusy = false; let fyDone = false;
   let subs = $state(new Set()); // subscribed channel ids
   let autoplay = $state(null); // { items, idx, channelName } - the play-all chain
@@ -200,7 +210,12 @@
   let observer = null;
   let feedAudio = {};
   let driftTimer = null;
-  const watched = {}; // idx -> max seconds reached - the algorithm's core signal
+  // cumulative ACTIVE seconds per video id (loops count, seeks don't) - the algorithm's core signal
+  const postWatch = (body, beacon) => {
+    if (beacon && navigator.sendBeacon) return navigator.sendBeacon('/api/apps/jetstream/history', JSON.stringify(body));
+    return api('/api/apps/jetstream/history', { method: 'POST', body }).then((r) => !!r.ok, () => false);
+  };
+  const shortRep = createWatchReporter(postWatch);
   let prefetchGen = 0; // settle-guard generation: stale warmups die on swipe
   let feedGuard = null;
   let feedBridge = null;
@@ -252,14 +267,14 @@
     feedAudio[i] = a;
   }
 
-
-
-
-
-
-
-
-
+  // sync, old-jetstream port: the exact
+  // model the old watch page ran for months on iPhone. one video holds a
+  // src at a time (no prebuffer, no muted-play warmup), the audio element is
+  // DOM-attached and lazily built, and a 600ms caretaker mirrors the old
+  // player's: audio follows play/pause, hard-seeks past 0.3s of drift, and
+  // restarts the audio if it died while the video runs. no rate API, no
+  // waiting-event interference - audio rides through a video stall, exactly
+  // like the old build that never froze for him.
   function syncSlideAudio(i, hard) {
     const v = feedVideo(i); const a = feedAudio[i];
     if (!v || !a) return;
@@ -289,21 +304,21 @@
     }, 600);
   }
 
-  function onSlidePause(i) { feedAudio[i]?.pause(); }
+  function onSlidePause(i) { feedAudio[i]?.pause(); if (shorts[i]) shortRep.pause(shorts[i]); }
 
-
-
-
-
-
+  // direct-first: if the network doesn't filter googlevideo,
+  // the CDN serves him straight and the box leaves the path - that is the
+  // whole speed problem gone. every slide starts direct with a 5s no-data
+  // watchdog; a blocked or dead source swaps to the ramjet proxy exactly
+  // once and that slide stays proxied. the proxy carries filtered networks.
   const slideResolve = {};
   const slideProxy = {};
   const directWatchdog = {};
-
-
-
-
-
+  // once direct fails anywhere it fails everywhere on this network - one
+  // probe per SESSION, not per slide. Scrolling took
+  // forever because every slide burned a dead direct try on a filtered
+  // network before the proxy swap. the flag resets with the tab (a new
+  // network gets a fresh probe).
   let directDead = sessionStorage.getItem('rj-direct') === 'dead';
   function markDirectDead() {
     directDead = true;
@@ -333,12 +348,12 @@
     vid.load();
     if (feedPlaying === i) vid.play().catch(() => {});
     api('/api/apps/jetstream/clientlog', { method: 'POST', body: { kind: 'slide-proxy-fallback', id: shorts[i]?.id || '', why: why || '', ua: navigator.userAgent } }).catch(() => {});
-
-
-
-
-
-
+    // one dead direct means the network filters googlevideo: re-point every
+    // slide that was ALREADY attached direct (the pre-warmed next slides got
+    // their src before the session flag flipped) instead of letting each one
+    // burn its own dead direct try. Telemetry showed 26 fallbacks in
+    // one session - every one was a slide waiting on a try that could never
+    // work.
     for (const k of Object.keys(slideResolve)) {
       const j = +k;
       if (j !== i && !slideProxy[j] && feedVideo(j)?.dataset.srcmode === 'direct') swapToProxy(j, 'direct-dead-session');
@@ -391,8 +406,8 @@
 
   function feedVideo(i) { return feedWrap?.querySelector(`video[data-idx="${i}"]`) || null; }
 
-
-
+  // desktop chrome/firefox decode vp9 webm - that unlocks 1080p on videos
+  // whose avc1 ladder stops short. safari says no, stays avc1.
   const canVp9 = (() => { try { return document.createElement('video').canPlayType('video/webm; codecs="vp9"') === 'probably'; } catch { return false; } })();
   // phone = low-data mode: 720p tier (pixel-exact on a phone screen, about half
   // the bytes of 1080p) and lighter prefetch. desktop keeps the full tier.
@@ -427,6 +442,7 @@
     api('/api/apps/jetstream/clientlog', { method: 'POST', body: { kind: 'slide-stalls', id: shorts[i]?.id || '', vw: n, vh: 0, hd: !!feedAudio[i], ua: navigator.userAgent } }).catch(() => {});
   }
   let pullRetries = 0;
+  const freshGate = createFreshGate(() => api('/api/apps/jetstream/shorts?fresh=1').catch(() => null));
 
   function progPct(i) {
     const x = prog[i];
@@ -435,35 +451,23 @@
 
   function onSlideTime(i, e) {
     const v = e.currentTarget;
-    if (v.currentTime > (watched[i] || 0)) watched[i] = v.currentTime;
+    // only the slide on screen counts: the next slide plays offscreen to prebuffer
+    if (i === lastActive && !v.paused && !v.seeking) {
+      if (shorts[i]) shortRep.sample(shorts[i], v.currentTime, performance.now(), v.duration || 0);
+    }
     prog = { ...prog, [i]: { cur: v.currentTime, dur: v.duration || 0 } };
   }
 
   // tell the server how much of this short he actually watched: quick skips
   // teach the feed "less of this", full watches "more". posts on the way out.
-  function reportOutcome(i) {
-    const v = shorts[i];
-    const ws = watched[i];
-    if (!v || ws == null) return;
-    delete watched[i];
-    api('/api/apps/jetstream/history', { method: 'POST', body: { id: v.id, title: v.title, channel: v.channel || '', duration: v.duration || '', watched: Math.round(ws) } }).catch(() => {});
-  }
+  function reportOutcome(i) { if (shorts[i]) shortRep.report(shorts[i], false); }
 
-  // post every still-pending outcome at once - feed close, list swap, or
-  // the page going away. a fetch dies mid-flight on unload, so that path
-  // uses sendBeacon (cookies ride same-origin, the server parses the raw
-  // body regardless of content-type).
-  function flushOutcomes(beacon) {
-    for (const k of Object.keys(watched)) {
-      const v = shorts[+k];
-      const ws = watched[k];
-      delete watched[k];
-      if (!v || ws == null) continue;
-      const body = { id: v.id, title: v.title, channel: v.channel || '', duration: v.duration || '', watched: Math.round(ws) };
-      if (beacon && navigator.sendBeacon) navigator.sendBeacon('/api/apps/jetstream/history', JSON.stringify(body));
-      else api('/api/apps/jetstream/history', { method: 'POST', body }).catch(() => {});
-    }
-  }
+  // feed close, list swap, or the page going away. a fetch dies mid-flight on
+  // unload, so that path uses sendBeacon. Reports are cumulative and deduped, and
+  // a hide does NOT drop state: coming back keeps counting from the same total.
+  function flushOutcomes(beacon) { shortRep.flushAll(beacon); }
+
+  function onSlideSeeking(i, e) { if (shorts[i] && i === lastActive) shortRep.seek(shorts[i], e.currentTarget.currentTime, performance.now(), e.currentTarget.duration || 0); }
 
   // tap-to-seek (youtube shorts parity): jump the pair - video and its
   // synced audio element - to the tapped spot.
@@ -472,7 +476,16 @@
     if (!v || !isFinite(v.duration) || v.duration <= 0) return;
     const r = e.currentTarget.getBoundingClientRect();
     const ratio = Math.min(1, Math.max(0, (e.clientX - r.left) / r.width));
-    v.currentTime = ratio * v.duration;
+    shortRep.pause(shorts[i]); v.currentTime = ratio * v.duration;
+    if (feedAudio[i]) feedAudio[i].currentTime = v.currentTime;
+    prog = { ...prog, [i]: { cur: v.currentTime, dur: v.duration } };
+  }
+
+  function seekSlideKey(i, e) {
+    const v = feedVideo(i);
+    if (!v || !isFinite(v.duration) || v.duration <= 0 || !['ArrowLeft', 'ArrowRight', 'ArrowDown', 'ArrowUp', 'Home', 'End'].includes(e.key)) return;
+    e.preventDefault(); e.stopPropagation();
+    shortRep.pause(shorts[i]); v.currentTime = e.key === 'Home' ? 0 : e.key === 'End' ? v.duration : Math.max(0, Math.min(v.duration, v.currentTime + (['ArrowRight', 'ArrowUp'].includes(e.key) ? 5 : -5)));
     if (feedAudio[i]) feedAudio[i].currentTime = v.currentTime;
     prog = { ...prog, [i]: { cur: v.currentTime, dur: v.duration } };
   }
@@ -481,8 +494,9 @@
     const vid = feedVideo(i);
     if (!vid || feedErr[i]) return;
     lastActive = i;
+    shortRep.pauseAll(); // re-anchor on the new active slide
     // tell the box where he is: the next slides jump the prefetch queue so
-    // his scroll position always has warm disk behind it, not the live proxy
+    // the scroll position always has warm disk behind it, not the live proxy
     if (i !== lastAheadAt) {
       lastAheadAt = i;
       const ahead = shorts.slice(i + 1, i + (isPhone ? 4 : 6)).map((s) => s?.id).filter(Boolean);
@@ -491,8 +505,10 @@
     // endless feed: landing on the last slide quietly pulls a fresh batch
     if (i >= shorts.length - 1 && !pullingMore && feedMode === 'foryou') {
       pullingMore = true;
-      api('/api/apps/jetstream/shorts?fresh=1').then((r) => {
-        if (!r.ok) { pullingMore = false; return; }
+      const pg = intent.cur();
+      freshGate.get().then((r) => {
+        if (!intent.ok(pg) || !feedOpen || feedMode !== 'foryou') { pullingMore = false; return; } // list swapped or feed closed meanwhile
+        if (!r || !r.ok) { pullingMore = false; return; }
         const have = new Set(shorts.map((v) => v.id));
         const more = (r.data.items || []).filter((v) => !have.has(v.id));
         if (more.length) {
@@ -527,8 +543,8 @@
         const r = await api(watchUrl(shorts[i].id));
         feedLoading = { ...feedLoading, [i]: false };
         if (!r.ok) {
-
-
+          // can't play = never surface: the slide leaves the
+          // feed instead of showing an error card.
           shorts = shorts.filter((_, x) => x !== i);
           return;
         }
@@ -550,11 +566,11 @@
         await vid.play().catch(() => {});
       }
       onSlidePlay(i);
-
-
-
-
-
+      // ios-safe warm swipe, now
+      // settle-guarded: a slide must HOLD the spotlight for
+      // half a second before anything warms, so fast-scrolling past never
+      // spins up loads. the next slide's video buffers (src + preload=auto)
+      // but NEVER plays, and no audio element exists until it's active.
       const gen = ++prefetchGen;
       setTimeout(() => {
         if (gen !== prefetchGen || feedPlaying !== i) return;
@@ -597,20 +613,25 @@
     feedWrap.querySelectorAll('.slide').forEach((s) => observer.observe(s));
   }
 
-
-
-
-
-
+  // root fix: the tapped short is ALWAYS the one that plays first.
+  // the old code swapped the whole list out from under the playing slide when the
+  // fresh re-rank landed, so a different short could take over. now the fresh list
+  // is fetched BEFORE opening (500ms cap), the tapped one is pinned to slot 0, and
+  // nothing swaps once the feed is open.
   let savedShorts = null; // home shelf, parked while a channel's shorts take over the feed
+  const intent = createIntent(); // bumped by anything that invalidates a pending open / late fresh response
   async function openFeed(i) {
     const picked = shorts[i];
     let start = i;
     if (picked) {
+      // one shared fresh pull: the last-slide pull joins it instead of firing its own.
+      // a slow answer just means the feed opens on what is already loaded.
+      const mine = intent.begin();
       const r = await Promise.race([
-        api('/api/apps/jetstream/shorts?fresh=1').catch(() => null),
-        new Promise((res) => setTimeout(() => res(null), 500)),
+        freshGate.get(),
+        new Promise((res) => setTimeout(() => res(null), 1500)),
       ]);
+      if (!intent.ok(mine) || feedOpen || watching || chanPage || subsPage || plPage) return; // closed, navigated away, or superseded while waiting
       if (r && r.ok && (r.data.items || []).length) {
         resetSlides();
         shorts = [picked, ...r.data.items.filter((v) => v.id !== picked.id)];
@@ -645,6 +666,7 @@
 
   // tear down every slide's playback; used by close, list swaps, and searches
   function resetSlides() {
+    intent.bump();
     flushOutcomes(false); // closing the feed or swapping lists still teaches the algorithm
     observer?.disconnect(); observer = null;
     if (driftTimer) { clearInterval(driftTimer); driftTimer = null; }
@@ -771,16 +793,35 @@
   }
 
   let recentQ = $state(readSearches('js-searches'));
+  const pager = createSearchPager((query, token) => api(searchUrl(query, token)));
+  let moreBusy = $state(false), moreErr = $state(''), moreCapped = $state(false);
+  function syncPager() { const v = pager.view(); results = v.items; moreBusy = v.busy; moreErr = v.items.length ? v.err : ''; moreCapped = v.capped; return v; }
   async function search(e) {
     e?.preventDefault();
     if (busy || !q.trim()) return;
+    intent.bump();
     recentQ = addSearch('js-searches', q);
-    busy = true; error = ''; back(); chanPage = null; plPage = null; subsPage = null;
+    busy = true; error = ''; moreErr = ''; back(); chanPage = null; plPage = null; subsPage = null;
     kind = 'video'; kres = { channel: null, playlist: null, q: q.trim() };
-    const r = await api(`/api/apps/jetstream/search?q=${encodeURIComponent(q.trim())}`);
+    const res = await pager.start(q.trim());
     busy = false; searched = true;
-    if (!r.ok) { error = r.data?.error || 'search broke - try again'; return; }
-    results = r.data.results;
+    if (!res) return;
+    const v = syncPager();
+    if (v.err && !v.items.length) { error = v.err; return; }
+    fillCheck();
+  }
+  async function moreSearch(manual = false) {
+    const p = pager.more({ manual });
+    if (!p) return;
+    moreBusy = true;
+    if (await p) { syncPager(); fillCheck(); }
+  }
+  async function retryMore() { moreErr = ''; await moreSearch(true); }
+  // a short page can fit above the fold, so no scroll event ever fires: check after layout
+  function fillCheck() {
+    tick().then(() => requestAnimationFrame(() => {
+      if (searched && kind === 'video' && !watching && !feedOpen && !chanPage && !subsPage && !plPage && document.body.scrollHeight <= window.innerHeight + 900) moreSearch();
+    }));
   }
 
   function chip(c) { q = c; search(); }
@@ -797,6 +838,7 @@
 
   async function openPlaylist(id, name, channel) {
     if (!id) return;
+    intent.bump();
     subsPage = null;
     if (feedOpen) closeFeed();
     back();
@@ -819,6 +861,7 @@
 
   let retScroll = 0;
   async function watch(v, keepAutoplay = false) {
+    intent.bump(); // a pending shorts open must not start over the video he just picked
     if (loadingWatch) return;
     if (!watching) retScroll = window.scrollY; // where the list was when he left it
     if (!keepAutoplay) autoplay = null;
@@ -891,9 +934,9 @@
     if (hard || Math.abs(au.currentTime - videoEl.currentTime) > 0.8) au.currentTime = videoEl.currentTime;
   }
 
-
-
-
+  // direct-first on the watch page too: start on the CDN
+  // urls, 6s no-data watchdog, one swap to the proxy and it sticks until
+  // the next video. filtered networks land on the proxy every time.
   let watchDirect = false;
   let watchDog = null;
 
@@ -959,7 +1002,7 @@
       const ms = navigator.mediaSession;
       ms.setActionHandler('play', () => videoEl?.play?.());
       ms.setActionHandler('pause', () => videoEl?.pause?.());
-      ms.setActionHandler('seekto', (d) => { if (videoEl && d.seekTime != null) videoEl.currentTime = d.seekTime; });
+      ms.setActionHandler('seekto', (d) => { if (videoEl && d.seekTime != null) { wt?.tr.pause(); videoEl.currentTime = d.seekTime; } });
       ms.setActionHandler('nexttrack', autoplay && autoplay.idx + 1 < autoplay.items.length ? () => vNext() : null);
       ms.setActionHandler('previoustrack', autoplay ? () => vPrev() : null);
     } catch {}
@@ -1075,10 +1118,10 @@
 
   function onVidPlay() { if (au) { syncAudio(true); au.play().catch(() => {}); } }
 
-
-
-
-
+  // watched to the end: it leaves keep watching (the shelf is for things
+  // you are mid-way through), and the server marks it complete.
+  // autoplay chain advance; a dead video is skipped and dropped from the
+  // chain entirely.
   function autoplayNext() {
     if (autoplay && autoplay.idx + 1 < autoplay.items.length) {
       const next = autoplay.idx + 1;
@@ -1108,21 +1151,30 @@
   async function onVidEnded() {
     if (watching) { const o = posRead(); delete o[watching.id]; posWrite(o); }
     if (watching) { const o = posRead(); delete o[watching.id]; posWrite(o); }
-    onVidPause();
+    onVidPause(); reportLong();
     if (!watching) return;
     const doneId = watching.id;
     history = history.filter((x) => x.id !== doneId);
     await api('/api/apps/jetstream/history/complete', { method: 'POST', body: { id: doneId } });
     autoplayNext(); // chain finished? it clears itself
   }
+  function onSeeking() { if (videoEl && wt && watching && wt.v.id === watching.id) wt.tr.seek(videoEl.currentTime, performance.now(), videoEl.duration || 0); }
   function onSeeked() { syncAudio(true); }
-  function onVidPause() { if (au) au.pause(); }
+  function onVidPause() { if (au) au.pause(); wt?.tr.pause(); }
 
   // resume: remember where you were in long videos (this device only, 40 max)
   let posLast = 0, resumedId = '', pending = null;
   function posRead() { try { return JSON.parse(localStorage.getItem('js-pos') || '{}'); } catch { return {}; } }
   function posWrite(o) { try { localStorage.setItem('js-pos', JSON.stringify(o)); } catch {} }
+  // long-form watch telemetry: same cumulative, acknowledged reporting as shorts
+  const longRep = createWatchReporter(postWatch);
+  let wt = null; // { v, tr } adapter so the existing pause/seek hooks keep working
+  function reportLong(beacon) { if (wt) longRep.report(wt.v, beacon); }
   function onTime() {
+    if (videoEl && watching && !videoEl.paused && !videoEl.seeking) {
+      if (!wt || wt.v.id !== watching.id) { reportLong(); const wv = watching; wt = { v: wv, tr: { pause: () => longRep.pause(wv), seek: (t, n, d) => longRep.seek(wt.v, t, n, d) } }; }
+      longRep.sample(watching, videoEl.currentTime, performance.now(), videoEl.duration || 0);
+    }
     if (!videoEl || !watching || videoEl.paused) return;
     const t = videoEl.currentTime;
     if (pending && pending.id === watching.id) { if (t >= pending.t - 2) pending = null; else return; }
@@ -1134,10 +1186,10 @@
     const k = Object.keys(o); if (k.length > 40) delete o[k[0]];
     posWrite(o);
   }
-
-
-
-
+  // custom controls overlay. native chrome is off; this draws play/pause,
+  // prev/next (autoplay chains), a scrub bar, time, quality and fullscreen over the video.
+  // iPhone Safari can only fullscreen the <video> itself (native controls take over there,
+  // no way around that); desktop/iPad/Android fullscreen the whole frame so this stays.
   let frameEl = $state(null);
   let vcur = $state(0), vdur = $state(0), vpaused = $state(true), vui = $state(true), vscrub = $state(false), isFs = $state(false);
   let vuiTimer = null, vLastTap = 0;
@@ -1151,14 +1203,14 @@
     const now = Date.now();
     const x = (e.clientX - r.left) / r.width;
     if (now - vLastTap < 320 && (x < 0.33 || x > 0.67) && videoEl) { // double tap a side: skip 10s
-      videoEl.currentTime = Math.max(0, Math.min((videoEl.duration || 1e9), videoEl.currentTime + (x < 0.5 ? -10 : 10)));
+      wt?.tr.pause(); videoEl.currentTime = Math.max(0, Math.min((videoEl.duration || 1e9), videoEl.currentTime + (x < 0.5 ? -10 : 10)));
       vTick(); vPoke(); vLastTap = 0; return;
     }
     vLastTap = now;
     if (vui && !vpaused) { vui = false; clearTimeout(vuiTimer); } else vPoke();
   }
   function vSeekInput(e) { vscrub = true; vcur = Number(e.currentTarget.value); }
-  function vSeekChange(e) { if (videoEl) { videoEl.currentTime = Number(e.currentTarget.value); } vscrub = false; vTick(); vPoke(); }
+  function vSeekChange(e) { if (videoEl) { wt?.tr.pause(); videoEl.currentTime = Number(e.currentTarget.value); } vscrub = false; vTick(); vPoke(); }
   function vFs() {
     const doc = document;
     if (doc.fullscreenElement || doc.webkitFullscreenElement) { (doc.exitFullscreen || doc.webkitExitFullscreen)?.call(doc); return; }
@@ -1171,7 +1223,7 @@
     document.addEventListener('fullscreenchange', f); document.addEventListener('webkitfullscreenchange', f);
     return () => { document.removeEventListener('fullscreenchange', f); document.removeEventListener('webkitfullscreenchange', f); };
   });
-  function vPrev() { if (!autoplay) return; if (videoEl && videoEl.currentTime > 4) { videoEl.currentTime = 0; return; } if (autoplay.idx > 0) { const i = autoplay.idx - 1; autoplay = { ...autoplay, idx: i }; watch(autoplay.items[i], true); } }
+  function vPrev() { if (!autoplay) return; if (videoEl && videoEl.currentTime > 4) { wt?.tr.pause(); videoEl.currentTime = 0; return; } if (autoplay.idx > 0) { const i = autoplay.idx - 1; autoplay = { ...autoplay, idx: i }; watch(autoplay.items[i], true); } }
   function vNext() { if (autoplay && autoplay.idx + 1 < autoplay.items.length) autoplayNext(); }
 
   function onMeta() {
@@ -1196,10 +1248,10 @@
     back();
     tick().then(() => requestAnimationFrame(() => { window.scrollTo(0, y); setTimeout(() => window.scrollTo(0, y), 120); }));
   }
-  function back() { statsOpen = false; clearInterval(statsTimer); dropAudio(); autoplay = null; watching = null; watchInfo = null; portrait = false; streamError = false; hdDropped = false; stalling = false; }
-
-
-
+  function back() { intent.bump(); reportLong(); statsOpen = false; clearInterval(statsTimer); dropAudio(); autoplay = null; watching = null; watchInfo = null; portrait = false; streamError = false; hdDropped = false; stalling = false; }
+  // channel pages: scroll a channel's shorts, subscribe,
+  // autoplay everything they've made. videos + shorts load together, the
+  // sub folds into the same taste profile the feeds rank with.
   function goChannelFromShort(v) {
     if (!v?.channelId) return;
     closeFeed();
@@ -1207,6 +1259,7 @@
   }
 
   async function openChannel(id, name) {
+    intent.bump();
     if (!id) return;
     subsPage = null;
     if (feedOpen) closeFeed();
@@ -1241,6 +1294,7 @@
     if (k && k !== prev) { try { window.history.pushState({ jt: 1 }, ''); pushed++; } catch {} }
   });
   function goBack() {
+    intent.bump();
     if (feedOpen) closeFeed();
     else if (watching) backToList();
     else if (plPage) closePlaylist();
@@ -1286,6 +1340,7 @@
   const lthumb = (id) => `/api/apps/jetstream/thumb?id=${id}${lite ? '&lite=1' : ''}`;
 </script>
 
+<AppFrame active="/jetstream">
 <main>
   <header>
     {#if viewKey}
@@ -1293,15 +1348,15 @@
     {:else}
       <a class="home" href="/" aria-label="back to hub"><svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7" /></svg></a>
     {/if}
-    <div class="brand">jetstream</div>
+    <div class="heading"><h1>Jetstream</h1><p>Find something worth watching.</p></div>
     <button class="subs-link" onclick={openSubs}>subscriptions</button>
     <span class="spacer"></span>
   </header>
 
   <form class="bar" onsubmit={search}>
-    <input bind:value={q} onfocus={() => (qf = true)} onblur={() => setTimeout(() => (qf = false), 150)} placeholder="search anything" enterkeyhint="search" autocapitalize="off" autocomplete="off" />
+    <input bind:value={q} onfocus={() => (qf = true)} onblur={() => setTimeout(() => (qf = false), 150)} aria-label="Search videos" placeholder="Search videos, channels or playlists" enterkeyhint="search" autocapitalize="off" autocomplete="off" />
     <Recent items={recentQ} query={q} focused={qf} onpick={(r) => { q = r; qf = false; search({ preventDefault() {} }); }} onclear={() => (recentQ = clearSearches('js-searches'))} />
-    <button type="submit" disabled={busy}>{busy ? '...' : 'go'}</button>
+    <button type="submit" disabled={busy}>{busy ? 'Searching...' : 'Search'}</button>
   </form>
 
   {#if error}<p class="err" role="alert">{error}</p>{/if}
@@ -1311,9 +1366,9 @@
       <div class="frame" class:portrait bind:this={frameEl}>
         {#if watchInfo}
           <video bind:this={videoEl} playsinline preload="auto" poster={thumb(watching.id)}
-            onloadedmetadata={onMeta} ontimeupdate={() => { onTime(); vTick(); }} ondurationchange={vTick} onplay={() => { onVidPlay(); vSync(); }} onpause={() => { onVidPause(); vSync(); }} onseeked={onSeeked} onended={onVidEnded}
+            onloadedmetadata={onMeta} ontimeupdate={() => { onTime(); vTick(); }} ondurationchange={vTick} onplay={() => { onVidPlay(); vSync(); }} onpause={() => { onVidPause(); vSync(); }} onseeking={onSeeking} onseeked={onSeeked} onended={onVidEnded}
             onerror={onVidError}
-            onwaiting={() => { if (!streamError && videoEl && !videoEl.paused) { stalling = true; noteHdStall(); } }}
+            onwaiting={() => { wt?.tr.pause(); if (!streamError && videoEl && !videoEl.paused) { stalling = true; noteHdStall(); } }}
             onplaying={() => stalling = false} oncanplay={() => stalling = false}></video>
           <div class="vo" class:hide={!vui} role="presentation" onclick={vTap}>
             <div class="vo-top"><span class="vo-title">{watching.title || watchInfo.title || ''}</span></div>
@@ -1408,7 +1463,7 @@ network {stats.net} · ready {stats.ready}</pre>
         <section class="results">
           {#each results.filter((r) => r.id !== watching.id) as v (v.id)}
             <button class="row" onclick={() => watch(v)}>
-              <img src={lthumb(v.id)} alt="" loading="lazy" />
+              <img src={lthumb(v.id)} alt="" loading="lazy" onerror={(e) => { e.currentTarget.style.visibility = 'hidden'; }} />
               <span class="txt">
                 <span class="title">{v.title}</span>
                 <span class="meta">{v.channel}{v.duration ? ` · ${v.duration}` : ''}</span>
@@ -1464,7 +1519,7 @@ network {stats.net} · ready {stats.ready}</pre>
             <section class="results">
               {#each plPage.items as v (v.id)}
                 <button class="row" onclick={() => playPlFrom(v)}>
-                  <img src={lthumb(v.id)} alt="" loading="lazy" />
+                  <img src={lthumb(v.id)} alt="" loading="lazy" onerror={(e) => { e.currentTarget.style.visibility = 'hidden'; }} />
                   <span class="txt">
                     <span class="title">{v.title}</span>
                     <span class="meta">{v.channel}{v.duration ? ` · ${v.duration}` : ''}</span>
@@ -1522,7 +1577,7 @@ network {stats.net} · ready {stats.ready}</pre>
             <section class="results">
               {#each chanPage.videos as v (v.id)}
                 <button class="row" onclick={() => watch(v)}>
-                  <img src={lthumb(v.id)} alt="" loading="lazy" />
+                  <img src={lthumb(v.id)} alt="" loading="lazy" onerror={(e) => { e.currentTarget.style.visibility = 'hidden'; }} />
                   <span class="txt">
                     <span class="title">{v.title}</span>
                     <span class="meta">{v.duration}{v.views ? ` · ${v.views}` : ''}</span>
@@ -1541,7 +1596,7 @@ network {stats.net} · ready {stats.ready}</pre>
           <div class="hist">
             {#each chanPage.playlists as pl (pl.id)}
               <button class="hcard" onclick={() => openPlaylist(pl.id, pl.title, chanPage.name)}>
-                <span class="hthumb">{#if pl.thumbVid}<img src={lthumb(pl.thumbVid)} alt="" loading="lazy" />{/if}</span>
+                <span class="hthumb">{#if pl.thumbVid}<img src={lthumb(pl.thumbVid)} alt="" loading="lazy" onerror={(e) => { e.currentTarget.style.visibility = 'hidden'; }} />{/if}</span>
                 <span class="htitle">{pl.title}</span>
               </button>
             {/each}
@@ -1558,7 +1613,7 @@ network {stats.net} · ready {stats.ready}</pre>
             <div class="hist">
               {#each chanPage.shorts as v, si (v.id)}
                 <button class="hcard scard" onclick={() => scrollChannelShorts(si)}>
-                  <span class="hthumb"><img class="sthumb" src={lthumb(v.id)} alt="" loading="lazy" /></span>
+                  <span class="hthumb"><img class="sthumb" src={lthumb(v.id)} alt="" loading="lazy" onerror={(e) => { e.currentTarget.style.visibility = 'hidden'; }} /></span>
                   <span class="htitle">{v.title}</span>
                 </button>
               {/each}
@@ -1582,7 +1637,7 @@ network {stats.net} · ready {stats.ready}</pre>
         <div class="hist">
           {#each newSubs as v (v.id)}
             <button class="hcard" onclick={() => watch(v)}>
-              <span class="hthumb"><img src={lthumb(v.id)} alt="" loading="lazy" /></span>
+              <span class="hthumb"><img src={lthumb(v.id)} alt="" loading="lazy" onerror={(e) => { e.currentTarget.style.visibility = 'hidden'; }} /></span>
               <span class="htitle">{v.title}</span>
               <span class="hchan">{v.channel}</span>
             </button>
@@ -1593,14 +1648,13 @@ network {stats.net} · ready {stats.ready}</pre>
         <p class="hist-h">watch later</p>
         <div class="hist">
           {#each later as v (v.id)}
-            <button class="hcard" onclick={() => openLater(v)}>
+            <div class="hcard saved-card"><button class="saved-open" onclick={() => openLater(v)} aria-label={'Play saved video ' + v.title}>
               <span class="hthumb">
-                <img src={lthumb(v.id)} alt="" loading="lazy" />
-                <span class="hx" role="button" tabindex="-1" aria-label="remove from watch later" onclick={(e) => { e.stopPropagation(); toggleLater(v); }}>x</span>
+                <img src={lthumb(v.id)} alt="" loading="lazy" onerror={(e) => { e.currentTarget.style.visibility = 'hidden'; }} />
               </span>
               <span class="htitle">{v.title}</span>
               <span class="hchan">{v.channel}</span>
-            </button>
+            </button><button type="button" class="hx" aria-label={'Remove saved video ' + v.title} onclick={() => toggleLater(v)}>x</button></div>
           {/each}
         </div>
       {/if}
@@ -1608,14 +1662,13 @@ network {stats.net} · ready {stats.ready}</pre>
         <p class="hist-h">keep watching</p>
         <div class="hist">
           {#each history as v (v.id)}
-            <button class="hcard" onclick={() => watch(v)}>
+            <div class="hcard saved-card"><button class="saved-open" onclick={() => watch(v)} aria-label={'Continue video ' + v.title}>
               <span class="hthumb">
-                <img src={lthumb(v.id)} alt="" loading="lazy" />
-                <span class="hx" role="button" tabindex="-1" aria-label="remove from keep watching" onclick={(e) => removeHistory(v, e)}>x</span>
+                <img src={lthumb(v.id)} alt="" loading="lazy" onerror={(e) => { e.currentTarget.style.visibility = 'hidden'; }} />
               </span>
               <span class="htitle">{v.title}</span>
               <span class="hchan">{v.channel}</span>
-            </button>
+            </button><button type="button" class="hx" aria-label={'Remove continue video ' + v.title} onclick={(e) => removeHistory(v, e)}>x</button></div>
           {/each}
         </div>
       {/if}
@@ -1627,7 +1680,7 @@ network {stats.net} · ready {stats.ready}</pre>
         <div class="hist">
           {#each shorts as v, i (v.id)}
             <button class="hcard scard" onclick={() => openFeed(i)}>
-              <span class="hthumb"><img class="sthumb" src={lthumb(v.id)} alt="" loading="lazy" /></span>
+              <span class="hthumb"><img class="sthumb" src={lthumb(v.id)} alt="" loading="lazy" onerror={(e) => { e.currentTarget.style.visibility = 'hidden'; }} /></span>
               <span class="htitle">{v.title}</span>
             </button>
           {/each}
@@ -1638,7 +1691,7 @@ network {stats.net} · ready {stats.ready}</pre>
         <div class="fygrid">
           {#each forYou as v (v.id)}
             <button class="hcard" onclick={() => watch(v)}>
-              <span class="hthumb"><img src={lthumb(v.id)} alt="" loading="lazy" /></span>
+              <span class="hthumb"><img src={lthumb(v.id)} alt="" loading="lazy" onerror={(e) => { e.currentTarget.style.visibility = 'hidden'; }} /></span>
               <span class="htitle">{v.title}</span>
               <span class="hchan">{v.channel}</span>
             </button>
@@ -1658,7 +1711,7 @@ network {stats.net} · ready {stats.ready}</pre>
         {#if kres.channel === null}<p class="empty">looking for channels...</p>{/if}
         {#each kres.channel || [] as c (c.id)}
           <button class="row crow" onclick={() => openChannel(c.id, c.name)}>
-            {#if c.avatar}<img class="av" src={avatar(c.avatar)} alt="" loading="lazy" />{:else}<span class="av avph">{(c.name || '?')[0]}</span>{/if}
+            {#if c.avatar}<img class="av" src={avatar(c.avatar)} alt="" loading="lazy" onerror={(e) => { e.currentTarget.style.visibility = 'hidden'; }} />{:else}<span class="av avph">{(c.name || '?')[0]}</span>{/if}
             <span class="txt">
               <span class="title">{c.name}</span>
               <span class="meta">{c.handle ? c.handle + ' · ' : ''}{c.subs}</span>
@@ -1673,7 +1726,7 @@ network {stats.net} · ready {stats.ready}</pre>
         {#if kres.playlist === null}<p class="empty">looking for playlists...</p>{/if}
         {#each kres.playlist || [] as pl (pl.id)}
           <button class="row" onclick={() => openPlaylist(pl.id, pl.title, pl.channel)}>
-            {#if pl.thumbVid}<img src={lthumb(pl.thumbVid)} alt="" loading="lazy" />{:else}<span class="avph plph"></span>{/if}
+            {#if pl.thumbVid}<img src={lthumb(pl.thumbVid)} alt="" loading="lazy" onerror={(e) => { e.currentTarget.style.visibility = 'hidden'; }} />{:else}<span class="avph plph"></span>{/if}
             <span class="txt">
               <span class="title">{pl.title}</span>
               <span class="meta">{pl.channel}{pl.count ? ` · ${pl.count}` : ''}</span>
@@ -1686,7 +1739,7 @@ network {stats.net} · ready {stats.ready}</pre>
     <section class="results">
       {#each results as v (v.id)}
         <button class="row" onclick={() => watch(v)}>
-          <img src={lthumb(v.id)} alt="" loading="lazy" />
+          <img src={lthumb(v.id)} alt="" loading="lazy" onerror={(e) => { e.currentTarget.style.visibility = 'hidden'; }} />
           <span class="txt">
             <span class="title">{v.title}</span>
             <span class="meta">{v.channel}{v.duration ? ` · ${v.duration}` : ''}</span>
@@ -1696,9 +1749,12 @@ network {stats.net} · ready {stats.ready}</pre>
         {#if searched && !busy && !error}
           <p class="empty">nothing came up. try different words.</p>
         {:else if !searched}
-          <p class="empty">search it, watch it. that's the whole app.</p>
+          <p class="empty">Your next watch starts with a search.</p>
         {/if}
       {/each}
+      {#if moreBusy}<p class="empty">loading more...</p>{/if}
+      {#if moreErr}<p class="empty">{moreErr} <button class="chip" onclick={retryMore}>retry</button></p>{/if}
+      {#if moreCapped && !moreBusy && !moreErr}<p class="empty"><button class="chip" onclick={() => moreSearch(true)}>load more</button></p>{/if}
     </section>
     {/if}
   {/if}
@@ -1725,7 +1781,8 @@ network {stats.net} · ready {stats.ready}</pre>
             <video playsinline loop preload="none" poster={thumb(v.id)} data-idx={i}
               onclick={() => slideTap(i)}
               ontimeupdate={(e) => onSlideTime(i, e)}
-              onwaiting={() => onSlideWaiting(i)}
+              onwaiting={() => { onSlideWaiting(i); if (shorts[i]) shortRep.pause(shorts[i]); }}
+              onseeking={(e) => onSlideSeeking(i, e)}
               onseeked={() => syncSlideAudio(i, true)}
               onplay={() => onSlidePlay(i)}
               onpause={() => onSlidePause(i)}
@@ -1750,7 +1807,7 @@ network {stats.net} · ready {stats.ready}</pre>
             <button class="slide-dislike" class:disliked={dislikedSet.has(v.id)} onclick={() => toggleDislike(i)} aria-label={dislikedSet.has(v.id) ? 'undo not interested' : 'not interested'}>
               <svg viewBox="0 0 24 24"><path d="M15 3H6c-.83 0-1.54.5-1.84 1.22l-3.02 7.05c-.09.23-.14.47-.14.73v2c0 1.1.9 2 2 2h6.31l-.95 4.57-.03.32c0 .41.17.79.44 1.06L9.83 23l6.59-6.59c.36-.36.58-.86.58-1.41V5c0-1.1-.9-2-2-2zm4 0v12h4V3h-4z" /></svg>
             </button>
-            <div class="slide-prog" onclick={(e) => seekSlide(i, e)} role="slider" aria-label="seek" aria-valuenow={Math.round(progPct(i))}>
+            <div class="slide-prog" onclick={(e) => seekSlide(i, e)} onkeydown={(e) => seekSlideKey(i, e)} tabindex="0" role="slider" aria-valuemin="0" aria-valuemax="100" aria-label="seek" aria-valuenow={Math.round(progPct(i))}>
               <div class="slide-prog-fill" style={`width:${progPct(i)}%`}></div>
             </div>
             <div class="slide-meta">
@@ -1768,29 +1825,19 @@ network {stats.net} · ready {stats.ready}</pre>
   {/if}
 </main>
 
+</AppFrame>
+
 <style>
-  main { max-width: 640px; margin: 0 auto; padding: 16px 14px 48px; }
-  header { display: flex; align-items: center; gap: 10px; padding: 6px 6px 16px; }
-  .home { width: 34px; height: 34px; display: grid; place-items: center; border-radius: 50%; }
-  .home:hover { background: var(--rj-surface); }
+  main { max-width: 1180px; margin: 0 auto; padding: 32px 40px 64px; }
+  header { display: flex; align-items: center; gap: 12px; margin-bottom: 30px; }
+  .heading { flex: 1; min-width: 0; } .heading h1 { font-size: 34px; font-weight: 600; letter-spacing: -.04em; margin: 0 0 8px; } .heading p { color: var(--rj-text-dim); margin: 0; font-size: 15px; }
+  .home { width: 40px; height: 40px; display: grid; place-items: center; border: 1px solid var(--rj-border); border-radius: 12px; background: var(--rj-surface); }
   .home svg { width: 18px; height: 18px; fill: none; stroke: var(--rj-text-dim); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
-  .brand { font-size: 20px; font-weight: 700; letter-spacing: -0.02em; }
-  .spacer { width: 34px; margin-left: auto; }
-  .bar { display: flex; gap: 8px; margin-bottom: 18px; }
-  .bar input {
-    flex: 1; height: 48px; padding: 0 18px;
-    font-size: 16px; color: var(--rj-text);
-    background: var(--rj-surface); border: 1px solid transparent;
-    border-radius: var(--rj-pill); outline: none;
-    transition: border-color .15s, background .15s;
-  }
+  header>a.home { display: none; } .spacer { display: none; }
+  .bar { position: relative; display: flex; gap: 8px; margin-bottom: 20px; padding: 7px; background: var(--rj-surface); border: 1px solid var(--rj-border); border-radius: 20px; max-width: 760px; }
+  .bar input { flex: 1; min-width: 0; height: 44px; padding: 0 12px; font-size: 16px; color: var(--rj-text); background: none; border: 0; border-radius: 12px; }
   .bar input::placeholder { color: var(--rj-text-faint); }
-  .bar input:focus { border-color: rgba(255,255,255,.24); background: var(--rj-surface-2); }
-  .bar button {
-    height: 48px; padding: 0 22px; border: none; border-radius: var(--rj-pill);
-    font-size: 15px; font-weight: 700;
-    color: var(--rj-accent-ink); background: var(--rj-accent);
-  }
+  .bar button { padding: 0 20px; border: 0; border-radius: 13px; font-size: 14px; font-weight: 600; color: var(--rj-accent-ink); background: var(--rj-accent); }
   .bar button:disabled { opacity: .5; }
   .chips { display: flex; flex-wrap: wrap; gap: 8px; margin: -4px 2px 16px; }
   .chip {
@@ -1801,6 +1848,9 @@ network {stats.net} · ready {stats.ready}</pre>
   .err { margin: 0 6px 12px; color: var(--rj-danger); font-size: 13px; }
   .results { display: grid; gap: 4px; }
   .hist-h { font-size: 14px; font-weight: 700; color: var(--rj-text-dim); margin: 18px 2px 8px; }
+  .saved-card { position: relative; }
+  .saved-open { display: block; padding: 0; width: 100%; border: 0; background: none; color: inherit; text-align: left; }
+  .saved-card > .hx { position: absolute; top: 5px; right: 5px; border: 0; }
   .hist { display: flex; gap: 10px; overflow-x: auto; padding-bottom: 6px; scrollbar-width: none; }
   .hist::-webkit-scrollbar { display: none; }
   .fygrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px; }
@@ -1828,13 +1878,7 @@ network {stats.net} · ready {stats.ready}</pre>
   }
   .meta { font-size: 12px; color: var(--rj-text-dim); }
   .uplabel { margin: 22px 4px 10px; font-size: 13px; font-weight: 600; color: var(--rj-text-dim); }
-  .qbtn {
-    padding: 1px 10px; border: 1px solid var(--rj-border); border-radius: var(--rj-pill);
-    background: none; color: var(--rj-text); font-size: 12px; font-weight: 600;
-    vertical-align: baseline;
-  }
   .nerd { margin: 6px 0; padding: 10px 12px; background: var(--rj-surface); border: 1px solid var(--rj-border); border-radius: calc(var(--rj-radius) - 4px); font: 12px/1.55 var(--rj-mono); color: var(--rj-text-dim); white-space: pre-wrap; }
-  .sumrow { margin: 6px 0 2px; }
   .sumcard { background: var(--rj-surface); border: 1px solid var(--rj-border); border-radius: var(--rj-radius); padding: 14px 16px; margin: 8px 0 12px; }
   .sumtl { margin: 0 0 8px; font-weight: 700; font-size: 15px; line-height: 1.4; }
   .sumcard ul { margin: 0 0 10px; padding-left: 18px; color: var(--rj-text-dim); font-size: 14px; line-height: 1.5; }
@@ -1842,8 +1886,6 @@ network {stats.net} · ready {stats.ready}</pre>
   .summ button { background: var(--rj-surface-2); border: 1px solid var(--rj-border); color: var(--rj-text); border-radius: var(--rj-pill); padding: 6px 12px; font-size: 13px; }
   .summ b { color: var(--rj-accent); font-variant-numeric: tabular-nums; margin-right: 4px; }
   .sumfoot { margin: 0; font-size: 11px; color: var(--rj-text-faint); }
-  .qbtn { white-space: nowrap; }
-  .qbtn:hover { background: var(--rj-surface); }
   .chanlink { background: none; border: none; padding: 0; color: var(--rj-text); font-size: 12px; font-weight: 600; }
   .chanlink:hover { text-decoration: underline; }
   .chan-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 18px 2px 4px; }
@@ -1866,12 +1908,12 @@ network {stats.net} · ready {stats.ready}</pre>
   .cbiotxt.open { display: block; -webkit-line-clamp: unset; line-clamp: unset; }
   .plmore { text-align: center; font-size: 12px; color: var(--rj-text-faint); padding: 18px 0 8px; }
   .plctl { display: flex; gap: 6px; }
-  .playall.on { background: var(--rj-accent); color: #060608; border-color: var(--rj-accent); }
+  .playall.on { background: var(--rj-accent); color: var(--rj-accent-ink); border-color: var(--rj-accent); }
   .plsearch { width: 100%; box-sizing: border-box; height: 40px; margin: 0 0 10px; padding: 0 14px; border-radius: var(--rj-pill); border: 1px solid var(--rj-border); background: var(--rj-surface); color: var(--rj-text); font-size: 14px; }
   .home { background: none; border: 0; padding: 0; cursor: pointer; }
   .ktabs { display: flex; gap: 8px; margin: 0 2px 12px; }
   .ktab { height: 32px; padding: 0 14px; border: 1px solid var(--rj-border); border-radius: var(--rj-pill); background: none; color: var(--rj-text-dim); font-size: 13px; font-weight: 600; }
-  .ktab.on { color: #060608; background: var(--rj-accent); border-color: var(--rj-accent); }
+  .ktab.on { color: var(--rj-accent-ink); background: var(--rj-accent); border-color: var(--rj-accent); }
   .crow .av { width: 64px; height: 64px; border-radius: 50%; object-fit: cover; flex: none; background: var(--rj-surface); }
   .avph { display: grid; place-items: center; width: 64px; height: 64px; border-radius: 50%; background: var(--rj-surface); color: var(--rj-text-dim); font-weight: 800; font-size: 22px; text-transform: uppercase; flex: none; }
   .plph { width: 120px; height: 68px; border-radius: 10px; }
@@ -1909,13 +1951,13 @@ network {stats.net} · ready {stats.ready}</pre>
   .vo-b { width: 44px; height: 44px; border: 0; border-radius: 50%; background: rgba(0,0,0,.45); color: #fff; display: grid; place-items: center; padding: 0; cursor: pointer; }
   .vo-b:disabled { opacity: .35; }
   .vo-b svg { width: 22px; height: 22px; fill: currentColor; }
-  .vo-play { width: 62px; height: 62px; background: var(--rj-accent); color: #060608; }
+  .vo-play { width: 62px; height: 62px; background: var(--rj-accent); color: var(--rj-accent-ink); }
   .vo-play svg { width: 30px; height: 30px; }
   .vo-sm { width: 34px; height: 34px; background: none; }
   .vo-sm svg { width: 20px; height: 20px; }
   .vo-bot { display: flex; align-items: center; gap: 8px; padding: 0 10px 8px; }
   .vo-t { font-size: 12px; color: #fff; font-variant-numeric: tabular-nums; min-width: 34px; text-align: center; }
-  .vo-q.on, .qbtn.on { background: var(--rj-accent); color: #000; border-color: var(--rj-accent); }
+  .vo-q.on { background: var(--rj-accent); color: var(--rj-accent-ink); border-color: var(--rj-accent); }
   .vo-q { height: 24px; padding: 0 8px; border: 1px solid rgba(255,255,255,.4); border-radius: var(--rj-pill); background: none; color: #fff; font-size: 11px; font-weight: 700; }
   .vo-seek { flex: 1; min-width: 0; height: 28px; -webkit-appearance: none; appearance: none; background: transparent; margin: 0; }
   .vo-seek::-webkit-slider-runnable-track { height: 4px; border-radius: 2px; background: linear-gradient(to right, var(--rj-accent) var(--p), rgba(255,255,255,.3) var(--p)); }
@@ -1940,7 +1982,7 @@ network {stats.net} · ready {stats.ready}</pre>
   .backbtn:hover { color: var(--rj-text); }
   .scard { flex: 0 0 88px; height: 172px; overflow: hidden; }
   .scard .sthumb { height: 112px; aspect-ratio: 3/4; }
-  .feed { position: fixed; inset: 0; z-index: 60; background: #000; }
+  .feed { position: fixed; inset: 0; z-index: 100; background: #000; }
   .feed-scroll { height: 100%; max-width: 430px; margin: 0 auto; overflow-y: auto; scroll-snap-type: y mandatory; scrollbar-width: none; }
   .feed-scroll::-webkit-scrollbar { display: none; }
   .slide { position: relative; height: 100%; scroll-snap-align: start; scroll-snap-stop: always; background: #000; }
@@ -1966,13 +2008,13 @@ network {stats.net} · ready {stats.ready}</pre>
   .zone-open { height: 28px; padding: 0 12px; border: 1px solid var(--rj-border); border-radius: var(--rj-pill); background: none; color: var(--rj-text-dim); font-size: 12px; }
   .zone-open:hover { color: var(--rj-text); background: var(--rj-surface); }
   .subs-link { background: none; border: none; color: var(--rj-accent); font-size: 15px; font-weight: 600; padding: 6px 10px; cursor: pointer; }
-  .subspage h1 { margin: 18px 16px 12px; font-size: 24px; color: #fff; }
-  .subspage .empty { margin: 12px 16px; color: rgba(255,255,255,.6); font-size: 14px; }
+  .subspage h1 { margin: 18px 16px 12px; font-size: 24px; color: var(--rj-text); }
+  .subspage .empty { margin: 12px 16px; color: var(--rj-text-dim); font-size: 14px; }
   .subslist { display: flex; flex-direction: column; gap: 2px; margin: 0 10px; }
   .subrow { display: flex; align-items: center; gap: 10px; padding: 10px 8px; border-radius: 12px; }
-  .subrow:hover { background: rgba(255,255,255,.05); }
-  .subgo { flex: 1; text-align: left; background: none; border: none; color: #fff; font-size: 15px; font-weight: 600; cursor: pointer; padding: 4px 6px; }
-  .unsub { border: 1px solid rgba(255,255,255,.18); background: none; color: rgba(255,255,255,.75); font-size: 13px; padding: 6px 14px; border-radius: 999px; cursor: pointer; }
+  .subrow:hover { background: var(--rj-hover); }
+  .subgo { flex: 1; text-align: left; background: none; border: none; color: var(--rj-text); font-size: 15px; font-weight: 600; cursor: pointer; padding: 4px 6px; }
+  .unsub { border: 1px solid var(--rj-border); background: none; color: var(--rj-text-dim); font-size: 13px; padding: 6px 14px; border-radius: 999px; cursor: pointer; }
   .feed-search { position: absolute; top: max(12px, env(safe-area-inset-top)); left: 58px; right: 12px; z-index: 61; }
   .feed-search-btn { position: absolute; top: max(12px, env(safe-area-inset-top)); left: 58px; z-index: 61; width: 38px; height: 38px; border: none; border-radius: 50%; background: rgba(0,0,0,.5); display: grid; place-items: center; }
   .feed-search-btn svg { width: 20px; height: 20px; fill: none; stroke: #fff; stroke-width: 2; stroke-linecap: round; }
@@ -2042,4 +2084,9 @@ network {stats.net} · ready {stats.ready}</pre>
   .player .uplabel { margin: 18px 4px 8px; font-size: 13px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--rj-text-faint); }
   @media (min-width: 1000px) { .player h1 { font-size: 22px; } .player .wactions { flex-wrap: wrap; overflow: visible; } }
   form.bar { position: relative; }
+  main { max-width: 1180px; }
+  .results { gap: 12px; } .hcard { border-color: var(--rj-border); padding: 10px; } .fygrid { grid-template-columns: repeat(auto-fill,minmax(220px,1fr)); gap: 16px; }
+  .subs-link { background: var(--rj-surface); color: var(--rj-text-dim); border: 1px solid var(--rj-border); padding: 10px 14px; border-radius: 12px; font-size: 13px; }
+  @media(min-width:1000px) { .results { grid-template-columns: repeat(2,minmax(0,1fr)); } }
+  @media(max-width:760px) { main { padding: 28px 20px 40px; } .heading h1 { font-size: 30px; } .heading p { font-size: 13px; } header { gap: 10px; } .subs-link { padding: 10px; font-size: 12px; } .bar button { padding: 0 14px; } .fygrid { grid-template-columns: repeat(2,minmax(0,1fr)); gap: 10px; } }
 </style>
