@@ -487,7 +487,7 @@ async function resolveViaYtdlp(id) {
     hdLVp9: hdOf(lvpick),
     duration: Number(data.duration) || 0,
     lite: {
-      v: videos.map((f) => ({ h: eff(f), fps: f.fps || 30, url: f.url, size: f.filesize || f.filesize_approx || 0, tbr: f.tbr || 0 })).slice(0, 12),
+      v: fmts.filter((f) => direct(f) && (!f.acodec || f.acodec === 'none') && (f.vcodec || '').startsWith('avc1') && eff(f) <= 1080).map((f) => ({ h: eff(f), fps: f.fps || 30, url: f.url, size: f.filesize || f.filesize_approx || 0, tbr: f.tbr || 0 })),
       a: audios.map((f) => ({ abr: f.abr || 0, url: f.url, size: f.filesize || f.filesize_approx || 0 })).slice(0, 3),
     },
     expires: Date.now() + 10 * 60 * 1000,
@@ -2078,6 +2078,7 @@ async function liteMakeVideo(id, q, entry) {
         const u = await muxUrl(entry);
         if (!u) throw new Error('no playable stream for this one');
         await liteHop(u, tmpo, LITE_MAX_BYTES);
+        if (statSync(tmpo).size > LITE_MAX_BYTES) throw new Error('too big');
         await fsRename(tmpo, out);
       } else {
         await liteHop(plan.v.url, tmpv, LITE_MAX_BYTES);
@@ -2089,6 +2090,7 @@ async function liteMakeVideo(id, q, entry) {
           ff.on('close', (c) => { clearTimeout(to); c === 0 ? resolve() : reject(new Error('mux failed ' + err.slice(0, 120))); });
           ff.on('error', reject);
         });
+        if (statSync(tmpo).size > LITE_MAX_BYTES) throw new Error('too big');
         await fsRename(tmpo, out);
       }
       evictCache();

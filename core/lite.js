@@ -4,7 +4,8 @@ import { dataPath } from './data.js';
 // finished H.264+AAC mp4 (see liteApi in jetstream), page/media -> SSRF-safe
 // fetch. every outbound hop resolves once, pins the ip, and is checked against
 // a full deny list. token lives in data/lite-token.secret (mode 600).
-import { qwantImages } from './qwant-images.js';
+import { liteVideoSearch } from './lite-video-search.js';
+import { ddgImages } from './ddg-images.js';
 import http from 'node:http';
 import https from 'node:https';
 import net from 'node:net';
@@ -290,13 +291,13 @@ function sxItem(x, seen) {
   const full = x.img_src; if (!full || !/^https?:\/\//.test(full) || seen.has(full)) return null; seen.add(full);
   let host = ''; try { host = new URL(x.url || full).hostname.replace(/^www\./, ''); } catch {}
   const th = String(x.thumbnail_src || x.thumbnail || full).replace(/^http:/, 'https:');
-  return { src: 'qwant', title: String(x.title || host || 'image').replace(/<[^>]*>/g, '').replace(/[\ue000-\ue00f]/g, ''), site: host, full, thumbSrc: th };
+  return { src: 'duckduckgo', title: String(x.title || host || 'image').replace(/<[^>]*>/g, '').replace(/[\ue000-\ue00f]/g, ''), site: host, full, thumbSrc: th };
 }
-// Native Qwant pages are requested only by this authenticated Shortcut API.
+// Native DuckDuckGo pages are requested only by this authenticated Shortcut API.
 async function shortcutImages(q, pg, safe, n = 8) {
  const lvl=safe==='off'?0:safe==='strict'?2:1;
- const result=await qwantImages(q,pg,lvl),seen=new Set();
- return result.results.map(r=>sxItem(r,seen)).filter(Boolean).slice(0,n);
+ const result=await ddgImages(q,pg,lvl),seen=new Set();
+ const items=result.results.map(r=>sxItem(r,seen)).filter(Boolean).slice(0,n);items.hasMore=result.has_more!==false;return items;
 }
 
 export async function handleLite(req, res, url) {
@@ -330,19 +331,19 @@ export async function handleLite(req, res, url) {
     if (path === '/search') {
       const q = (sp.get('q') || '').trim();
       if (!q || q.length > 120) return json(res, 400, { ok: false, error: 'q required, under 120 chars' });
-      const pg = Math.max(1, Math.min(5, Math.floor(Number(sp.get('page')) || 1)));
-      const all = await searchRetry(q); const rs = all.slice((pg - 1) * 8, pg * 8);
+      const pg = Math.max(1, Math.min(20, Math.floor(Number(sp.get('page')) || 1)));
+      const pool=await liteVideoSearch(q,pg*8+1);const all=pool.items; const rs = all.slice((pg - 1) * 8, pg * 8);
       const clip = (x, n) => { x = String(x == null ? '' : x).replace(/\s+/g, ' ').trim(); return x.length > n ? x.slice(0, n - 1).trimEnd() + '\u2026' : x; };
       const fmtViews = (x) => { if (x == null || x === '') return ''; const n = Number(String(x).replace(/[,\s]|views?/gi, '')); if (!isNaN(n)) return n >= 1e6 ? (n / 1e6).toFixed(1).replace(/\.0$/, '') + 'M views' : n >= 1e3 ? Math.round(n / 1e3) + 'K views' : n + ' views'; return clip(x, 18); };
       const out = rs.map((v) => { const label = [clip(v.title, 52), clip(v.channel, 20), v.duration ? clip(v.duration, 9) : '', fmtViews(v.views)].filter(Boolean).join(' - '); return { id: v.id, title: v.title, channel: v.channel, duration: v.duration, views: v.views, label, line: label + '||' + v.id, thumb: mediaUrl('https://i.ytimg.com/vi/' + v.id + '/mqdefault.jpg', 'image'), video: '/api/lite/video?id=' + v.id }; });
-      return json(res, 200, { ok: true, q, results: out, lines: out.map((x) => x.line), page: pg, per_page: 8, has_more: all.length > pg * 8, next_page: all.length > pg * 8 ? pg + 1 : null });
+      return json(res, 200, { ok: true, q, results: out, lines: out.map((x) => x.line), page: pg, per_page: 8, has_more: pg<20&&(all.length>pg*8||pool.hasMore), next_page: pg<20&&(all.length>pg*8||pool.hasMore)?pg+1:null });
     }
     if (path === '/sheet') {
       const q = (sp.get('q') || '').trim();
       if (!q || q.length > 120) return json(res, 400, { ok: false, error: 'q required, under 120 chars' });
       const n = Math.min(8, Math.max(1, Number(sp.get('n')) || 8));
-      const pg = Math.max(1, Math.min(5, Math.floor(Number(sp.get('page')) || 1)));
-      const rs = (await searchRetry(q)).slice((pg - 1) * 8, (pg - 1) * 8 + n);
+      const pg = Math.max(1, Math.min(20, Math.floor(Number(sp.get('page')) || 1)));
+      const rs = (await liteVideoSearch(q,(pg-1)*8+n)).items.slice((pg - 1) * 8, (pg - 1) * 8 + n);
       if (!rs.length) { const m = await messageImage(pg > 1 ? 'No more results' : 'No results found'); res.writeHead(200, { 'content-type': 'image/jpeg', 'content-length': m.length, 'cache-control': 'no-store' }); return res.end(m); }
       const { buf } = await makeSheet(rs);
       res.writeHead(200, { 'content-type': 'image/jpeg', 'content-length': buf.length, 'cache-control': 'no-store' });
@@ -352,7 +353,7 @@ export async function handleLite(req, res, url) {
       const q = (sp.get('q') || '').trim();
       if (!q || q.length > 120) return json(res, 400, { ok: false, error: 'q required, under 120 chars' });
       const pg = Math.max(1, Math.min(5, Math.floor(Number(sp.get('page')) || 1)));
-      const nPer = path === '/imgsheet' ? 8 : Math.min(40, Math.max(1, Number(sp.get('n')) || 20)); let items; try { items = await shortcutImages(q, pg, sp.get('safe') || '', nPer); } catch (e) { return json(res, 502, { ok: false, error: 'image search failed: ' + String(e.message).slice(0, 80) }); }
+      const nPer = path === '/imgsheet' ? 8 : Math.min(40, Math.max(1, Number(sp.get('n')) || 20)); let items; try { items = await shortcutImages(q, pg, sp.get('safe') || '', nPer); } catch (e) { return json(res, 502, { ok: false, error: 'image search failed: ' + String(e.message).slice(0, 120), code: ['provider_blocked','provider_rate_limited','cooldown','provider_invalid','network','unavailable'].includes(e.code)?e.code:'unavailable', ...(Number.isInteger(e.upstream_status)?{upstream_status:e.upstream_status}:{}) }); }
       if (!items.length) return json(res, 404, { ok: false, error: 'no results on this page', page: pg });
       if (path === '/imgsheet') {
         const { buf } = await makeSheet(items.map((x) => ({ thumbSrc: x.thumbSrc, title: x.title })));
@@ -362,7 +363,7 @@ export async function handleLite(req, res, url) {
       const clip2 = (x, n) => { x = String(x).replace(/\s+/g, ' ').trim(); return x.length > n ? x.slice(0, n - 1).trimEnd() + '\u2026' : x; };
       const results = items.map((x, i) => { const label = (i + 1) + '. ' + clip2(x.title, 48) + (x.site ? ' - ' + clip2(x.site, 22) : '') + (x.src ? ' [' + x.src + ']' : ''); return { n: i + 1, title: x.title, site: x.site, source: x.src || '', label, line: label + '||' + (i + 1), image: mediaUrl(x.full, 'image') + '&orig=1&fb=' + encodeURIComponent(x.thumbSrc), image_small: mediaUrl(x.full, 'image') + '&fb=' + encodeURIComponent(x.thumbSrc), thumb: mediaUrl(x.thumbSrc, 'image') }; });
       const sources = {}; for (const r of results) sources[r.source || "unknown"] = (sources[r.source || "unknown"] || 0) + 1;
-      return json(res, 200, { ok: true, q, page: pg, per_page: nPer, sources, results, lines: results.map((x) => x.line), has_more: pg < 5 && items.length === nPer, next_page: pg < 5 ? pg + 1 : null });
+      return json(res, 200, { ok: true, q, page: pg, per_page: nPer, sources, results, lines: results.map((x) => x.line), has_more: pg < 5 && items.hasMore && items.length === nPer, next_page: pg < 5 && items.hasMore && items.length === nPer ? pg + 1 : null });
     }
     if (path === '/page') {
       const d = await pageData(sp.get('u') || '');
@@ -373,7 +374,7 @@ export async function handleLite(req, res, url) {
       const kind = sp.get('kind');
       try {
         if (kind === 'image') try { return await mediaImage(res, sp.get('u') || '', sp.get('orig') === '1'); }
-          catch (e0) { const fb = sp.get('fb') || ''; let ok = false; try { ok = /^(ts\d?\.mm\.bing\.net|encrypted-tbn\d\.gstatic\.com|imgs\.search\.brave\.com)$/.test(new URL(fb).hostname); } catch {} if (!ok || res.headersSent) throw e0; return await mediaImage(res, fb, false); }
+          catch (e0) { const fb = sp.get('fb') || ''; let ok = false; try { ok = /^(ts\d?\.mm\.bing\.net|encrypted-tbn\d\.gstatic\.com|imgs\.search\.brave\.com|external-content\.duckduckgo\.com)$/.test(new URL(fb).hostname); } catch {} if (!ok || res.headersSent) throw e0; return await mediaImage(res, fb, false); }
         if (kind === 'video') return await mediaVideo(res, sp.get('u') || '');
       } catch (e) { if (res.headersSent) return res.destroy(); return json(res, e.code || 502, { ok: false, error: String(e.message).slice(0, 160) }); }
       return json(res, 400, { ok: false, error: 'kind=image|video' });
@@ -381,15 +382,18 @@ export async function handleLite(req, res, url) {
     if (path === '/video') {
       const id = sp.get('id') || '';
       if (!/^[A-Za-z0-9_-]{11}$/.test(id)) return json(res, 400, { ok: false, error: 'id must be an 11-char video id' });
-      const q = [360, 480, 720].includes(Number(sp.get('q'))) ? Number(sp.get('q')) : 480;
+      const rawQuality = sp.get('q');
+      if (rawQuality !== null && !['360', '480', '720', '1080'].includes(rawQuality)) return json(res, 400, { ok: false, error: 'q must be 360, 480, 720 or 1080' });
+      const q = rawQuality === null ? 480 : Number(rawQuality);
       const entry = await jet.resolveStream(id);
       const plan = jet.litePlan(entry, q);
       if (plan.secs && plan.secs > jet.LITE_MAX_SECS) return json(res, 413, { ok: false, error: 'longer than 15 minutes; try q=360', seconds: plan.secs });
       if (plan.est > jet.LITE_MAX_BYTES) return json(res, 413, { ok: false, error: 'about ' + Math.round(plan.est / 1048576) + ' MB, over the 150 MB cap; try q=360', est_mb: Math.round(plan.est / 1048576) });
-      if (sp.get('info') === '1') return json(res, 200, { ok: true, id, q, height: plan.height, mode: plan.mode, seconds: plan.secs, est_bytes: plan.est });
+      if (sp.get('info') === '1') return json(res, 200, { ok: true, id, q, height: plan.height, chosen_quality: plan.height, available_qualities: entry.lite?.a?.length ? [...new Set((entry.lite.v || []).map(v => v.h).filter(h => [360, 480, 720, 1080].includes(h)))].sort((a,b) => b-a) : [], fallback_quality: 360, mode: plan.mode, seconds: plan.secs, est_bytes: plan.est });
       let file;
       try { file = await jet.makeVideo(id, q, entry); } catch (e) { return json(res, e.message === 'too big' ? 413 : 502, { ok: false, error: e.message === 'too big' ? 'over the 150 MB cap; try q=360' : 'could not build that video, try another or q=360' }); }
       const size = statSync(file).size;
+      if (size > jet.LITE_MAX_BYTES) return json(res, 413, { ok: false, error: 'over the 150 MB cap; try q=360' });
       res.writeHead(200, { 'content-type': 'video/mp4', 'content-length': size, 'content-disposition': 'inline; filename="' + id + '.mp4"', 'cache-control': 'private, no-store', 'accept-ranges': 'none' });
       const { createReadStream } = await import('node:fs');
       return createReadStream(file).pipe(res);
