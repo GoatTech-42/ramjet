@@ -225,17 +225,121 @@ async function ytBlock(id, idx) {
 // artist, album and duration; the default search's rows don't
 const YM_SONGS_PARAMS = 'EgWKAQIIAWoKEAoQAxADEAQQAQ==';
 
+// one YM track row (search + artist page share the shape). artistId is the
+// channel browse id when the row links the artist - the client falls back to
+// a name lookup when it is missing.
+function ymRow(it) {
+  let videoId = '';
+  try { videoId = it.playlistItemData.videoId || ''; } catch {}
+  if (!videoId) {
+    try { videoId = it.overlay.musicItemThumbnailOverlayRenderer.content.musicPlayButtonRenderer.playNavigationEndpoint.watchEndpoint.videoId || ''; } catch {}
+  }
+  if (!/^[a-zA-Z0-9_-]{11}$/.test(videoId)) return null;
+  const cols = (it.flexColumns || []).map((c) => c.musicResponsiveListItemFlexColumnRenderer?.text?.runs || []);
+  const title = cols[0]?.[0]?.text || '';
+  // col 2 is runs joined by bullets, but artists can be several runs
+  // themselves ("A & B") - split on bullet-only runs into real segments
+  const segs = [[]];
+  let artistId = '';
+  for (const r2 of cols[1] || []) {
+    const t = r2.text || '';
+    if (/^[\u2022\s]+$/.test(t)) segs.push([]);
+    else {
+      segs[segs.length - 1].push(t);
+      if (!artistId) {
+        const b = r2.navigationEndpoint?.browseEndpoint?.browseId || '';
+        if (/^UC[A-Za-z0-9_-]{10,30}$/.test(b)) artistId = b;
+      }
+    }
+  }
+  const segText = segs.map((s) => s.join('').trim()).filter(Boolean);
+  const durText = segText.find((t) => /^(\d+:)?\d+:\d+$/.test(t)) || '';
+  const metaNoDur = segText.filter((t) => t !== durText);
+  const artist = metaNoDur[0] || '';
+  const album = metaNoDur[1] || '';
+  const durSec = durText ? durText.split(':').reduce((a, x) => a * 60 + parseInt(x, 10), 0) : 0;
+  const plays = cols[2]?.[0]?.text || '';
+  if (!title) return null;
+  return {
+    key: 'yt:' + videoId, src: 'yt', id: videoId, title, artist, album, plays, artistId,
+    dur: durText, durSec,
+    art: '/api/apps/amp/art?src=yt&id=' + videoId,
+    stream: '/api/apps/amp/stream?src=yt&id=' + videoId,
+  };
+}
+
+const ymPost = (endpoint, body) => fetch('https://music.youtube.com/youtubei/v1/' + endpoint + '?prettyPrint=false', {
+  method: 'POST',
+  headers: { 'content-type': 'application/json', 'user-agent': WEB_UA },
+  body: JSON.stringify({ context: { client: { clientName: 'WEB_REMIX', clientVersion: '1.20240925.01.00', hl: 'en' } }, ...body }),
+  signal: AbortSignal.timeout(12000),
+});
+
+// artist page by channel id: header (visual or immersive) + top songs.
+async function ymArtistById(browseId, card = {}) {
+  const br = await ymPost('browse', { browseId });
+  if (!br.ok) throw new Error('ym browse ' + br.status);
+  const bd = await br.json();
+  const tracks = [];
+  const seen = new Set();
+  const walk = (node) => {
+    if (!node || typeof node !== 'object') return;
+    const it = node.musicResponsiveListItemRenderer;
+    if (it) {
+      const row = ymRow(it);
+      if (row && !seen.has(row.id)) { seen.add(row.id); tracks.push(row); }
+      return;
+    }
+    Object.values(node).forEach(walk);
+  };
+  walk(bd);
+  let name = card.cardName || '', art = card.cardArt || '', sub = card.cardSub || '';
+  try {
+    const vh = bd.header.musicVisualHeaderRenderer || bd.header.musicImmersiveHeaderRenderer;
+    if (vh) {
+      name = (vh.title?.runs || []).map((r) => r.text).join('') || name;
+      const th = vh.thumbnail?.musicThumbnailRenderer?.thumbnail?.thumbnails || [];
+      if (th.length) art = th[th.length - 1].url;
+      sub = (vh.subtitle?.runs || []).map((r) => r.text).join('')
+        || (vh.monthlyListenerCount?.runs || []).map((r) => r.text).join('')
+        || sub;
+    }
+  } catch {}
+  return { name, art, sub, tracks: tracks.slice(0, 20) };
+}
+
+// artist page: resolve the name to a channel through the search top-result
+// card, then browse the channel for its header and top songs.
+async function ymArtist(name) {
+  const sr = await ymPost('search', { query: name });
+  if (!sr.ok) throw new Error('ym ' + sr.status);
+  const sd = await sr.json();
+  let browseId = '', cardName = '', cardArt = '', cardSub = '';
+  const findCard = (node) => {
+    if (browseId || !node || typeof node !== 'object') return;
+    const card = node.musicCardShelfRenderer;
+    if (card) {
+      const b = card.title?.runs?.[0]?.navigationEndpoint?.browseEndpoint?.browseId || '';
+      if (/^UC[A-Za-z0-9_-]{10,30}$/.test(b)) {
+        browseId = b;
+        cardName = card.title.runs[0].text || '';
+        const th = card.thumbnail?.musicThumbnailRenderer?.thumbnail?.thumbnails || [];
+        cardArt = th.length ? th[th.length - 1].url : '';
+        cardSub = (card.subtitle?.runs || []).map((r) => r.text).join('');
+      }
+      return;
+    }
+    Object.values(node).forEach(findCard);
+  };
+  findCard(sd);
+  if (!browseId) throw new Error('no artist page');
+  const out = await ymArtistById(browseId, { cardName, cardArt, cardSub });
+  if (!out.name) out.name = name;
+  return out;
+}
+
 async function ymSearch(q) {
-  const r = await fetch('https://music.youtube.com/youtubei/v1/search?prettyPrint=false', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', 'user-agent': WEB_UA },
-    body: JSON.stringify({
-      context: { client: { clientName: 'WEB_REMIX', clientVersion: '1.20240925.01.00', hl: 'en' } },
-      query: q,
-      params: YM_SONGS_PARAMS,
-    }),
-    signal: AbortSignal.timeout(12000),
-  });
+  const r = await ymPost('search', { query: q, params: YM_SONGS_PARAMS });
   if (!r.ok) throw new Error('ym ' + r.status);
   const data = await r.json();
   const items = [];
@@ -247,37 +351,10 @@ async function ymSearch(q) {
       Object.values(node).forEach(walk);
       return;
     }
-    let videoId = '';
-    try { videoId = it.playlistItemData.videoId || ''; } catch {}
-    if (!videoId) {
-      try { videoId = it.overlay.musicItemThumbnailOverlayRenderer.content.musicPlayButtonRenderer.playNavigationEndpoint.watchEndpoint.videoId || ''; } catch {}
-    }
-    if (!/^[a-zA-Z0-9_-]{11}$/.test(videoId) || seen.has(videoId)) return;
-    seen.add(videoId);
-    const cols = (it.flexColumns || []).map((c) => c.musicResponsiveListItemFlexColumnRenderer?.text?.runs || []);
-    const title = cols[0]?.[0]?.text || '';
-    // col 2 is runs joined by bullets, but artists can be several runs
-    // themselves ("A & B") - split on bullet-only runs into real segments
-    const segs = [[]];
-    for (const r2 of cols[1] || []) {
-      const t = r2.text || '';
-      if (/^[\u2022\s]+$/.test(t)) segs.push([]);
-      else segs[segs.length - 1].push(t);
-    }
-    const segText = segs.map((s) => s.join('').trim()).filter(Boolean);
-    const durText = segText.find((t) => /^(\d+:)?\d+:\d+$/.test(t)) || '';
-    const metaNoDur = segText.filter((t) => t !== durText);
-    const artist = metaNoDur[0] || '';
-    const album = metaNoDur[1] || '';
-    const durSec = durText ? durText.split(':').reduce((a, x) => a * 60 + parseInt(x, 10), 0) : 0;
-    const plays = cols[2]?.[0]?.text || '';
-    if (!title) return;
-    items.push({
-      key: 'yt:' + videoId, src: 'yt', id: videoId, title, artist, album, plays,
-      dur: durText, durSec,
-      art: '/api/apps/amp/art?src=yt&id=' + videoId,
-      stream: '/api/apps/amp/stream?src=yt&id=' + videoId,
-    });
+    const row = ymRow(it);
+    if (!row || seen.has(row.id)) return;
+    seen.add(row.id);
+    items.push(row);
   };
   walk(data);
   return items.slice(0, 12);
@@ -314,21 +391,36 @@ async function scFetchJson(up) {
   return r.json();
 }
 
+const scTrackOk = (t) => {
+  if (!t || !t.id || t.streamable === false) return false;
+  const tcs = t.media?.transcodings || [];
+  // only progressive (plain-mp3) transcodings can stream through us -
+  // encrypted-hls-only tracks cannot play in a browser element
+  return tcs.length === 0 || tcs.some((x) => x.format?.protocol === 'progressive');
+};
+const scMap = (t) => ({
+  key: 'sc:' + t.id, src: 'sc', id: String(t.id),
+  title: t.title || '', artist: t.user?.username || '', artistId: t.user?.id ? String(t.user.id) : '',
+  dur: fmtDur((t.duration || 0) / 1000), durSec: Math.round((t.duration || 0) / 1000),
+  art: t.artwork_url ? '/api/apps/amp/art?src=sc&u=' + b64(t.artwork_url.replace('-large', '-t500x500')) : '',
+  stream: '/api/apps/amp/stream?src=sc&id=' + t.id,
+});
+
 async function scSearch(q) {
   const d = await scFetchJson('https://api-v2.soundcloud.com/search/tracks?q=' + encodeURIComponent(q) + '&limit=24');
-  return (d.collection || []).filter((t) => {
-    if (!t || !t.id || t.streamable === false) return false;
-    const tcs = t.media?.transcodings || [];
-    // only progressive (plain-mp3) transcodings can stream through us -
-    // encrypted-hls-only tracks cannot play in a browser element
-    return tcs.length === 0 || tcs.some((x) => x.format?.protocol === 'progressive');
-  }).slice(0, 12).map((t) => ({
-    key: 'sc:' + t.id, src: 'sc', id: String(t.id),
-    title: t.title || '', artist: t.user?.username || '',
-    dur: fmtDur((t.duration || 0) / 1000), durSec: Math.round((t.duration || 0) / 1000),
-    art: t.artwork_url ? '/api/apps/amp/art?src=sc&u=' + b64(t.artwork_url.replace('-large', '-t500x500')) : '',
-    stream: '/api/apps/amp/stream?src=sc&id=' + t.id,
-  }));
+  return (d.collection || []).filter(scTrackOk).slice(0, 12).map(scMap);
+}
+
+// artist page: profile + their public tracks, same row shape as search
+async function scArtist(uid) {
+  const [u, d] = await Promise.all([
+    scFetchJson('https://api-v2.soundcloud.com/users/' + encodeURIComponent(uid)),
+    scFetchJson('https://api-v2.soundcloud.com/users/' + encodeURIComponent(uid) + '/tracks?limit=24'),
+  ]);
+  const tracks = (d.collection || []).filter(scTrackOk).slice(0, 20).map(scMap);
+  const art = u.avatar_url ? '/api/apps/amp/art?src=sc&u=' + b64(u.avatar_url.replace('-large', '-t500x500')) : '';
+  const sub = u.followers_count ? Math.round(u.followers_count).toLocaleString('en-US') + ' followers' : '';
+  return { name: u.username || '', art, sub, tracks };
 }
 
 const scMedia = new Map(); // trackId -> { url, expires }
@@ -350,26 +442,46 @@ async function scStreamUrl(id, force = false) {
 
 // ---------- audius ----------
 
-async function auSearch(q) {
-  const r = await fetch(AU_HOST + '/v1/tracks/search?query=' + encodeURIComponent(q) + '&app_name=' + AU_APP, {
+const auGet = async (path) => {
+  const r = await fetch(AU_HOST + path + (path.includes('?') ? '&' : '?') + 'app_name=' + AU_APP, {
     headers: { 'user-agent': WEB_UA, accept: 'application/json' },
     signal: AbortSignal.timeout(12000),
   });
   if (!r.ok) throw new Error('audius ' + r.status);
-  const j = await r.json();
-  return (j.data || []).slice(0, 12).map((t) => {
-    const artUrl = t.artwork?.['480x480'] || t.artwork?.['150x150'] || '';
-    return {
-      key: 'au:' + t.id, src: 'au', id: String(t.id),
-      title: t.title || '', artist: t.user?.name || '',
-      dur: fmtDur(t.duration), durSec: Math.round(Number(t.duration) || 0),
-      art: artUrl ? '/api/apps/amp/art?src=au&u=' + b64(artUrl) : '',
-      stream: '/api/apps/amp/stream?src=au&id=' + encodeURIComponent(t.id),
-    };
-  });
+  return r.json();
+};
+const auMap = (t) => {
+  const artUrl = t.artwork?.['480x480'] || t.artwork?.['150x150'] || '';
+  return {
+    key: 'au:' + t.id, src: 'au', id: String(t.id),
+    title: t.title || '', artist: t.user?.name || '', artistId: t.user?.id ? String(t.user.id) : '',
+    dur: fmtDur(t.duration), durSec: Math.round(Number(t.duration) || 0),
+    art: artUrl ? '/api/apps/amp/art?src=au&u=' + b64(artUrl) : '',
+    stream: '/api/apps/amp/stream?src=au&id=' + encodeURIComponent(t.id),
+  };
+};
+
+async function auSearch(q) {
+  const j = await auGet('/v1/tracks/search?query=' + encodeURIComponent(q));
+  return (j.data || []).slice(0, 12).map(auMap);
+}
+
+// artist page: profile + their tracks, same row shape as search
+async function auArtist(uid) {
+  const [u, d] = await Promise.all([
+    auGet('/v1/users/' + encodeURIComponent(uid)),
+    auGet('/v1/users/' + encodeURIComponent(uid) + '/tracks'),
+  ]);
+  const tracks = (d.data || []).slice(0, 20).map(auMap);
+  const pic = u.data?.profile_picture?.['480x480'] || u.data?.profile_picture?.['150x150'] || '';
+  const sub = u.data?.follower_count ? Math.round(u.data.follower_count).toLocaleString('en-US') + ' followers' : '';
+  return { name: u.data?.name || '', art: pic ? '/api/apps/amp/art?src=au&u=' + b64(pic) : '', sub, tracks };
 }
 
 // ---------- routes ----------
+
+// pure row mapping exposed for the unit tests
+export const ampInternals = { ymRow, scTrackOk, scMap, auMap };
 
 export async function register(req, res, ctx) {
   const { url, sendJson, guard, session } = ctx;
@@ -389,6 +501,32 @@ export async function register(req, res, ctx) {
     const failed = [yt, sc, au].filter((x) => x.status === 'rejected').length;
     if (failed === 3) return sendJson(res, 502, { ok: false, error: 'every source timed out - try again' });
     return sendJson(res, 200, { ok: true, q, results });
+  }
+
+  if (sub === '/artist' && req.method === 'GET') {
+    const src = url.searchParams.get('src') || '';
+    try {
+      let out = null;
+      if (src === 'yt') {
+        const name = (url.searchParams.get('name') || '').trim();
+        const id = (url.searchParams.get('id') || '').trim();
+        if (id && /^UC[A-Za-z0-9_-]{10,30}$/.test(id)) out = await ymArtistById(id).catch(() => null);
+        if (!out && name && name.length <= 120) out = await ymArtist(name).catch((e) => { if (e && e.message === 'no artist page') return null; throw e; });
+      } else if (src === 'sc') {
+        const id = (url.searchParams.get('id') || '').trim();
+        if (/^\d{3,12}$/.test(id)) out = await scArtist(id);
+      } else if (src === 'au') {
+        const id = (url.searchParams.get('id') || '').trim();
+        if (/^[A-Za-z0-9]{4,20}$/.test(id)) out = await auArtist(id);
+      }
+      guard.trackBytes(session.user, 8192);
+      if (!out || !out.name) return sendJson(res, 404, { ok: false, error: 'no artist page found' });
+      if (!out.tracks.length) return sendJson(res, 404, { ok: false, error: 'nothing to play from them yet' });
+      if (out.art && /^https:/.test(out.art)) out.art = '/api/apps/amp/art?src=ytu&u=' + b64(out.art);
+      return sendJson(res, 200, { ok: true, src, ...out });
+    } catch {
+      return sendJson(res, 502, { ok: false, error: 'artist lookup broke - try again' });
+    }
   }
 
   if (sub === '/stream' && req.method === 'GET') {
@@ -461,6 +599,11 @@ export async function register(req, res, ctx) {
       const id = (url.searchParams.get('id') || '').trim();
       if (!/^[A-Za-z0-9_-]{11}$/.test(id)) return sendJson(res, 400, { ok: false, error: 'bad id' });
       up = 'https://i.ytimg.com/vi/' + id + '/mqdefault.jpg';
+    } else if (src === 'ytu') {
+      // artist avatars live on YouTube's content hosts, not i.ytimg.com
+      const u = unb64(url.searchParams.get('u'));
+      try { const p = new URL(u); if (p.protocol === 'https:' && /(^|\.)(ggpht\.com|googleusercontent\.com)$/.test(p.hostname) && !p.username && !p.password) up = u; } catch {}
+      if (!up) return sendJson(res, 400, { ok: false, error: 'bad url' });
     } else if (src === 'sc') {
       const u = unb64(url.searchParams.get('u'));
       try { const p = new URL(u); if (p.protocol === 'https:' && /(^|\.)sndcdn\.com$/.test(p.hostname) && !p.username && !p.password) up = u; } catch {}

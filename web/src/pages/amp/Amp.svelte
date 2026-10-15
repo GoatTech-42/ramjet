@@ -26,7 +26,12 @@
 
   // playlists live on the server per account - they follow you anywhere
   let playlists = $state([]);
-  let view = $state('search'); // 'search' | 'playlist'
+  let view = $state('search'); // 'search' | 'playlist' | 'artist'
+  // artist page: the loaded artist plus a snapshot of where the tap came
+  // from, so back returns to the exact search/playlist you left
+  let artistView = $state(null);
+  let artistBusy = $state(false);
+  let artistBack = null;
   let plId = $state('');
   let plName = $state('');
   let newPlName = $state('');
@@ -170,9 +175,9 @@
   let recents = $state([]);
   try { recents = JSON.parse(localStorage.getItem('amp-recent') || '[]').slice(0, 10); } catch {}
   function noteRecent(item) {
-    const { key, title, artist, album, art, src, stream, dur, durSec } = item;
+    const { key, title, artist, artistId, album, art, src, stream, dur, durSec } = item;
     if (!key || !stream) return;
-    recents = [{ key, title, artist, album, art, src, stream, dur, durSec }, ...recents.filter((r) => r.key !== key)].slice(0, 10);
+    recents = [{ key, title, artist, artistId, album, art, src, stream, dur, durSec }, ...recents.filter((r) => r.key !== key)].slice(0, 10);
     try { localStorage.setItem('amp-recent', JSON.stringify(recents)); } catch {}
   }
   function clearRecents() { recents = []; try { localStorage.removeItem('amp-recent'); } catch {} }
@@ -239,6 +244,7 @@
     recentQ = addSearch('amp-searches', q);
     busy = true; error = ''; searched = false; sections = [];
     view = 'search'; plId = ''; plName = '';
+    artistView = null; artistBack = null;
     const r = await api(`/api/apps/amp/search?q=${encodeURIComponent(q.trim())}`);
     busy = false; searched = true;
     if (!r.ok) { error = r.data?.error || 'search broke - try again'; return; }
@@ -252,6 +258,44 @@
   }
 
   function chip(c) { q = c; search(); }
+
+  // artist page: straight to the channel/user page when the row carries its
+  // id, a name lookup for youtube without one, and a plain search as the
+  // last resort so the tap always lands somewhere useful
+  async function openArtist(it) {
+    if (!it || artistBusy) return;
+    const name = String(it.artist || '').split(/,|&| feat\.? /i)[0].trim();
+    let url = '';
+    if (it.src === 'yt') url = it.artistId
+      ? `/api/apps/amp/artist?src=yt&id=${encodeURIComponent(it.artistId)}`
+      : (name ? `/api/apps/amp/artist?src=yt&name=${encodeURIComponent(name)}` : '');
+    else if ((it.src === 'sc' || it.src === 'au') && it.artistId) url = `/api/apps/amp/artist?src=${it.src}&id=${encodeURIComponent(it.artistId)}`;
+    if (!url) { if (name) chip(name); return; }
+    artistBusy = true; error = '';
+    // already on an artist page (e.g. tapping the player header again):
+    // keep the original back target instead of snapshotting this view
+    if (!artistBack) artistBack = { view, sections, searched, plId, plName };
+    view = 'artist'; artistView = null; sections = []; searched = true;
+    window.scrollTo({ top: 0 });
+    const r = await api(url);
+    artistBusy = false;
+    if (!r.ok) {
+      const b = artistBack; artistBack = null;
+      if (b) { view = b.view; sections = b.sections; searched = b.searched; plId = b.plId; plName = b.plName; }
+      if (name) chip(name);
+      else error = r.data?.error || 'no artist page found';
+      return;
+    }
+    showQ = false;
+    artistView = r.data;
+    sections = r.data.tracks || [];
+  }
+  function backFromArtist() {
+    const b = artistBack;
+    artistView = null; artistBack = null;
+    if (b) { view = b.view; sections = b.sections; searched = b.searched; plId = b.plId; plName = b.plName; }
+    else { view = ''; sections = []; searched = false; }
+  }
 
   function playAt(i) {
     const item = sections[i];
@@ -466,6 +510,33 @@
       {#if !sections.length}<p class="plempty">nothing saved here yet - search for something and tap the + on a song</p>{/if}
     {/if}
 
+    {#if view === 'artist'}
+      <div class="plhead">
+        <button class="plback" onclick={backFromArtist}>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+          back
+        </button>
+      </div>
+      {#if artistBusy}
+        <p class="plempty">finding the artist...</p>
+      {:else if artistView}
+        <div class="arhead">
+          {#if artistView.art}<img class="arimg" src={artistView.art} alt="" loading="lazy" onerror={(e) => { e.currentTarget.style.visibility = 'hidden'; }} />{:else}<div class="noart arimg"></div>{/if}
+          <div class="armeta">
+            <span class="arname">{artistView.name}</span>
+            {#if artistView.sub}<span class="arsub">{artistView.sub}</span>{/if}
+            <span class="arsrc">{SRC_LABEL[artistView.src]}</span>
+          </div>
+        </div>
+        {#if sections.length}
+          <div class="plplay">
+            <button onclick={() => playAt(0)}>play all</button>
+            <button onclick={() => { shuffleOn = true; playAt(Math.floor(Math.random() * sections.length)); }}>shuffle</button>
+          </div>
+        {/if}
+      {/if}
+    {/if}
+
     <div class="list">
       {#each sections as it, i (it.key)}
         <div class="row" class:active={now && now.key === it.key}><button class="track-main" onclick={() => playAt(i)} aria-label={'Play ' + it.title}>
@@ -483,6 +554,11 @@
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M5 12h14"/></svg>
             </button>
           {:else}
+            {#if it.artist && view !== 'artist'}
+              <button type="button" class="rowact" aria-label={'open ' + it.artist + ' artist page'} onclick={(e) => { e.stopPropagation(); openArtist(it); }}>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 20c1.5-3.5 4.5-5 8-5s6.5 1.5 8 5"/></svg>
+              </button>
+            {/if}
             <button type="button" class="rowact" aria-label="save to playlist" onclick={(e) => { e.stopPropagation(); saveTarget = it; }}>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
             </button>
@@ -525,7 +601,7 @@
       <div class="p-meta">
         <span class="p-title">{now.title}</span>
         {#if now.artist}
-          <button class="p-sub p-link" onclick={() => { showQ = false; window.scrollTo({ top: 0, behavior: 'smooth' }); chip(now.artist.split(/,|&| feat\.? /i)[0].trim()); }} aria-label={'search ' + now.artist}>{now.artist}</button>
+          <button class="p-sub p-link" onclick={() => { showQ = false; openArtist(now); }} aria-label={'open ' + now.artist + ' artist page'}>{now.artist}</button>
         {:else}
           <span class="p-sub">{SRC_LABEL[now.src]}</span>
         {/if}
@@ -632,6 +708,12 @@
   .plback svg { width: 16px; height: 16px; }
   .plback:hover { color: var(--rj-text); }
   .pltitle { flex: 1; min-width: 0; font-size: 17px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .arhead { display: flex; align-items: center; gap: 14px; margin: 8px 0 10px; }
+  .arimg { width: 96px; height: 96px; border-radius: 50%; object-fit: cover; flex-shrink: 0; background: var(--rj-surface); }
+  .armeta { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+  .arname { font-size: 20px; font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .arsub { font-size: 13px; color: var(--rj-text-dim); }
+  .arsrc { font-size: 12px; color: var(--rj-text-dim); opacity: 0.75; }
   .pldel { background: none; border: 1px solid var(--rj-border); color: var(--rj-text-dim); border-radius: 999px; padding: 6px 12px; font-size: 12.5px; }
   .pldel:hover { color: var(--rj-danger); border-color: var(--rj-danger); }
   .plrename { flex: 1; min-width: 0; display: flex; gap: 6px; }
