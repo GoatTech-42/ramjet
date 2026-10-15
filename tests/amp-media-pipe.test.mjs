@@ -92,3 +92,52 @@ test('upstream refusing connection: clean 502 before headers', async () => {
   d.server.closeAllConnections?.();
   await close(d.server);
 });
+
+test('long stream under repeated backpressure: listener counts stay flat', async () => {
+  const CH = 65536, N = 64; // 4MB in 64KB chunks - dozens of drain waits
+  const up = http.createServer((req, res) => {
+    res.writeHead(200, { 'content-length': CH * N, 'content-type': 'audio/mpeg' });
+    let i = 0;
+    const push = () => {
+      if (i++ < N) { res.write(Buffer.alloc(CH, i & 255)); setImmediate(push); }
+      else res.end();
+    };
+    push();
+  });
+  const upPort = await listen(up);
+  let lastRes = null;
+  let settled = null;
+  const server = http.createServer(async (req, res) => {
+    lastRes = res;
+    settled = await pipeMedia(`http://127.0.0.1:${upPort}/a`, req, res, {});
+  });
+  const port = await listen(server);
+  let maxDrain = 0, maxErr = 0, maxClose = 0, got = 0;
+  const warnings = [];
+  const onWarn = (w) => warnings.push(String(w));
+  process.on('warning', onWarn);
+  const sock = net.connect(port, '127.0.0.1', () => sock.write('GET / HTTP/1.1\r\nHost: x\r\n\r\n'));
+  sock.on('data', (c) => {
+    got += c.length;
+    if (lastRes) {
+      maxDrain = Math.max(maxDrain, lastRes.listenerCount('drain'));
+      maxErr = Math.max(maxErr, lastRes.listenerCount('error'));
+      maxClose = Math.max(maxClose, lastRes.listenerCount('close'));
+    }
+    // read slowly so the server hits real backpressure over and over
+    sock.pause();
+    setTimeout(() => sock.resume(), 4);
+  });
+  await new Promise((r2) => { sock.on('end', r2); sock.on('close', r2); setTimeout(r2, 25000); });
+  process.removeListener('warning', onWarn);
+  assert.ok(got >= CH * N, `expected the full body, got ${got}`);
+  assert.ok(settled, 'pipeMedia settled');
+  assert.equal(settled.bytes, CH * N);
+  assert.ok(maxDrain <= 1, `drain listeners grew to ${maxDrain}`);
+  assert.ok(maxErr <= 1, `error listeners grew to ${maxErr}`);
+  assert.ok(maxClose <= 2, `close listeners grew to ${maxClose}`);
+  assert.equal(warnings.filter((w) => w.includes('MaxListenersExceeded')).length, 0, 'no MaxListenersExceededWarning');
+  assert.equal(lastRes.listenerCount('drain') + lastRes.listenerCount('error'), 0, 'relay listeners removed after settle');
+  server.closeAllConnections?.(); up.closeAllConnections?.();
+  await close(server); await close(up);
+});

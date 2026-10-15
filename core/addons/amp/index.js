@@ -93,13 +93,27 @@ async function pipeMedia(up, req, res, opts = {}) {
   try {
     r = await fetch(up, { headers, redirect: 'follow', signal: AbortSignal.timeout(30000) });
   } catch { if (opts.writeErrors !== false) { res.writeHead(502); res.end(); } return { status: 502, bytes: 0 }; }
+  // one listener set for the whole relay - per-chunk once() calls would
+  // accumulate over a long stream (MaxListenersExceeded) and leak the losers
   let clientGone = false;
-  const goneP = new Promise((d) => res.once('close', () => {
+  let wake = null; // the single outstanding backpressure wait, if any
+  let resolveGone;
+  const goneP = new Promise((d) => { resolveGone = d; });
+  const GONE = Symbol('client-gone');
+  const onDrain = () => { const w = wake; wake = null; if (w) w(false); };
+  const onGone = () => {
     clientGone = true;
     try { r.body?.cancel()?.catch(() => {}); } catch {}
-    d();
-  }));
+    resolveGone(GONE);
+    const w = wake; wake = null; if (w) w(true);
+  };
+  const unlisten = () => {
+    res.removeListener('drain', onDrain);
+    res.removeListener('close', onGone);
+    res.removeListener('error', onGone);
+  };
   if (r.status !== 200 && r.status !== 206) {
+    unlisten();
     try { r.body?.cancel()?.catch(() => {}); } catch {}
     if (opts.writeErrors !== false) { res.writeHead(r.status); res.end(); }
     return { status: r.status, bytes: 0 };
@@ -111,33 +125,34 @@ async function pipeMedia(up, req, res, opts = {}) {
   }
   res.writeHead(r.status, h);
   if (!r.body) { res.end(); return { status: r.status, bytes: 0 }; }
+  res.on('drain', onDrain);
+  res.once('close', onGone);
+  res.once('error', onGone);
   let bytes = 0;
   try {
-    // manual iterator so every pending read races the client vanishing -
-    // cancel() alone can't interrupt a locked for-await
+    // manual iterator so every pending read races the one shared gone
+    // promise - cancel() alone can't interrupt a locked for-await
     const it = r.body[Symbol.asyncIterator]();
     for (;;) {
-      const step = await Promise.race([it.next(), goneP.then(() => null)]);
-      if (!step || step.done) break;
+      const step = await Promise.race([it.next(), goneP]);
+      if (step === GONE || step.done) break;
       const chunk = step.value;
       bytes += chunk.length;
       if (clientGone || res.destroyed) break;
       if (!res.write(chunk)) {
-        // a gone client never drains - settle the wait on close/error
-        const gone = await Promise.race([
-          new Promise((d) => res.once('drain', () => d(false))),
-          goneP.then(() => true),
-          new Promise((d) => res.once('error', () => d(true))),
-        ]);
-        if (gone) return { status: r.status, bytes };
+        // a gone client never drains - the shared listeners settle the wait
+        const gone = await new Promise((d) => { wake = d; });
+        if (gone) { unlisten(); return { status: r.status, bytes }; }
       }
     }
   } catch {
     // upstream body died mid-relay with the response already committed -
     // destroy so the element gets an error, never a hang
+    unlisten();
     res.destroy();
     return { status: r.status, bytes };
   }
+  unlisten();
   res.end();
   return { status: r.status, bytes };
 }
