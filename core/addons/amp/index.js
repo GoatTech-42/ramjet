@@ -299,7 +299,12 @@ async function ymArtistById(browseId, card = {}) {
     if (vh) {
       name = (vh.title?.runs || []).map((r) => r.text).join('') || name;
       const th = vh.thumbnail?.musicThumbnailRenderer?.thumbnail?.thumbnails || [];
-      if (th.length) art = th[th.length - 1].url;
+      if (th.length) {
+        // smallest thumb at or above 512px - the page shows a 96px circle,
+        // the 2880px original is a megabyte of waste
+        const sized = th.filter((t) => t.width >= 512).sort((a, b) => a.width - b.width)[0];
+        art = (sized || th[th.length - 1]).url;
+      }
       sub = (vh.subtitle?.runs || []).map((r) => r.text).join('')
         || (vh.monthlyListenerCount?.runs || []).map((r) => r.text).join('')
         || sub;
@@ -394,9 +399,13 @@ async function scFetchJson(up) {
 const scTrackOk = (t) => {
   if (!t || !t.id || t.streamable === false) return false;
   const tcs = t.media?.transcodings || [];
-  // only progressive (plain-mp3) transcodings can stream through us -
-  // encrypted-hls-only tracks cannot play in a browser element
-  return tcs.length === 0 || tcs.some((x) => x.format?.protocol === 'progressive');
+  // progressive mp3 (gone upstream these days) or hls aac - the hls mpegurl
+  // variant 404s at resolve time, and encrypted hls cannot play in a plain
+  // element, so only the aac fmp4 ladder counts
+  return tcs.length === 0 || tcs.some((x) => {
+    const p = x.format?.protocol, m = x.format?.mime_type || '';
+    return p === 'progressive' || (p === 'hls' && /mp4/.test(m));
+  });
 };
 const scMap = (t) => ({
   key: 'sc:' + t.id, src: 'sc', id: String(t.id),
@@ -424,20 +433,179 @@ async function scArtist(uid) {
 }
 
 const scMedia = new Map(); // trackId -> { url, expires }
-async function scStreamUrl(id, force = false) {
+// parse an m3u8 into { init, segs } absolute urls. one level of master
+// playlist unwrapped; relative urls resolve against the playlist url.
+function parseM3U8(text, base) {
+  const lines = String(text || '').split('\n').map((l) => l.trim()).filter(Boolean);
+  const variant = lines.find((l) => !l.startsWith('#') && /\.m3u8/.test(l));
+  if (lines.some((l) => l.startsWith('#EXT-X-STREAM-INF')) && variant) return { variant: new URL(variant, base).href };
+  let init = '';
+  const segs = [];
+  for (const l of lines) {
+    if (l.startsWith('#EXT-X-MAP')) {
+      const m = /URI="([^"]+)"/.exec(l);
+      if (m) init = new URL(m[1], base).href;
+    } else if (!l.startsWith('#')) {
+      segs.push(new URL(l, base).href);
+    }
+  }
+  if (!segs.length) throw new Error('empty playlist');
+  return { init, segs };
+}
+
+// byte size of one signed url - HEAD when the cdn allows it, a 1-byte
+// range GET otherwise (cloudfront answers content-range either way)
+async function scSize(u) {
+  let r = await fetch(u, { method: 'HEAD', headers: { 'user-agent': WEB_UA }, signal: AbortSignal.timeout(10000) });
+  if (r.ok && +r.headers.get('content-length') > 0) return +r.headers.get('content-length');
+  r = await fetch(u, { headers: { 'user-agent': WEB_UA, range: 'bytes=0-0' }, signal: AbortSignal.timeout(10000) });
+  if (r.status === 206) {
+    const m = /\/(\d+)$/.exec(r.headers.get('content-range') || '');
+    if (m) return +m[1];
+  }
+  throw new Error('size ' + r.status);
+}
+
+// sc fmp4 init segments declare duration 0 (it's a live-style ladder) -
+// a browser element then GUESSES the timeline from byte size and seeks
+// land wrong. write the track's real duration into mvhd/tkhd/mdhd and add
+// a mehd to mvex so the element reads the true length. v0 boxes only.
+function patchInitDuration(init, durMs) {
+  const ms = Math.max(0, Math.round(durMs) || 0);
+  if (!ms || init.length < 16) return init;
+  const boxes = (b, off, end) => {
+    const out = [];
+    while (off + 8 <= end) {
+      const size = b.readUInt32BE(off);
+      if (size < 8 || off + size > end) break;
+      out.push({ type: b.toString('latin1', off + 4, off + 8), off, size });
+      off += size;
+    }
+    return out;
+  };
+  const buf = Buffer.from(init); // copy - never mutate a cached buffer
+  try {
+    for (const top of boxes(buf, 0, buf.length)) {
+      if (top.type !== 'moov') continue;
+      let mediaScale = 0, movieScale = 0;
+      for (const c of boxes(buf, top.off + 8, top.off + top.size)) {
+        if (c.type === 'mvhd' && buf[c.off + 8] === 0) {
+          movieScale = buf.readUInt32BE(c.off + 20);
+          buf.writeUInt32BE(Math.round(ms * movieScale / 1000), c.off + 24);
+        }
+        if (c.type === 'tkhd' && buf[c.off + 8] === 0 && movieScale) {
+          buf.writeUInt32BE(Math.round(ms * movieScale / 1000), c.off + 28);
+        }
+        if (c.type === 'trak') {
+          for (const mdia of boxes(buf, c.off + 8, c.off + c.size)) {
+            if (mdia.type !== 'mdia') continue;
+            for (const h of boxes(buf, mdia.off + 8, mdia.off + mdia.size)) {
+              if (h.type === 'mdhd' && buf[h.off + 8] === 0) {
+                mediaScale = buf.readUInt32BE(h.off + 20);
+                buf.writeUInt32BE(Math.round(ms * mediaScale / 1000), h.off + 24);
+              }
+            }
+          }
+        }
+        if (c.type === 'mvex' && movieScale) {
+          const mehd = Buffer.alloc(16);
+          mehd.writeUInt32BE(16, 0);
+          mehd.write('mehd', 4, 'latin1');
+          mehd.writeUInt32BE(Math.round(ms * movieScale / 1000), 12);
+          const at = c.off + c.size;
+          const grown = Buffer.concat([buf.subarray(0, at), mehd, buf.subarray(at)]);
+          grown.writeUInt32BE(top.size + 16, top.off);
+          grown.writeUInt32BE(c.size + 16, c.off);
+          return grown;
+        }
+      }
+    }
+  } catch {}
+  return buf;
+}
+
+// resolve a track to a stream plan: legacy progressive url, or the aac hls
+// ladder as an ordered part list with a byte-offset table for range serving.
+// signed urls expire in ~20 minutes - plans cache for 10.
+async function scStreamPlan(id, force = false) {
   const hit = scMedia.get(id);
-  if (!force && hit && hit.expires > Date.now()) return hit.url;
+  if (!force && hit && hit.expires > Date.now()) return hit.plan;
   const t = await scFetchJson('https://api-v2.soundcloud.com/tracks/' + id);
   const tcs = t.media?.transcodings || [];
-  const tc = tcs.find((x) => x.format?.protocol === 'progressive' && /mp3/.test(x.format?.mime_type || ''))
+  const prog = tcs.find((x) => x.format?.protocol === 'progressive' && /mp3/.test(x.format?.mime_type || ''))
     || tcs.find((x) => x.format?.protocol === 'progressive');
-  if (!tc) throw new Error('no progressive stream');
-  const j = await scFetchJson(tc.url);
-  if (!j || !j.url) throw new Error('no url');
-  // signed progressive urls expire in minutes - cache the resolve briefly
-  scMedia.set(id, { url: j.url, expires: Date.now() + 45 * 1000 });
+  let plan;
+  if (prog) {
+    const j = await scFetchJson(prog.url);
+    if (!j || !j.url) throw new Error('no url');
+    plan = { kind: 'url', url: j.url };
+  } else {
+    const tc = tcs.find((x) => x.format?.protocol === 'hls' && /mp4/.test(x.format?.mime_type || ''));
+    if (!tc) throw new Error('no playable stream');
+    const j = await scFetchJson(tc.url);
+    if (!j || !j.url) throw new Error('no url');
+    let pl = parseM3U8(await (await fetch(j.url, { headers: { 'user-agent': WEB_UA }, signal: AbortSignal.timeout(12000) })).text(), j.url);
+    if (pl.variant) pl = parseM3U8(await (await fetch(pl.variant, { headers: { 'user-agent': WEB_UA }, signal: AbortSignal.timeout(12000) })).text(), pl.variant);
+    let initBuf = null;
+    if (pl.init) {
+      const r = await fetch(pl.init, { headers: { 'user-agent': WEB_UA }, signal: AbortSignal.timeout(12000) });
+      if (!r.ok) throw new Error('init ' + r.status);
+      initBuf = patchInitDuration(Buffer.from(await r.arrayBuffer()), t.duration);
+    }
+    const parts = (initBuf ? [initBuf] : []).concat(pl.segs);
+    // offset table: one parallel pass of size probes, then cumulative sums
+    const sizes = new Array(parts.length);
+    if (initBuf) sizes[0] = initBuf.length;
+    let i = initBuf ? 1 : 0;
+    await Promise.all(Array.from({ length: Math.min(6, parts.length) }, async () => {
+      while (i < parts.length) { const k = i++; sizes[k] = await scSize(parts[k]); }
+    }));
+    const offs = new Array(parts.length);
+    let acc = 0;
+    for (let k = 0; k < parts.length; k++) { offs[k] = acc; acc += sizes[k]; }
+    plan = { kind: 'hls', parts, sizes, offs, total: acc };
+  }
+  scMedia.set(id, { plan, expires: Date.now() + 10 * 60 * 1000 });
   if (scMedia.size > 300) scMedia.delete(scMedia.keys().next().value);
-  return j.url;
+  return plan;
+}
+
+// serve [start,end] of the concatenated fmp4 (init + segments) as one
+// audio/mp4 stream - chromium's demuxer reads the moof sequence fine, and
+// the offset table makes seeks plain range requests again
+async function pipeScHls(plan, start, end, req, res, track) {
+  end = Math.min(end, plan.total - 1);
+  if (start > end || start < 0) { res.writeHead(416, { 'content-range': 'bytes */' + plan.total }); res.end(); return { bytes: 0, status: 416 }; }
+  res.writeHead(206, {
+    'content-type': 'audio/mp4',
+    'content-length': end - start + 1,
+    'content-range': 'bytes ' + start + '-' + end + '/' + plan.total,
+    'accept-ranges': 'bytes',
+    'cache-control': 'private, no-store',
+  });
+  let sent = 0, dead = false;
+  // res close = the client went away (a GET req 'close' fires the moment the
+  // empty request stream ends, far too early - that one hangs the stream)
+  res.on('close', () => { if (!res.writableEnded) dead = true; });
+  for (let k = 0; k < plan.parts.length && !dead; k++) {
+    const p0 = plan.offs[k], p1 = p0 + plan.sizes[k] - 1;
+    if (p1 < start || p0 > end) continue;
+    let buf;
+    if (Buffer.isBuffer(plan.parts[k])) {
+      buf = plan.parts[k];
+    } else {
+      const r = await fetch(plan.parts[k], { headers: { 'user-agent': WEB_UA }, signal: AbortSignal.timeout(15000) }).catch(() => null);
+      if (!r || !r.ok) { if (!sent) { dead = true; return { bytes: 0, status: r ? r.status : 502 }; } break; }
+      buf = Buffer.from(await r.arrayBuffer());
+    }
+    const lo = Math.max(start - p0, 0), hi = Math.min(end - p0, plan.sizes[k] - 1);
+    buf = buf.subarray(lo, hi + 1);
+    if (!res.write(buf)) await new Promise((ok2) => res.once('drain', ok2));
+    sent += buf.length;
+    track(buf.length);
+  }
+  if (!dead) res.end();
+  return { bytes: sent, status: 206 };
 }
 
 // ---------- audius ----------
@@ -481,7 +649,7 @@ async function auArtist(uid) {
 // ---------- routes ----------
 
 // pure row mapping exposed for the unit tests
-export const ampInternals = { ymRow, scTrackOk, scMap, auMap };
+export const ampInternals = { ymRow, scTrackOk, scMap, auMap, parseM3U8, patchInitDuration };
 
 export async function register(req, res, ctx) {
   const { url, sendJson, guard, session } = ctx;
@@ -566,14 +734,27 @@ export async function register(req, res, ctx) {
       }
       if (src === 'sc') {
         if (!/^\d{5,15}$/.test(id)) return sendJson(res, 400, { ok: false, error: 'bad id' });
-        let u = await scStreamUrl(id);
-        let r = await pipeMedia(u, req, res, { writeErrors: false });
-        if (r.status === 403 || r.status === 410) {
-          u = await scStreamUrl(id, true);
-          r = await pipeMedia(u, req, res, { writeErrors: false });
+        let plan = await scStreamPlan(id);
+        if (plan.kind === 'url') {
+          let r = await pipeMedia(plan.url, req, res, { writeErrors: false });
+          if (r.status === 403 || r.status === 410) {
+            plan = await scStreamPlan(id, true);
+            if (plan.kind === 'url') r = await pipeMedia(plan.url, req, res, { writeErrors: false });
+          }
+          if (!res.headersSent && r.bytes === 0) { res.writeHead(r.status); res.end(); }
+          if (r.bytes) guard.trackBytes(session.user, r.bytes);
+          return;
+        }
+        const rm = /^bytes=(\d+)-(\d*)$/.exec(req.headers.range || '');
+        const startByte = rm ? parseInt(rm[1], 10) : 0;
+        const endByte = rm && rm[2] ? parseInt(rm[2], 10) : plan.total - 1;
+        const track = (n) => guard.trackBytes(session.user, n);
+        let r = await pipeScHls(plan, startByte, endByte, req, res, track);
+        if ((r.status === 403 || r.status === 410) && !res.headersSent) {
+          plan = await scStreamPlan(id, true);
+          if (plan.kind === 'hls') r = await pipeScHls(plan, startByte, endByte, req, res, track);
         }
         if (!res.headersSent && r.bytes === 0) { res.writeHead(r.status); res.end(); }
-        if (r.bytes) guard.trackBytes(session.user, r.bytes);
         return;
       }
       if (src === 'au') {
@@ -621,13 +802,19 @@ export async function register(req, res, ctx) {
       return sendJson(res, 400, { ok: false, error: 'bad source' });
     }
     try {
-      const r = await fetch(up, { headers: { 'user-agent': WEB_UA }, redirect: 'follow', signal: AbortSignal.timeout(12000) });
-      if (!r.ok) { res.writeHead(204); return res.end(); }
+      let r = await fetch(up, { headers: { 'user-agent': WEB_UA }, redirect: 'follow', signal: AbortSignal.timeout(12000) }).catch(() => null);
+      if (!r || !r.ok) r = await fetch(up, { headers: { 'user-agent': WEB_UA }, redirect: 'follow', signal: AbortSignal.timeout(12000) }).catch(() => null);
+      if (!r || !r.ok) {
+        // 204 keeps the page quiet, but the log has to say why art is blank
+        console.log('[amp art] upstream failed:', r ? r.status : 'no response', new URL(up).hostname);
+        res.writeHead(204); return res.end();
+      }
       const buf = Buffer.from(await r.arrayBuffer());
       guard.trackBytes(session.user, buf.length);
       res.writeHead(200, { 'content-type': r.headers.get('content-type') || 'image/jpeg', 'cache-control': 'public, max-age=86400' });
       return res.end(buf);
-    } catch {
+    } catch (e) {
+      console.log('[amp art] upstream threw:', e && e.message, new URL(up).hostname);
       res.writeHead(204); return res.end();
     }
   }
