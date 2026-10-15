@@ -307,6 +307,7 @@
 
   function start(item, qi) {
     trackErr = '';
+    netRetries = 0;
     now = { ...item, qi };
     played.add(qi);
     noteRecent(item);
@@ -319,7 +320,7 @@
       el.addEventListener('timeupdate', () => { cur = el.currentTime; if (Math.floor(cur) % 5 === 0) setPos(); if (el.duration && isFinite(el.duration)) total = el.duration; });
       el.addEventListener('ended', () => { if (repeatMode === 'one') { el.currentTime = 0; el.play().catch(() => {}); } else next(true); });
       el.addEventListener('play', () => { playing = true; });
-      el.addEventListener('playing', () => { loading = false; trackErr = ''; errStreak = 0; });
+      el.addEventListener('playing', () => { loading = false; trackErr = ''; errStreak = 0; netRetries = 0; });
       el.addEventListener('waiting', () => { loading = true; });
       el.addEventListener('canplay', () => { loading = false; });
       el.addEventListener('pause', () => { playing = false; });
@@ -333,6 +334,7 @@
   // does: first try the same song from another source in the current list,
   // then skip ahead - only show an error when there is nowhere left to go.
   let errStreak = 0;
+  let netRetries = 0;
   const SRC_NAMES = { yt: 'youtube', sc: 'soundcloud', au: 'audius' };
   function normTitle(t) {
     return (t || '').toLowerCase()
@@ -344,6 +346,21 @@
   }
   function onTrackError() {
     playing = false; loading = false;
+    // MEDIA_ERR_NETWORK on a filtered or flaky network is a dropped
+    // connection, not a dead track - reload and resume in place a couple
+    // of times before falling back or skipping
+    if (el && el.error && el.error.code === 2 && netRetries < 2) {
+      netRetries++;
+      const at = el.currentTime || 0;
+      loading = true;
+      el.addEventListener('loadedmetadata', function re() {
+        el.removeEventListener('loadedmetadata', re);
+        try { el.currentTime = at; } catch {}
+        el.play().catch(() => {});
+      });
+      el.load();
+      return;
+    }
     errStreak++;
     if (now && !now.__fellBack) {
       const want = normTitle(now.title);

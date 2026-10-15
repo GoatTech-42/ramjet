@@ -93,7 +93,12 @@ async function pipeMedia(up, req, res, opts = {}) {
   try {
     r = await fetch(up, { headers, redirect: 'follow', signal: AbortSignal.timeout(30000) });
   } catch { if (opts.writeErrors !== false) { res.writeHead(502); res.end(); } return { status: 502, bytes: 0 }; }
-  res.once('close', () => { try { r.body?.cancel()?.catch(() => {}); } catch {} });
+  let clientGone = false;
+  const goneP = new Promise((d) => res.once('close', () => {
+    clientGone = true;
+    try { r.body?.cancel()?.catch(() => {}); } catch {}
+    d();
+  }));
   if (r.status !== 200 && r.status !== 206) {
     try { r.body?.cancel()?.catch(() => {}); } catch {}
     if (opts.writeErrors !== false) { res.writeHead(r.status); res.end(); }
@@ -107,9 +112,31 @@ async function pipeMedia(up, req, res, opts = {}) {
   res.writeHead(r.status, h);
   if (!r.body) { res.end(); return { status: r.status, bytes: 0 }; }
   let bytes = 0;
-  for await (const chunk of r.body) {
-    bytes += chunk.length;
-    if (!res.write(chunk)) await new Promise((d) => res.once('drain', d));
+  try {
+    // manual iterator so every pending read races the client vanishing -
+    // cancel() alone can't interrupt a locked for-await
+    const it = r.body[Symbol.asyncIterator]();
+    for (;;) {
+      const step = await Promise.race([it.next(), goneP.then(() => null)]);
+      if (!step || step.done) break;
+      const chunk = step.value;
+      bytes += chunk.length;
+      if (clientGone || res.destroyed) break;
+      if (!res.write(chunk)) {
+        // a gone client never drains - settle the wait on close/error
+        const gone = await Promise.race([
+          new Promise((d) => res.once('drain', () => d(false))),
+          goneP.then(() => true),
+          new Promise((d) => res.once('error', () => d(true))),
+        ]);
+        if (gone) return { status: r.status, bytes };
+      }
+    }
+  } catch {
+    // upstream body died mid-relay with the response already committed -
+    // destroy so the element gets an error, never a hang
+    res.destroy();
+    return { status: r.status, bytes };
   }
   res.end();
   return { status: r.status, bytes };
@@ -182,7 +209,7 @@ async function ytTrack(id) {
   return t;
 }
 
-async function ytBlock(id, idx) {
+async function ytBlock(id, idx, resolve = ytAudioUrl) {
   const t = await ytTrack(id);
   const hit = t.blocks.get(idx);
   if (hit) return hit;
@@ -200,12 +227,23 @@ async function ytBlock(id, idx) {
     for (const client of YT_LADDER) {
       for (let attempt = 0; attempt < 2 && !buf; attempt++) {
         let u;
-        try { u = await ytAudioUrl(id, client, attempt > 0); } catch { break; }
+        try { u = await resolve(id, client, attempt > 0); } catch { break; }
         const end = t.total ? Math.min(start + YT_BLOCK, t.total) - 1 : start + YT_BLOCK - 1;
         const r = await fetch(u, { headers: { 'user-agent': YT_UA, range: 'bytes=' + start + '-' + end }, signal: AbortSignal.timeout(30000) }).catch(() => null);
-        const parts = [];
-        for await (const c of r.body) parts.push(c); // full read, never aborted
-        buf = Buffer.concat(parts);
+        // anything but a clean 206 is a failed attempt: a null fetch is a
+        // transient, and a 403/404 error page must never be cached as audio
+        // (it decodes as garbage and kills playback at the block boundary)
+        if (!r || r.status !== 206) { try { r?.body?.cancel()?.catch(() => {}); } catch {} continue; }
+        let parts = null;
+        try {
+          parts = [];
+          for await (const c of r.body) parts.push(c); // full read, never aborted
+        } catch { parts = null; } // body died mid-read - try again
+        if (!parts) continue;
+        const got = Buffer.concat(parts);
+        const want = Number(r.headers.get('content-length') || 0);
+        if (want && got.length !== want) continue; // silently truncated
+        buf = got;
         const cr = /\/(\d+)$/.exec(r.headers.get('content-range') || '');
         if (cr) t.total = Number(cr[1]);
       }
@@ -673,7 +711,7 @@ async function auArtist(uid) {
 // ---------- routes ----------
 
 // pure row mapping exposed for the unit tests
-export const ampInternals = { ymRow, scTrackOk, scMap, auMap, parseM3U8, patchInitDuration, pipeScHls };
+export const ampInternals = { ymRow, scTrackOk, scMap, auMap, parseM3U8, patchInitDuration, pipeScHls, pipeMedia, ytBlock };
 
 export async function register(req, res, ctx) {
   const { url, sendJson, guard, session } = ctx;
