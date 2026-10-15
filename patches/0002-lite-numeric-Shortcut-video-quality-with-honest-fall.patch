@@ -1,0 +1,925 @@
+From 057e501f92c02c320cf1989006d856959e20f630 Mon Sep 17 00:00:00 2001
+From: ponytail <ponytail@users.noreply.github.com>
+Date: Wed, 14 Oct 2026 17:42:16 -0700
+Subject: [PATCH 2/2] lite: numeric Shortcut video quality with honest fallback
+
+/api/lite/video accepts q=360/480/720/1080 (missing q defaults 480;
+an invalid explicit q is a JSON 400 before any resolve). The
+normalizer dedupes per distinct quality tier first, then pins one
+representative per requested tier (1080/720/480/360) BEFORE the
+16-tier global cap, so no pile of unrelated heights can starve the
+requested tiers or the 360 fallback; it keeps only finished H.264
+video-only formats with a finite short side inside 144..1080, best
+first. The planner picks the exact requested tier or the highest
+below it, never upscales, and the muxed fallback binds real
+dimensions/codecs from the resolver: best candidate at or below the
+request, actual height reported, upward or unsupported pairings
+rejected with a JSON 502. info=1 reports requested, chosen and
+available tiers plus the actual fallback height when engaged.
+
+The range downloader shares safeGet's full trust boundary via
+core/net-safe.js: addresses are parsed to their normalized 128-bit
+form (expanded, compressed and mapped notations of the same address
+classify identically) and embedded IPv4 is classified as IPv4. IPv6
+fails closed: only global unicast (2000::/3) is reachable, minus the
+IANA special-purpose registry (2001::/23 protocol assignments except
+the explicit globals, 2001:db8::/32 and 3fff::/20 documentation,
+2002::/16 6to4) - site-local, discard-only, benchmark, tunneling,
+link-local, ULA, multicast and unallocated space are all rejected
+for every pinned hop; lite.js uses the same module. One abort-driven wall
+deadline spans dns, redirects, headers and body - a trickling body
+can no longer outlive it. Redirect, probe and refused bodies are
+drained under a hard cap, responses destroyed on refusal paths, the
+probe must answer exactly the requested 0-0 interval, at most five
+validated redirects, strict 206 Content-Range match on interval and
+total per chunk, streaming per-chunk and cumulative byte caps before
+any write, zero-progress chunks retried then failed, and it returns
+bytes actually written rather than the claimed total.
+
+The lite cache key is versioned (lite2-<q>) so a pre-fix file under
+the old id+q key is invalidated, never served, and pulled audio and
+muxed output are ffprobe-verified against the selected plan before
+serving: h264 video, aac audio, and the actual short side
+(min(width,height), portrait included) at or under the planned tier -
+unknown dimensions are refused, and a copy-muxed non-aac "m4a" can
+no longer pass. The limits test hook exists only under
+RJ_TEST_HOOKS=1. Native fixtures drive real range downloads and a
+real ffmpeg remux, plus lying-upstream cases: oversized chunk,
+start/total mismatch, zero-byte 206, redirect loop, lying probe
+interval, trickle body past the wall deadline, non-aac audio,
+portrait short-side, stale cache key, and post-remux cap rejection.
+---
+ core/addons/jetstream/index.js    | 256 ++++++++++++++++++++++++++----
+ core/lite.js                      |  49 +-----
+ core/net-safe.js                  | 112 +++++++++++++
+ docs/lite-video-quality.md        |  16 ++
+ tests/lite-video-native.test.mjs  | 153 ++++++++++++++++++
+ tests/lite-video-quality.test.mjs |  56 +++++++
+ tests/net-safe.test.mjs           |  62 ++++++++
+ 7 files changed, 632 insertions(+), 72 deletions(-)
+ create mode 100644 core/net-safe.js
+ create mode 100644 docs/lite-video-quality.md
+ create mode 100644 tests/lite-video-native.test.mjs
+ create mode 100644 tests/lite-video-quality.test.mjs
+ create mode 100644 tests/net-safe.test.mjs
+
+diff --git a/core/addons/jetstream/index.js b/core/addons/jetstream/index.js
+index 2afc776..fbe5bb0 100644
+--- a/core/addons/jetstream/index.js
++++ b/core/addons/jetstream/index.js
+@@ -1,4 +1,9 @@
+ import { dataPath } from '../../data.js';
++import dns from 'node:dns';
++import { pin } from '../../net-safe.js';
++import http from 'node:http';
++import https from 'node:https';
++import net from 'node:net';
+ import os from 'node:os';
+ import { execFile, spawn } from 'node:child_process';
+ import { promisify } from 'node:util';
+@@ -407,6 +412,33 @@ const inflight = new Map(); // id -> Promise<entry>; dedupes concurrent resolves
+ // Tue 7:30 AM: InnerTube ANDROID URLs are head-capped (audio 403s past ~2MB,
+ // video past ~10-16MB). yt-dlp applies the n-parameter transform, its URLs
+ // serve any offset. Resolve through the local yt-dlp binary instead.
++const direct = (f) => f.url && f.protocol === 'https'; // no m3u8/dash manifests - <video> can't play them
++// measure by the short side: a vertical 720x1280 short IS 720p - the old
++// height<=1080 cap silently dropped every portrait video to 480p.
++const eff = (f) => { const w = f.width || 0, h = f.height || 0; return w && h ? Math.min(w, h) : (h || w); };
++// lite tier normalizer: finished H.264 video-only formats with a real,
++// finite short side inside the phone range (144..1080), best first,
++// count-capped so a pathological format list cannot grow the entry without bound.
++const liteVideoFormats = (fmts) => {
++  // one entry per DISTINCT quality tier first - a pile of duplicate 1080
++  // formats must never crowd the 360 fallback tier out of the capped list.
++  const byTier = new Map();
++  for (const f of fmts) {
++    if (!direct(f) || (f.acodec && f.acodec !== 'none') || !(f.vcodec || '').startsWith('avc1')) continue;
++    const h = eff(f);
++    if (!Number.isFinite(h) || h < 144 || h > 1080) continue;
++    const cand = { h, fps: f.fps || 30, url: f.url, size: f.filesize || f.filesize_approx || 0, tbr: f.tbr || 0 };
++    const cur = byTier.get(h);
++    if (!cur || (cand.fps <= 30 && cur.fps > 30) || (cand.fps === cur.fps && (cand.size || cand.tbr) > (cur.size || cur.tbr))) byTier.set(h, cand);
++  }
++  const tiers = [...byTier.values()].sort((a, b) => b.h - a.h || a.fps - b.fps);
++  // requested-tier representatives (and the 360 fallback) are pinned BEFORE
++  // the global cap: 16 unrelated heights can never starve 360/480/720/1080.
++  const PIN_TIERS = [1080, 720, 480, 360];
++  const pinnedT = PIN_TIERS.map((h) => byTier.get(h)).filter(Boolean);
++  const rest = tiers.filter((f) => !PIN_TIERS.includes(f.h));
++  return [...pinnedT, ...rest].slice(0, 16).sort((a, b) => b.h - a.h || a.fps - b.fps);
++};
+ async function resolveViaYtdlp(id) {
+   const watch = `https://www.youtube.com/watch?v=${id}`;
+   const OPTS = { maxBuffer: 32 * 1024 * 1024, timeout: 30000 };
+@@ -424,7 +456,6 @@ async function resolveViaYtdlp(id) {
+   let data;
+   try { data = JSON.parse(stdout); } catch { throw new Error("can't load this video - try another"); }
+   const fmts = data.formats || [];
+-  const direct = (f) => f.url && f.protocol === 'https'; // no m3u8/dash manifests - <video> can't play them
+   // android client carries the muxed 360p stream (itag 18) the default client
+   // lacks. it is a SECOND yt-dlp process, so it only runs when a play actually
+   // needs the muxed fallback (no HD pair, /stream, muxed prefetch) - never on
+@@ -444,9 +475,6 @@ async function resolveViaYtdlp(id) {
+     }
+     return muxP;
+   };
+-  // measure by the short side: a vertical 720x1280 short IS 720p - the old
+-  // height<=1080 cap silently dropped every portrait video to 480p.
+-  const eff = (f) => { const w = f.width || 0, h = f.height || 0; return w && h ? Math.min(w, h) : (h || w); };
+   const videos = fmts.filter((f) => direct(f) && (!f.acodec || f.acodec === 'none') && (f.vcodec || '').startsWith('avc1') && eff(f) > 360);
+   videos.sort((a, b) => eff(b) - eff(a));
+   // 60fps doubles the phone's decode cost. drop to 30fps ONLY at the same
+@@ -487,7 +515,7 @@ async function resolveViaYtdlp(id) {
+     hdLVp9: hdOf(lvpick),
+     duration: Number(data.duration) || 0,
+     lite: {
+-      v: videos.map((f) => ({ h: eff(f), fps: f.fps || 30, url: f.url, size: f.filesize || f.filesize_approx || 0, tbr: f.tbr || 0 })).slice(0, 12),
++      v: liteVideoFormats(fmts),
+       a: audios.map((f) => ({ abr: f.abr || 0, url: f.url, size: f.filesize || f.filesize_approx || 0 })).slice(0, 3),
+     },
+     expires: Date.now() + 10 * 60 * 1000,
+@@ -2019,40 +2047,151 @@ function liteSerial(fn) {
+   liteChain = run.catch(() => {});
+   return run;
+ }
++// upstream media hops share the full safeGet trust boundary: the shared
++// net-safe classifier rejects private/loopback, IPv4-mapped IPv6, NAT64, 6to4,
++// multicast, and reserved ranges for every pinned hop. The test hook permits
++// loopback fixtures only.
++const TEST_HOOKS = process.env.RJ_TEST_HOOKS === '1';
++// drain a response we are refusing, with a hard cap so an evil body cannot
++// stream forever; the socket is destroyed past the cap.
++const drainCapped = async (r, max = 65536) => {
++  let n = 0;
++  try {
++    for await (const c of r) { n += c.length; if (n > max) { r.destroy(); break; } }
++  } catch { /* refused either way */ }
++};
++// race a promise against the shared wall-clock signal: one hard deadline for
++// the whole download (dns, redirects, headers, body).
++const raceWall = (p, signal) => new Promise((resolve, reject) => {
++  if (signal.aborted) return reject(new Error('download deadline'));
++  const on = () => reject(new Error('download deadline'));
++  signal.addEventListener('abort', on, { once: true });
++  p.then((v) => { signal.removeEventListener('abort', on); resolve(v); },
++    (e) => { signal.removeEventListener('abort', on); reject(e); });
++});
++const hopReq = (target, rangeHeader, ipInfo, budgetMs, signal) => new Promise((resolve, reject) => {
++  const u = new URL(target);
++  const mod = u.protocol === 'https:' ? https : (TEST_HOOKS && u.protocol === 'http:' ? http : null);
++  if (!mod) { reject(new Error('untrusted protocol')); return; }
++  const req = mod.request({
++    protocol: u.protocol, hostname: u.hostname.replace(/^\[|\]$/g, ''), port: u.port || (u.protocol === 'https:' ? 443 : 80),
++    path: u.pathname + u.search, method: 'GET',
++    headers: { 'user-agent': GV_UA, ...(rangeHeader ? { range: rangeHeader } : {}) },
++    lookup: (h, o, cb) => (o && o.all ? cb(null, [{ address: ipInfo.address, family: ipInfo.family }]) : cb(null, ipInfo.address, ipInfo.family)),
++    servername: net.isIP(u.hostname.replace(/^\[|\]$/g, '')) ? undefined : u.hostname,
++    timeout: Math.max(1000, Math.min(30000, budgetMs)),
++    agent: false,
++  }, resolve);
++  const onAbort = () => req.destroy(new Error('download deadline'));
++  signal.addEventListener('abort', onAbort, { once: true });
++  req.on('close', () => signal.removeEventListener('abort', onAbort));
++  req.on('timeout', () => req.destroy(new Error('timed out')));
++  req.on('error', reject);
++  req.end();
++});
++// fetch one response, following at most 5 redirects, each hop DNS-resolved,
++// IP-pinned and classified through net-safe, under the shared wall deadline
++const liteFetch = async (target, rangeHeader, budget, signal) => {
++  let u = target;
++  for (let i = 0; i <= 5; i++) {
++    const ipInfo = await raceWall(pin(new URL(u).hostname, { allowPrivate: TEST_HOOKS }), signal);
++    const r = await raceWall(hopReq(u, rangeHeader, ipInfo, budget(), signal), signal);
++    if (r.statusCode >= 300 && r.statusCode < 400 && r.headers.location) {
++      const loc = r.headers.location;
++      await drainCapped(r);
++      if (i === 5) throw new Error('too many redirects');
++      u = new URL(loc, u).href;
++      continue;
++    }
++    return r;
++  }
++  throw new Error('too many redirects');
++};
++const RANGE_RE = /^bytes (\d+)-(\d+)\/(\d+)$/;
++// download `url` to `dest` in range chunks. hard caps (per-chunk interval and
++// cumulative whole-file, before write), strict 206 content-range validation,
++// nonzero progress per retry round, and one abort-driven wall deadline over
++// dns/redirect/header/body. returns actual bytes written.
+ async function liteHop(url, dest, cap) {
+-  const pr = await fetch(url, { headers: { 'user-agent': GV_UA, range: 'bytes=0-0' }, redirect: 'follow', signal: AbortSignal.timeout(30000) });
+-  const crm = /\/(\d+)\s*$/.exec(pr.headers.get('content-range') || '');
+-  dropBody(pr);
+-  if (pr.status !== 206 && pr.status !== 200) throw new Error('probe ' + pr.status);
+-  const size = crm ? parseInt(crm[1], 10) : 0;
++  const ac = new AbortController();
++  const wall = setTimeout(() => ac.abort(), LITE_DEADLINE_MS);
++  try {
++    return await liteHopInner(url, dest, cap, ac.signal);
++  } finally {
++    clearTimeout(wall);
++  }
++}
++async function liteHopInner(url, dest, cap, signal) {
++  const deadline = Date.now() + LITE_DEADLINE_MS;
++  const budget = () => {
++    const left = deadline - Date.now();
++    if (left <= 0) throw new Error('download deadline');
++    return left;
++  };
++  const pr = await liteFetch(url, 'bytes=0-0', budget, signal);
++  const pm = RANGE_RE.exec(String(pr.headers['content-range'] || ''));
++  // the probe asked for exactly bytes=0-0: any other interval is refused, and
++  // the refused body is drained under a cap (never trusted, never unbounded)
++  if (pr.statusCode !== 206 || !pm || Number(pm[1]) !== 0 || Number(pm[2]) !== 0) {
++    pr.destroy();
++    throw new Error('probe ' + pr.statusCode);
++  }
++  await drainCapped(pr);
++  const size = parseInt(pm[3], 10);
+   if (!size || !Number.isSafeInteger(size)) throw new Error('no size');
+   if (size > cap) throw new Error('too big');
+   const CHUNK = 4 << 20;
+   const fh = await fsOpen(dest, 'w');
++  let written = 0;
+   try {
+     let off = 0;
+     while (off < size) {
++      budget();
+       const last = Math.min(off + CHUNK, size) - 1;
+-      let ok = false;
+-      for (let a = 0; a < 3 && !ok; a++) {
++      let advanced = false;
++      for (let a = 0; a < 3 && !advanced; a++) {
+         try {
+-          const r = await fetch(url, { headers: { 'user-agent': GV_UA, range: 'bytes=' + off + '-' + last }, redirect: 'follow', signal: AbortSignal.timeout(45000) });
+-          if (r.status !== 206 && r.status !== 200) { dropBody(r); await new Promise((d) => setTimeout(d, 400 * (a + 1))); continue; }
+-          const buf = Buffer.from(await r.arrayBuffer());
++          const r = await liteFetch(url, 'bytes=' + off + '-' + last, budget, signal);
++          if (r.statusCode !== 206) { await drainCapped(r); throw new Error('retryable'); }
++          const m = RANGE_RE.exec(String(r.headers['content-range'] || ''));
++          // strict interval + total match: a lying upstream fails before any write
++          if (!m || Number(m[1]) !== off || Number(m[2]) !== last || Number(m[3]) !== size) { r.destroy(); throw new Error('bad content-range'); }
++          const expected = last - off + 1;
++          const parts = [];
++          let got = 0;
++          const onAbort = () => r.destroy(new Error('download deadline'));
++          signal.addEventListener('abort', onAbort, { once: true });
++          try {
++            for await (const c of r) {
++              got += c.length;
++              // streaming hard cap: per-chunk interval and cumulative whole-file cap, before write
++              if (got > expected || written + got > cap) { r.destroy(new Error('too big')); }
++              parts.push(c);
++            }
++          } finally { signal.removeEventListener('abort', onAbort); }
++          if (got > expected || written + got > cap) throw new Error('too big');
++          if (got !== expected) throw new Error('retryable'); // zero-byte or short: retry, never spin
++          const buf = Buffer.concat(parts);
+           await fh.write(buf, 0, buf.length, off);
++          written += buf.length;
+           off += buf.length;
+-          ok = true;
+-        } catch { await new Promise((d) => setTimeout(d, 400 * (a + 1))); }
++          advanced = true;
++        } catch (e) {
++          if (e.message === 'too big' || e.message === 'bad content-range' || e.message === 'download deadline') throw e;
++          await new Promise((d) => setTimeout(d, 400 * (a + 1)));
++        }
+       }
+-      if (!ok) throw new Error('chunk failed');
++      if (!advanced) throw new Error('chunk failed');
+     }
+   } finally { await fh.close().catch(() => {}); }
+-  return size;
++  return written; // actual bytes written, never the claimed total
+ }
+-const LITE_MAX_BYTES = 150 * 1024 * 1024;
+-const LITE_MAX_SECS = 15 * 60;
++
++let LITE_MAX_BYTES = 150 * 1024 * 1024;
++let LITE_MAX_SECS = 15 * 60;
++let LITE_DEADLINE_MS = 300000;
+ // pick the formats for a quality: biggest avc1 video at or under q (short side), m4a audio.
+-function litePlan(entry, q) {
++async function litePlan(entry, q) {
+   const L = entry.lite || { v: [], a: [] };
+   const vids = L.v.filter((f) => f.h && f.h <= q).sort((a, b) => b.h - a.h || a.fps - b.fps);
+   const top = vids[0];
+@@ -2063,25 +2202,68 @@ function litePlan(entry, q) {
+     const est = (pick.size || (pick.tbr * 125 * secs)) + (aud.size || (aud.abr * 125 * secs));
+     return { mode: 'mux', v: pick, a: aud, height: pick.h, secs, est: Math.round(est) };
+   }
+-  return { mode: 'itag18', secs, height: 360, est: Math.round(60 * 1024 * secs) };
++  // honest fallback: only a real muxed avc1+aac candidate at or below the
++  // request, dimensions/codecs bound from the resolver - never an assumed
++  // 360, never a taller tier than asked, never an unsupported pairing.
++  const muxed = (await (entry.getMux ? entry.getMux() : Promise.resolve([])).catch(() => [])) || [];
++  const fb = muxed
++    .filter((f) => direct(f) && (f.vcodec || '').startsWith('avc1') && (f.acodec || '').startsWith('mp4a'))
++    .map((f) => ({ h: eff(f), fps: f.fps || 30, url: f.url, size: f.filesize || f.filesize_approx || 0, tbr: f.tbr || 0 }))
++    .filter((f) => Number.isFinite(f.h) && f.h >= 144 && f.h <= q && f.url)
++    .sort((a, b) => b.h - a.h || a.fps - b.fps)[0];
++  if (!fb) return { mode: 'unavailable', secs, height: 0, est: 0 };
++  return { mode: 'itag18', v: fb, height: fb.h, secs, est: Math.round(fb.size || fb.tbr * 125 * secs || 60 * 1024 * secs) };
++}
++// ffprobe-verify pulled and muxed bytes against the selected plan: resolver
++// metadata and upstream bytes are never trusted. a copy-mux of a non-aac
++// "m4a", a non-h264 stream, or a file taller than the plan fails here.
++const ffprobeJson = (file) => new Promise((resolve, reject) => {
++  const fp = spawn('ffprobe', ['-v', 'error', '-show_entries', 'stream=codec_type,codec_name,width,height', '-of', 'json', file], { stdio: ['ignore', 'pipe', 'pipe'] });
++  let buf = '';
++  fp.stdout.on('data', (c) => { buf += c; });
++  const to = setTimeout(() => fp.kill('SIGKILL'), 30000);
++  fp.on('close', (c) => { clearTimeout(to); if (c !== 0) return reject(new Error('ffprobe failed')); try { resolve(JSON.parse(buf)); } catch { reject(new Error('ffprobe parse')); } });
++  fp.on('error', reject);
++});
++async function ffprobeVerify(file, { wantVideo, maxHeight }) {
++  const j = await ffprobeJson(file);
++  const streams = Array.isArray(j.streams) ? j.streams : [];
++  const v = streams.find((s) => s.codec_type === 'video');
++  const a = streams.find((s) => s.codec_type === 'audio');
++  if (wantVideo) {
++    if (!v || v.codec_name !== 'h264') throw new Error('probe: video not h264');
++    // quality is the short side (min(w,h)) like the resolver's eff(): portrait
++    // video is judged by its width, and unknown dimensions are refused
++    const w = Number(v.width), h = Number(v.height);
++    const short = w > 0 && h > 0 && Number.isFinite(w) && Number.isFinite(h) ? Math.min(w, h) : 0;
++    if (!short) throw new Error('probe: unknown dimensions');
++    if (maxHeight && short > maxHeight) throw new Error('probe: height above plan');
++  }
++  if (!a || a.codec_name !== 'aac') throw new Error('probe: audio not aac');
+ }
+ async function liteMakeVideo(id, q, entry) {
+-  const out = cachePath(id, 'lite' + q);
++  // versioned cache key: a pre-fix file written under the old id+q key (a
++  // possibly mismatched fallback) is invalidated, never served again.
++  const out = cachePath(id, 'lite2-' + q);
++  const legacy = cachePath(id, 'lite' + q);
++  if (existsSync(legacy)) { try { unlinkSync(legacy); } catch {} }
+   if (existsSync(out)) { try { utimesSync(out, new Date(), new Date()); } catch {} return out; }
+-  const plan = litePlan(entry, q);
++  const plan = await litePlan(entry, q);
++  if (plan.mode === 'unavailable') throw new Error('no playable stream for this one');
+   return liteSerial(async () => {
+     if (existsSync(out)) return out;
+-    const tmpv = cachePath(id, 'lite' + q + 'v.part'), tmpa = cachePath(id, 'lite' + q + 'a.part'), tmpo = cachePath(id, 'lite' + q + 'o.part');
++    const tmpv = cachePath(id, 'lite2-' + q + 'v.part'), tmpa = cachePath(id, 'lite2-' + q + 'a.part'), tmpo = cachePath(id, 'lite2-' + q + 'o.part');
+     const rm = () => { for (const f of [tmpv, tmpa, tmpo]) { try { unlinkSync(f); } catch {} } };
+     try {
+       if (plan.mode === 'itag18') {
+-        const u = await muxUrl(entry);
+-        if (!u) throw new Error('no playable stream for this one');
+-        await liteHop(u, tmpo, LITE_MAX_BYTES);
++        await liteHop(plan.v.url, tmpo, LITE_MAX_BYTES);
++        if (statSync(tmpo).size > LITE_MAX_BYTES) throw new Error('too big');
++        await ffprobeVerify(tmpo, { wantVideo: true, maxHeight: plan.height || q });
+         await fsRename(tmpo, out);
+       } else {
+         await liteHop(plan.v.url, tmpv, LITE_MAX_BYTES);
+         await liteHop(plan.a.url, tmpa, LITE_MAX_BYTES);
++        await ffprobeVerify(tmpa, { wantVideo: false });
+         await new Promise((resolve, reject) => {
+           const ff = spawn('nice', ['-n', '10', 'ffmpeg', '-v', 'error', '-y', '-i', tmpv, '-i', tmpa, '-c', 'copy', '-movflags', '+faststart', '-f', 'mp4', tmpo], { stdio: ['ignore', 'ignore', 'pipe'] });
+           let err = ''; ff.stderr.on('data', (c) => { err += c; });
+@@ -2089,6 +2271,8 @@ async function liteMakeVideo(id, q, entry) {
+           ff.on('close', (c) => { clearTimeout(to); c === 0 ? resolve() : reject(new Error('mux failed ' + err.slice(0, 120))); });
+           ff.on('error', reject);
+         });
++        if (statSync(tmpo).size > LITE_MAX_BYTES) throw new Error('too big');
++        await ffprobeVerify(tmpo, { wantVideo: true, maxHeight: plan.height || q });
+         await fsRename(tmpo, out);
+       }
+       evictCache();
+@@ -2103,6 +2287,16 @@ export const liteApi = {
+   makeVideo: liteMakeVideo,
+   serveCached,
+   getThumb,
+-  LITE_MAX_BYTES,
+-  LITE_MAX_SECS,
++  liteVideoFormats,
++  get LITE_MAX_BYTES() { return LITE_MAX_BYTES; },
++  get LITE_MAX_SECS() { return LITE_MAX_SECS; },
++};
++// test hook only (RJ_TEST_HOOKS=1 at module load): shrink caps/deadline for
++// native fixtures, then restore from the returned previous values.
++if (TEST_HOOKS) liteApi.setLiteLimits = (maxBytes, maxSecs, deadlineMs) => {
++  const prev = { maxBytes: LITE_MAX_BYTES, maxSecs: LITE_MAX_SECS, deadlineMs: LITE_DEADLINE_MS };
++  if (maxBytes !== undefined) LITE_MAX_BYTES = maxBytes;
++  if (maxSecs !== undefined) LITE_MAX_SECS = maxSecs;
++  if (deadlineMs !== undefined) LITE_DEADLINE_MS = deadlineMs;
++  return prev;
+ };
+diff --git a/core/lite.js b/core/lite.js
+index d72f75f..cf045be 100644
+--- a/core/lite.js
++++ b/core/lite.js
+@@ -18,6 +18,7 @@ import { mkdtemp, writeFile, readFile, rm } from 'node:fs/promises';
+ import { tmpdir } from 'node:os';
+ import nodePath from 'node:path';
+ import { renderSheet } from './sheet.mjs';
++import { blockedIp, pin, checkUrl } from './net-safe.js';
+ import { parseDocument } from 'htmlparser2';
+ import * as DU from 'domutils';
+ import { clientIp, esc } from './util.js';
+@@ -76,44 +77,6 @@ setInterval(() => { const now = Date.now(); for (const [k, v] of bad) if (v.unti
+ 
+ const json = (res, code, obj) => { const b = Buffer.from(JSON.stringify(obj)); res.writeHead(code, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', 'content-length': b.length }); res.end(b); };
+ 
+-// ---- ssrf ----
+-function v4(ip) { return ip.split('.').map(Number); }
+-function blockedIp(ip) {
+-  if (net.isIPv6(ip)) {
+-    const l = ip.toLowerCase();
+-    if (l === '::' || l === '::1') return true;
+-    const m = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/.exec(l); if (m) return blockedIp(m[1]);
+-    if (l.startsWith('::ffff:') || l.startsWith('64:ff9b') || l.startsWith('2002:')) return true; // mapped / nat64 / 6to4: refuse outright
+-    if (/^f[cd]/.test(l) || /^fe[89ab]/.test(l) || l.startsWith('ff')) return true;
+-    return false;
+-  }
+-  if (!net.isIPv4(ip)) return true;
+-  const [a, b, c] = v4(ip);
+-  return a === 0 || a === 10 || a === 127 || a >= 224 || (a === 100 && b >= 64 && b <= 127) || (a === 169 && b === 254) ||
+-    (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 192 && b === 0 && c === 0) || (a === 192 && b === 0 && c === 2) ||
+-    (a === 198 && (b === 18 || b === 19)) || (a === 198 && b === 51 && c === 100) || (a === 203 && b === 0 && c === 113);
+-}
+-// resolve once, return the pinned address (throws on anything private)
+-async function pin(host) {
+-  host = host.replace(/^\[|\]$/g, '');
+-  if (!host || host.length > 253) throw new Error('bad host');
+-  if (/^(localhost|.*\.localhost|.*\.local|.*\.internal|host\.docker\.internal)$/i.test(host)) throw new Error('blocked address');
+-  if (net.isIP(host)) { if (blockedIp(host)) throw new Error('blocked address'); return { address: host, family: net.isIPv6(host) ? 6 : 4 }; }
+-  // odd encodings (decimal 2130706433, hex 0x7f.1, octal 0177.1) are numeric-looking hosts: refuse
+-  if (/^[0-9a-fx.]+$/i.test(host) && !/[g-z]/i.test(host)) throw new Error('blocked address');
+-  const list = await dns.promises.lookup(host, { all: true });
+-  if (!list.length) throw new Error('no address');
+-  for (const r of list) if (blockedIp(r.address)) throw new Error('blocked address'); // any private answer taints the name
+-  const r = list.find((x) => x.family === 4) || list[0];
+-  return { address: r.address, family: r.family };
+-}
+-function checkUrl(u) {
+-  let t; try { t = new URL(u); } catch { throw new Error('bad url'); }
+-  if (!/^https?:$/.test(t.protocol) || t.username || t.password) throw new Error('bad url');
+-  const port = t.port ? Number(t.port) : (t.protocol === 'https:' ? 443 : 80);
+-  if (port !== 80 && port !== 443) throw new Error('port not allowed');
+-  return t;
+-}
+ const UA = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1';
+ // one request, no auto-redirect, pinned ip, no cookies/auth upstream
+ function hop(t, accept, ip) {
+@@ -382,15 +345,19 @@ export async function handleLite(req, res, url) {
+     if (path === '/video') {
+       const id = sp.get('id') || '';
+       if (!/^[A-Za-z0-9_-]{11}$/.test(id)) return json(res, 400, { ok: false, error: 'id must be an 11-char video id' });
+-      const q = [360, 480, 720].includes(Number(sp.get('q'))) ? Number(sp.get('q')) : 480;
++      const rawQuality = sp.get('q');
++      if (rawQuality !== null && !['360', '480', '720', '1080'].includes(rawQuality)) return json(res, 400, { ok: false, error: 'q must be 360, 480, 720 or 1080' });
++      const q = rawQuality === null ? 480 : Number(rawQuality);
+       const entry = await jet.resolveStream(id);
+-      const plan = jet.litePlan(entry, q);
++      const plan = await jet.litePlan(entry, q);
++      if (plan.mode === 'unavailable') return json(res, 502, { ok: false, error: 'no playable stream at or below q=' + q + ' for this one' });
+       if (plan.secs && plan.secs > jet.LITE_MAX_SECS) return json(res, 413, { ok: false, error: 'longer than 15 minutes; try q=360', seconds: plan.secs });
+       if (plan.est > jet.LITE_MAX_BYTES) return json(res, 413, { ok: false, error: 'about ' + Math.round(plan.est / 1048576) + ' MB, over the 150 MB cap; try q=360', est_mb: Math.round(plan.est / 1048576) });
+-      if (sp.get('info') === '1') return json(res, 200, { ok: true, id, q, height: plan.height, mode: plan.mode, seconds: plan.secs, est_bytes: plan.est });
++      if (sp.get('info') === '1') return json(res, 200, { ok: true, id, q, height: plan.height, chosen_quality: plan.height, available_qualities: entry.lite?.a?.length ? [...new Set((entry.lite.v || []).map(v => v.h).filter(h => [360, 480, 720, 1080].includes(h)))].sort((a,b) => b-a) : [], fallback_quality: plan.mode === 'itag18' ? plan.height : null, mode: plan.mode, seconds: plan.secs, est_bytes: plan.est });
+       let file;
+       try { file = await jet.makeVideo(id, q, entry); } catch (e) { return json(res, e.message === 'too big' ? 413 : 502, { ok: false, error: e.message === 'too big' ? 'over the 150 MB cap; try q=360' : 'could not build that video, try another or q=360' }); }
+       const size = statSync(file).size;
++      if (size > jet.LITE_MAX_BYTES) return json(res, 413, { ok: false, error: 'over the 150 MB cap; try q=360' });
+       res.writeHead(200, { 'content-type': 'video/mp4', 'content-length': size, 'content-disposition': 'inline; filename="' + id + '.mp4"', 'cache-control': 'private, no-store', 'accept-ranges': 'none' });
+       const { createReadStream } = await import('node:fs');
+       return createReadStream(file).pipe(res);
+diff --git a/core/net-safe.js b/core/net-safe.js
+new file mode 100644
+index 0000000..569338f
+--- /dev/null
++++ b/core/net-safe.js
+@@ -0,0 +1,112 @@
++// shared ssrf defenses: outbound hops resolve once, pin the resolved ip, and
++// every candidate address is checked against a full non-global deny list.
++import net from 'node:net';
++import dns from 'node:dns';
++
++function v4(ip) { return ip.split('.').map(Number); }
++function blockedV4Bytes(bytes) {
++  const [a, b, c] = bytes;
++  return a === 0 || a === 10 || a === 127 || a >= 224 || (a === 100 && b >= 64 && b <= 127) || (a === 169 && b === 254) ||
++    (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 192 && b === 0 && c === 0) || (a === 192 && b === 0 && c === 2) ||
++    (a === 198 && (b === 18 || b === 19)) || (a === 198 && b === 51 && c === 100) || (a === 203 && b === 0 && c === 113);
++}
++// parse any RFC 4291 form (compressed, expanded, dotted-v4 tail) to 16 bytes
++function v6Bytes(ip) {
++  if (!net.isIPv6(ip)) return null;
++  let s = ip.toLowerCase();
++  const m = /(\d+)\.(\d+)\.(\d+)\.(\d+)$/.exec(s);
++  if (m) { // embedded dotted v4 tail becomes its two hex groups
++    s = s.slice(0, m.index) + ((+m[1] << 8) | +m[2]).toString(16) + ':' + ((+m[3] << 8) | +m[4]).toString(16);
++  }
++  const halves = s.split('::');
++  if (halves.length > 2) return null;
++  const head = halves[0] ? halves[0].split(':') : [];
++  const tail = halves.length === 2 && halves[1] ? halves[1].split(':') : [];
++  if (halves.length === 1 && head.length !== 8) return null;
++  const missing = 8 - head.length - tail.length;
++  if (missing < 0) return null;
++  const bytes = [];
++  for (const g of [...head, ...Array(missing).fill('0'), ...tail]) {
++    const n = parseInt(g, 16);
++    if (!(n >= 0 && n <= 0xffff) || g === '') return null;
++    bytes.push(n >> 8, n & 0xff);
++  }
++  return bytes.length === 16 ? bytes : null;
++}
++// bit-prefix match on the normalized 16-byte form
++function inPrefix(b, prefixBytes, bits) {
++  for (let i = 0; i * 8 < bits; i++) {
++    const full = Math.min(8, bits - i * 8);
++    const mask = full === 8 ? 0xff : (0xff << (8 - full)) & 0xff;
++    if ((b[i] & mask) !== (prefixBytes[i] & mask)) return false;
++  }
++  return true;
++}
++// iana v6 special registry: the 2001::/23 protocol-assignment entries marked
++// globally reachable - the rest of 2001::/23 fails closed below.
++const V6_2001_GLOBALS = [
++  [[0x20, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01], 128], // 2001:1::1 pcp anycast
++  [[0x20, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02], 128], // 2001:1::2 turn anycast
++  [[0x20, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03], 128], // 2001:1::3 dns-sd anycast
++  [[0x20, 0x01, 0x00, 0x03], 32],   // 2001:3::/32 amt
++  [[0x20, 0x01, 0x00, 0x04, 0x01, 0x12], 48], // 2001:4:112::/48 as112-v6
++  [[0x20, 0x01, 0x00, 0x20], 28],   // 2001:20::/28 orchidv2 (registry: reachable)
++];
++// ipv6 default is DENY: allow only global unicast (2000::/3) minus the iana
++// special-purpose ranges. site-local, discard-only, benchmark, documentation,
++// tunneling and every unallocated/future range fail closed.
++function blockedV6Global(b) {
++  if (!inPrefix(b, [0x20], 3)) return true; // outside global unicast
++  if (V6_2001_GLOBALS.some(([p, bits]) => inPrefix(b, p, bits))) return false;
++  if (inPrefix(b, [0x20, 0x01], 23)) return true; // 2001::/23 ietf protocol assignments (teredo, benchmark, orchid, ...)
++  if (inPrefix(b, [0x20, 0x01, 0x0d, 0xb8], 32)) return true; // 2001:db8::/32 documentation
++  if (inPrefix(b, [0x20, 0x02], 16)) return true; // 2002::/16 6to4
++  if (inPrefix(b, [0x3f, 0xff], 20)) return true; // 3fff::/20 documentation
++  return false;
++}
++// classify the normalized 128-bit address, never its text form: expanded,
++// compressed and mapped forms of the same address classify identically.
++export function blockedIp(ip) {
++  if (net.isIPv6(ip)) {
++    const b = v6Bytes(ip);
++    if (!b) return true;
++    const allZero = (arr) => arr.every((v) => v === 0);
++    if (allZero(b)) return true; // ::
++    if (allZero(b.slice(0, 15)) && b[15] === 1) return true; // ::1
++    // ::ffff:a.b.c.d mapped, ::a.b.c.d deprecated-compatible: classify the embedded v4
++    if (allZero(b.slice(0, 10)) && ((b[10] === 0xff && b[11] === 0xff) || (b[10] === 0 && b[11] === 0)))
++      return blockedV4Bytes(b.slice(12));
++    return blockedV6Global(b);
++  }
++  if (!net.isIPv4(ip)) return true;
++  return blockedV4Bytes(v4(ip));
++}
++// resolve once, return the pinned address (throws on anything private).
++// opts.allowPrivate is for test fixtures only (loopback servers).
++export async function pin(host, opts = {}) {
++  host = host.replace(/^\[|\]$/g, '');
++  if (!host || host.length > 253) throw new Error('bad host');
++  if (/^(localhost|.*\.localhost|.*\.local|.*\.internal|host\.docker\.internal)$/i.test(host)) throw new Error('blocked address');
++  if (opts.allowPrivate) {
++    if (net.isIP(host)) return { address: host, family: net.isIPv6(host) ? 6 : 4 };
++    const list = await dns.promises.lookup(host, { all: true });
++    if (!list.length) throw new Error('no address');
++    const r = list.find((x) => x.family === 4) || list[0];
++    return { address: r.address, family: r.family };
++  }
++  if (net.isIP(host)) { if (blockedIp(host)) throw new Error('blocked address'); return { address: host, family: net.isIPv6(host) ? 6 : 4 }; }
++  // odd encodings (decimal 2130706433, hex 0x7f.1, octal 0177.1) are numeric-looking hosts: refuse
++  if (/^[0-9a-fx.]+$/i.test(host) && !/[g-z]/i.test(host)) throw new Error('blocked address');
++  const list = await dns.promises.lookup(host, { all: true });
++  if (!list.length) throw new Error('no address');
++  for (const r of list) if (blockedIp(r.address)) throw new Error('blocked address'); // any private answer taints the name
++  const r = list.find((x) => x.family === 4) || list[0];
++  return { address: r.address, family: r.family };
++}
++export function checkUrl(u) {
++  let t; try { t = new URL(u); } catch { throw new Error('bad url'); }
++  if (!/^https?:$/.test(t.protocol) || t.username || t.password) throw new Error('bad url');
++  const port = t.port ? Number(t.port) : (t.protocol === 'https:' ? 443 : 80);
++  if (port !== 80 && port !== 443) throw new Error('port not allowed');
++  return t;
++}
+diff --git a/docs/lite-video-quality.md b/docs/lite-video-quality.md
+new file mode 100644
+index 0000000..f270bb3
+--- /dev/null
++++ b/docs/lite-video-quality.md
+@@ -0,0 +1,16 @@
++# Shortcut numeric video quality
++
++`/api/lite/video?id=VIDEO_ID&q=1080` accepts plain numeric 360/480/720/1080. Missing q defaults 480; invalid explicit q returns JSON 400 before resolving.
++
++Two different height sets, kept distinct on purpose:
++
++- **Requested tiers** are only the four API values above. q names an intent, never a guarantee.
++- **Usable source heights** are the per-video H.264 short-side heights the normalizer keeps: direct https video-only avc1 formats with a finite short side from 144 through 1080, best first, capped at 16 entries. Formats with no real dimensions, heights outside that window, other codecs, muxed audio, or manifests never enter the list. `info=1` reports them as `available_qualities` (intersected with the four tiers, descending).
++
++The planner picks the exact requested tier when usable, otherwise the highest usable tier *below* the request - never a taller one. When no adaptive tier fits, the fallback is a real muxed H.264+AAC candidate whose dimensions and codecs come from the resolver: the planner picks the best muxed format at or below the request, reports its actual height (`mode: "itag18"`, `height` = actual), and refuses upward or unsupported pairings (`mode: "unavailable"`, route answers JSON 502). `info=1` reports requested `q`, actual `chosen_quality`, `available_qualities`, and `fallback_quality` = the actual fallback height when the fallback engaged, null otherwise.
++
++Downloads go through a hardened range fetcher: DNS-pinned public-IP-only requests (loopback/private ranges rejected), at most 5 validated redirects, https only, a strict 206 Content-Range match on both interval and total per chunk, streaming per-chunk and cumulative byte caps enforced before any write, zero-progress chunks retried then failed, and a bounded total deadline. It returns bytes actually written, never the claimed total.
++
++All four are finished H.264+AAC MP4 downloads. Web playback picks are untouched. Existing 15 minute / 150 MiB caps and one serial nice ffmpeg remux remain; remuxed output is size-checked against the cap after the ffmpeg pass (parts are capped individually, the combined file is what matters), and oversized cached files are rejected by the route too. No transcode/CPU upscale.
++
++An installed Shortcut must pass q in its video URL; backend changes do not edit its actions. Current numeric q values remain compatible. Box must verify real info and short downloaded file ffprobe video codec/short-side/audio for all four tiers, unavailable tier downgrade, invalid q JSON, size/time caps, and app regression before deployment.
+diff --git a/tests/lite-video-native.test.mjs b/tests/lite-video-native.test.mjs
+new file mode 100644
+index 0000000..3e822cf
+--- /dev/null
++++ b/tests/lite-video-native.test.mjs
+@@ -0,0 +1,153 @@
++import test from 'node:test';
++import assert from 'node:assert/strict';
++import http from 'node:http';
++import { mkdtempSync, rmSync, existsSync, statSync, readFileSync, writeFileSync } from 'node:fs';
++import { tmpdir } from 'node:os';
++import { join } from 'node:path';
++import { execFileSync } from 'node:child_process';
++
++// Native fixtures: real liteHop range downloads + real `nice ffmpeg` remux
++// against locally generated/served media. No mocks in the download path.
++const root = mkdtempSync(join(tmpdir(), 'rj-native-'));
++process.env.RJ_DATA = join(root, 'data');
++process.env.RJ_TEST_HOOKS = '1'; // loopback fixture server + limits hook
++const { liteApi } = await import('../core/addons/jetstream/index.js');
++
++const vPath = join(root, 'v.mp4'), aPath = join(root, 'a.m4a');
++execFileSync('ffmpeg', ['-v', 'error', '-y', '-f', 'lavfi', '-i', 'testsrc=duration=1:size=176x144:rate=5', '-an', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', vPath]);
++execFileSync('ffmpeg', ['-v', 'error', '-y', '-f', 'lavfi', '-i', 'sine=frequency=440:duration=1', '-vn', '-c:a', 'aac', aPath]);
++const pvPath = join(root, 'pv.mp4');
++execFileSync('ffmpeg', ['-v', 'error', '-y', '-f', 'lavfi', '-i', 'testsrc=duration=1:size=144x176:rate=5', '-an', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', pvPath]);
++const badAPath = join(root, 'a_bad.m4a');
++execFileSync('ffmpeg', ['-v', 'error', '-y', '-f', 'lavfi', '-i', 'sine=frequency=440:duration=1', '-vn', '-c:a', 'mp3', '-f', 'mp4', badAPath]);
++const media = { '/v.mp4': readFileSync(vPath), '/a.m4a': readFileSync(aPath), '/a_bad.m4a': readFileSync(badAPath), '/pv.mp4': readFileSync(pvPath) };
++
++const server = http.createServer((req, res) => {
++  const u = new URL(req.url, 'http://localhost');
++  if (u.pathname.startsWith('/redir/')) {
++    const n = Number(u.pathname.split('/')[2]);
++    res.writeHead(302, { location: '/redir/' + (n + 1) });
++    return res.end();
++  }
++  const evil = u.pathname.startsWith('/evil-');
++  const body = media[u.pathname] || ((evil || u.pathname === '/trickle.mp4') ? media['/v.mp4'] : null);
++  if (!body) { res.writeHead(404); return res.end(); }
++  const m = /bytes=(\d+)-(\d*)/.exec(req.headers.range || '');
++  if (!m) { res.writeHead(200, { 'content-length': body.length }); return res.end(body); }
++  const start = Number(m[1]), end = m[2] ? Math.min(Number(m[2]), body.length - 1) : body.length - 1;
++  if (u.pathname === '/evil-probe.mp4' && end === 0) { // probe lies about the 0-0 interval
++    res.writeHead(206, { 'content-range': 'bytes 0-1/' + body.length, 'content-length': 2 });
++    return res.end(body.subarray(0, 2));
++  }
++  if (end === 0) { // probe: always honest
++    res.writeHead(206, { 'content-range': 'bytes 0-0/' + body.length, 'content-length': 1 });
++    return res.end(body.subarray(0, 1));
++  }
++  if (u.pathname === '/trickle.mp4') { // correct range line, body drips a byte every 10ms
++    res.writeHead(206, { 'content-range': 'bytes ' + start + '-' + end + '/' + body.length, 'content-length': end - start + 1 });
++    let i = start;
++    const iv = setInterval(() => {
++      if (i > end) { clearInterval(iv); return res.end(); }
++      try { res.write(body.subarray(i, i + 1)); } catch { clearInterval(iv); }
++      i++;
++    }, 10);
++    res.on('close', () => clearInterval(iv));
++    return;
++  }
++  if (u.pathname === '/evil-zero.mp4') { // correct range line, empty body
++    res.writeHead(206, { 'content-range': 'bytes ' + start + '-' + end + '/' + body.length, 'content-length': 0 });
++    return res.end();
++  }
++  if (u.pathname === '/evil-oversize.mp4') { // matching range line, body double the interval
++    const want = end - start + 1;
++    res.writeHead(206, { 'content-range': 'bytes ' + start + '-' + end + '/' + body.length, 'content-length': want * 2 });
++    const big = Buffer.concat([body.subarray(start, end + 1), body.subarray(0, want)]);
++    return res.end(big);
++  }
++  if (u.pathname === '/evil-badstart.mp4') {
++    res.writeHead(206, { 'content-range': 'bytes ' + (start + 1) + '-' + end + '/' + body.length, 'content-length': end - start });
++    return res.end(body.subarray(start + 1, end + 1));
++  }
++  if (u.pathname === '/evil-badtotal.mp4') {
++    res.writeHead(206, { 'content-range': 'bytes ' + start + '-' + end + '/' + (body.length + 1), 'content-length': end - start + 1 });
++    return res.end(body.subarray(start, end + 1));
++  }
++  res.writeHead(206, { 'content-range': 'bytes ' + start + '-' + end + '/' + body.length, 'content-length': end - start + 1 });
++  res.end(body.subarray(start, end + 1));
++});
++await new Promise((r) => server.listen(0, '127.0.0.1', r));
++const base = 'http://127.0.0.1:' + server.address().port;
++const vsize = statSync(vPath).size, asize = statSync(aPath).size;
++const entry = (vUrl) => ({ duration: 1, lite: { v: [{ h: 360, fps: 30, url: vUrl, size: vsize, tbr: 0 }], a: [{ abr: 128, url: base + '/a.m4a', size: asize }] } });
++let prevLimits = null;
++
++test.after(() => new Promise((r) => server.close(r)).then(() => { rmSync(root, { recursive: true, force: true }); }));
++
++test('native mux over the byte cap is rejected after the remux, under it succeeds', async () => {
++  const prev = liteApi.setLiteLimits(Math.max(vsize, asize) + 256);
++  await assert.rejects(liteApi.makeVideo('nativecap001', 360, entry(base + '/v.mp4')), /too big/);
++  liteApi.setLiteLimits(prev.maxBytes, prev.maxSecs, prev.deadlineMs);
++  const out = await liteApi.makeVideo('nativecap002', 360, entry(base + '/v.mp4'));
++  assert.ok(existsSync(out) && statSync(out).size > 0, 'real remux produced a playable file under the cap');
++  const probe = String(execFileSync('ffprobe', ['-v', 'error', '-show_entries', 'stream=codec_type', '-of', 'csv=p=0', out]));
++  assert.ok(probe.includes('video') && probe.includes('audio'), 'muxed file carries both streams');
++});
++
++test('liteHop: chunk larger than the requested interval is rejected before write', async () => {
++  await assert.rejects(liteApi.makeVideo('nativeevil1', 360, entry(base + '/evil-oversize.mp4')), /too big/);
++});
++
++test('liteHop: content-range start mismatch is rejected', async () => {
++  await assert.rejects(liteApi.makeVideo('nativeevil2', 360, entry(base + '/evil-badstart.mp4')), /bad content-range/);
++});
++
++test('liteHop: content-range total mismatch is rejected', async () => {
++  await assert.rejects(liteApi.makeVideo('nativeevil3', 360, entry(base + '/evil-badtotal.mp4')), /bad content-range/);
++});
++
++test('liteHop: zero-byte 206 fails instead of looping forever', async () => {
++  await assert.rejects(liteApi.makeVideo('nativeevil4', 360, entry(base + '/evil-zero.mp4')), /chunk failed/);
++});
++
++test('liteHop: redirect chains beyond five hops are rejected', async () => {
++  await assert.rejects(liteApi.makeVideo('nativeevil5', 360, entry(base + '/redir/0')), /too many redirects/);
++});
++
++test('liteHop: a bounded total deadline aborts the download', async () => {
++  const prev = liteApi.setLiteLimits(undefined, undefined, 1);
++  await assert.rejects(liteApi.makeVideo('nativeevil6', 360, entry(base + '/v.mp4')), /download deadline/);
++  liteApi.setLiteLimits(prev.maxBytes, prev.maxSecs, prev.deadlineMs);
++});
++
++test('liteHop: one wall deadline aborts a trickling body (repro: 30ms deadline once finished at 217ms)', async () => {
++  const prev = liteApi.setLiteLimits(undefined, undefined, 200);
++  await assert.rejects(liteApi.makeVideo('nativetrickle1', 360, entry(base + '/trickle.mp4')), /download deadline/);
++  liteApi.setLiteLimits(prev.maxBytes, prev.maxSecs, prev.deadlineMs);
++});
++
++test('liteHop: a probe lying about the requested 0-0 interval is rejected', async () => {
++  await assert.rejects(liteApi.makeVideo('nativeprobe1', 360, entry(base + '/evil-probe.mp4')), /probe 206/);
++});
++
++test('lite cache: a pre-fix file under the old id+q key is invalidated, never served', async () => {
++  const legacy = join(process.env.RJ_DATA, 'stream-cache', 'nativecache1.lite360');
++  writeFileSync(legacy, 'garbage');
++  const out = await liteApi.makeVideo('nativecache1', 360, entry(base + '/v.mp4'));
++  assert.ok(out.endsWith('.lite2-360'), 'new versioned cache key');
++  assert.ok(!existsSync(legacy), 'legacy pre-fix file removed');
++  const probe = String(execFileSync('ffprobe', ['-v', 'error', '-show_entries', 'stream=codec_name', '-of', 'csv=p=0', out]));
++  assert.ok(probe.includes('h264') && probe.includes('aac'), 'served bytes are a real mux, not the stale file');
++});
++
++test('mux: pulled "m4a" audio that is not really aac is rejected by post ffprobe', async () => {
++  const badAsize = statSync(badAPath).size;
++  const badEntry = { duration: 1, lite: { v: [{ h: 360, fps: 30, url: base + '/v.mp4', size: vsize, tbr: 0 }], a: [{ abr: 128, url: base + '/a_bad.m4a', size: badAsize }] } };
++  await assert.rejects(liteApi.makeVideo('nativebadaudio1', 360, badEntry), /probe: audio not aac/);
++});
++
++test('mux: portrait video is measured by its short side, like the resolver (720x1280 fits q720)', async () => {
++  const pvsize = statSync(pvPath).size;
++  const pEntry = { duration: 1, lite: { v: [{ h: 144, fps: 30, url: base + '/pv.mp4', size: pvsize, tbr: 0 }], a: [{ abr: 128, url: base + '/a.m4a', size: asize }] } };
++  const out = await liteApi.makeVideo('nativeportrait1', 144, pEntry);
++  assert.ok(existsSync(out) && statSync(out).size > 0, 'portrait short-side 144 passes at q144');
++});
+diff --git a/tests/lite-video-quality.test.mjs b/tests/lite-video-quality.test.mjs
+new file mode 100644
+index 0000000..d4e1238
+--- /dev/null
++++ b/tests/lite-video-quality.test.mjs
+@@ -0,0 +1,56 @@
++import test from 'node:test';
++import assert from 'node:assert/strict';
++import http from 'node:http';
++import {mkdtempSync,writeFileSync,rmSync} from 'node:fs';
++import {tmpdir} from 'node:os';
++import {join} from 'node:path';
++import {handleLite,setAuth,setJetstream} from '../core/lite.js';
++import {liteApi} from '../core/addons/jetstream/index.js';
++const entry={duration:20,lite:{v:[360,480,720,1080].map(h=>({h,fps:30,url:'https://example.invalid/'+h,size:1000,tbr:500})),a:[{abr:128,size:1000}]}};
++test('native Lite planner selects exact tiers, short-side sizes and honest lower fallback',async()=>{for(const q of[360,480,720,1080])assert.equal((await liteApi.litePlan(entry,q)).height,q);assert.equal((await liteApi.litePlan({...entry,lite:{...entry.lite,v:entry.lite.v.filter(v=>v.h!==1080)}},1080)).height,720);});
++test('HTTP numeric quality contract, metadata, default and final byte cap',async()=>{const root=mkdtempSync(join(tmpdir(),'rj-quality-')),file=join(root,'fixture.mp4');writeFileSync(file,'fixture-only-not-media');let called=0,over=false;setAuth({verify:()=>({status:'approved'})});setJetstream({...liteApi,LITE_MAX_BYTES:150*1024*1024,resolveStream:async()=>{called++;return over?{...entry,duration:901}:entry;},makeVideo:async(id,q)=>{assert.ok([360,480,720,1080].includes(q));return file;}});const s=http.createServer((req,res)=>handleLite(req,res,new URL(req.url,'http://localhost')));await new Promise(r=>s.listen(0,'127.0.0.1',r));const base='http://127.0.0.1:'+s.address().port+'/api/lite/video?id=fixture0001',headers={authorization:'Bearer fixture:fixture-only'};try{for(const q of[360,480,720,1080]){const r=await fetch(base+'&q='+q+'&info=1',{headers});assert.equal(r.status,200);const j=await r.json();assert.equal(j.q,q);assert.equal(j.chosen_quality,q);assert.deepEqual(j.available_qualities,[1080,720,480,360]);const media=await fetch(base+'&q='+q,{headers});assert.equal(media.status,200);assert.equal(media.headers.get('content-type'),'video/mp4');await media.arrayBuffer();}const d=await(await fetch(base+'&info=1',{headers})).json();assert.equal(d.q,480);const before=called;for(const q of['','240','1080p','720.0','-360','NaN']){const r=await fetch(base+'&q='+q,{headers});assert.equal(r.status,400);assert.match(r.headers.get('content-type'),/^application\/json/);await r.json();}assert.equal(called,before);over=true;assert.equal((await fetch(base+'&q=1080',{headers})).status,413);over=false;setJetstream({...liteApi,resolveStream:async()=>entry,makeVideo:async()=>file,LITE_MAX_BYTES:10});const big=await fetch(base+'&q=1080',{headers});assert.equal(big.status,413);assert.match(big.headers.get('content-type'),/^application\/json/);}finally{await new Promise(r=>s.close(r));rmSync(root,{recursive:true,force:true});}});
++
++test('native normalizer bounds heights, drops unusable formats and caps the list',()=>{
++ const fmt=(o)=>({protocol:'https',vcodec:'avc1.4d401f',acodec:'none',fps:30,url:'https://example.invalid/x',...o});
++ const many=Array.from({length:20},(_,i)=>fmt({width:320,height:180+i*50}));
++ const out=liteApi.liteVideoFormats([fmt({}),fmt({width:0,height:0}),fmt({width:72,height:72}),fmt({width:2560,height:1440}),fmt({width:1280,height:720,vcodec:'vp09.00.10.08'}),fmt({width:1280,height:720,acodec:'mp4a.40.2'}),fmt({width:1280,height:720,protocol:'m3u8_native'}),fmt({width:640,height:360,fps:60}),fmt({width:640,height:360,fps:30}),...many]);
++ assert.ok(out.every(v=>Number.isFinite(v.h)&&v.h>=144&&v.h<=1080),'finite heights inside 144..1080');
++ assert.ok(out.length<=16,'format list is count-capped');
++ const tier360=out.filter(v=>v.h===360);
++ assert.equal(tier360.length,1,'deduped to one entry per tier');
++ assert.equal(tier360[0].fps,30,'same height prefers 30fps');
++ const hs=out.map(v=>v.h);assert.deepEqual([...hs].sort((a,b)=>b-a),hs,'best first');
++});
++test('normalizer dedupes per distinct quality before capping, so duplicates never starve the fallback tier',()=>{
++ const fmt=(o)=>({protocol:'https',vcodec:'avc1.4d401f',acodec:'none',fps:30,url:'https://example.invalid/x',...o});
++ const out=liteApi.liteVideoFormats([...Array.from({length:16},(_,i)=>fmt({width:1920,height:1080,url:'https://example.invalid/dup'+i})),fmt({width:640,height:360,url:'https://example.invalid/low'})]);
++ assert.equal(out.filter(v=>v.h===1080).length,1,'duplicate tiers collapse');
++ assert.ok(out.some(v=>v.h===360),'lower fallback tier survives the cap');
++});
++test('no setLiteLimits hook without RJ_TEST_HOOKS',()=>{assert.equal(liteApi.setLiteLimits,undefined);});
++test('native fallback binds real mux properties and rejects upward/unsupported fallback',async()=>{
++ const high={duration:20,lite:{v:[{h:720,fps:30,url:'https://example.invalid/720',size:1000,tbr:500},{h:1080,fps:30,url:'https://example.invalid/1080',size:1000,tbr:500}],a:[{abr:128,size:1000}]}};
++ const mux360={protocol:'https',vcodec:'avc1.4d401f',acodec:'mp4a.40.2',width:640,height:360,fps:30,url:'https://example.invalid/mux360',filesize:5000};
++ const withMux=(list)=>({...high,getMux:async()=>list});
++ let plan=await liteApi.litePlan(withMux([mux360]),360);
++ assert.equal(plan.mode,'itag18');assert.equal(plan.height,360);assert.equal(plan.v.url,'https://example.invalid/mux360');
++ const aboveOnly=(list)=>({duration:20,lite:{v:[{h:1080,fps:30,url:'https://example.invalid/1080',size:1000,tbr:500}],a:[{abr:128,size:1000}]},getMux:async()=>list});
++ plan=await liteApi.litePlan(aboveOnly([{...mux360,width:854,height:480}]),720);
++ assert.equal(plan.mode,'itag18');assert.equal(plan.height,480,'actual fallback height reported, not an assumed 360');
++ plan=await liteApi.litePlan(withMux([{...mux360,height:720}]),360);
++ assert.equal(plan.mode,'unavailable','taller-than-requested fallback rejected');
++ plan=await liteApi.litePlan(withMux([{...mux360,vcodec:'vp09.00.10.08'}]),360);
++ assert.equal(plan.mode,'unavailable','unsupported codec pairing rejected');
++ plan=await liteApi.litePlan(withMux([]),360);
++ assert.equal(plan.mode,'unavailable','no candidate rejected');
++});
++
++test('normalizer pins requested tiers before the cap: 16 unrelated heights cannot starve 480/360',()=>{
++ const fmt=(o)=>({protocol:'https',vcodec:'avc1.4d401f',acodec:'none',fps:30,url:'https://example.invalid/x',...o});
++ const mids=Array.from({length:16},(_,i)=>fmt({width:Math.round((600+i*25)*16/9),height:600+i*25,url:'https://example.invalid/m'+i}));
++ const out=liteApi.liteVideoFormats([...mids,fmt({width:854,height:480}),fmt({width:640,height:360})]);
++ assert.ok(out.length<=16,'still count-capped');
++ assert.ok(out.some(v=>v.h===480),'480 requested tier survives the cap');
++ assert.ok(out.some(v=>v.h===360),'360 fallback tier survives the cap');
++ const hs=out.map(v=>v.h);assert.deepEqual([...hs].sort((a,b)=>b-a),hs,'best first');
++});
+diff --git a/tests/net-safe.test.mjs b/tests/net-safe.test.mjs
+new file mode 100644
+index 0000000..8721c83
+--- /dev/null
++++ b/tests/net-safe.test.mjs
+@@ -0,0 +1,62 @@
++import test from 'node:test';
++import assert from 'node:assert/strict';
++import { blockedIp, pin, checkUrl } from '../core/net-safe.js';
++
++test('blockedIp rejects IPv4-mapped IPv6 in dotted and hex forms', () => {
++  for (const ip of ['::ffff:127.0.0.1', '::ffff:7f00:1', '::ffff:10.0.0.1', '::ffff:0a00:1', '::ffff:169.254.0.1'])
++    assert.equal(blockedIp(ip), true, ip);
++  assert.equal(blockedIp('::ffff:8.8.8.8'), false, 'mapped public v4 classifies as the v4 host');
++});
++test('blockedIp rejects multicast, reserved, broadcast, and documentation ranges', () => {
++  for (const ip of ['224.0.0.1', '239.1.1.1', '240.0.0.1', '255.255.255.255', '192.0.2.1', '198.51.100.1', '203.0.113.1', '0.0.0.0', '100.64.0.1', '100.127.0.1', '198.18.0.1', '198.19.0.1'])
++    assert.equal(blockedIp(ip), true, ip);
++});
++test('blockedIp rejects nat64, 6to4, link-local, ula, multicast v6, unspecified', () => {
++  for (const ip of ['64:ff9b::1', '2002::1', 'fe80::1', 'fe90::1', 'fc00::1', 'fd00::1', 'ff02::1', '::', '::1'])
++    assert.equal(blockedIp(ip), true, ip);
++});
++test('blockedIp allows ordinary public addresses', () => {
++  for (const ip of ['8.8.8.8', '1.1.1.1', '2606:4700:4700::1111'])
++    assert.equal(blockedIp(ip), false, ip);
++});
++test('pin refuses loopback, localhost names, mapped addrs, odd encodings; the test hook allows loopback fixtures', async () => {
++  await assert.rejects(pin('127.0.0.1'), /blocked/);
++  await assert.rejects(pin('::ffff:7f00:1'), /blocked/);
++  await assert.rejects(pin('localhost'), /blocked/);
++  await assert.rejects(pin('2130706433'), /blocked/);
++  const ok = await pin('127.0.0.1', { allowPrivate: true });
++  assert.equal(ok.address, '127.0.0.1');
++  assert.equal(ok.family, 4);
++});
++test('checkUrl pins scheme and ports 80/443 only', () => {
++  assert.throws(() => checkUrl('http://example.com:8080/'), /port not allowed/);
++  assert.throws(() => checkUrl('ftp://example.com/'), /bad url/);
++  assert.equal(checkUrl('https://example.com/x').hostname, 'example.com');
++});
++
++test('blockedIp classifies normalized 128-bit values: expanded, compressed and mapped forms agree', () => {
++  // expanded forms of loopback / mapped v4 / documentation must block like their compressed forms
++  for (const ip of ['0:0:0:0:0:0:0:1', '0:0:0:0:0:0:0:0', '0:0:0:0:0:ffff:7f00:1', '0000:0000:0000:0000:0000:ffff:7f00:0001',
++    '0:0:0:0:0:0:7f00:1', '2001:db8::1', '2001:db8:0:0:0:0:0:1', '2001:0::1', '2002:808:808::1'])
++    assert.equal(blockedIp(ip), true, ip);
++  // expanded mapped PUBLIC v4 classifies as the v4 host: allowed
++  assert.equal(blockedIp('0:0:0:0:0:ffff:0808:0808'), false);
++  // expanded public v6 stays allowed
++  assert.equal(blockedIp('2606:4700:4700:0:0:0:0:1111'), false);
++});
++
++test('ipv6 fails closed: only global unicast 2000::/3 minus iana special ranges is allowed', () => {
++  // sage repros: site-local, discard-only, benchmark must not pass
++  for (const ip of ['fec0::1', 'fec0::ffff:1', '100::1', '2001:2::1', '2001:2:0:8000::1'])
++    assert.equal(blockedIp(ip), true, ip);
++  // special-purpose table inside and beside 2000::/3
++  for (const ip of ['2001:db8::1', '2002:808:808::1', '3fff::1', '3fff:0fff::1', '2001:0::1', '2001:10::1',
++    '64:ff9b::1', 'fc00::1', 'fd00::1', 'fe80::1', 'ff02::1', '::1', '::'])
++    assert.equal(blockedIp(ip), true, ip);
++  // explicit globals within 2001::/23 stay reachable (iana registry)
++  for (const ip of ['2001:1::1', '2001:1::2', '2001:3::1', '2001:4:112::1', '2001:20::1'])
++    assert.equal(blockedIp(ip), false, ip);
++  // real cdn global unicast is allowed
++  for (const ip of ['2606:4700:4700::1111', '2607:f8b0:4000::1', '2a00:1450:4000::1'])
++    assert.equal(blockedIp(ip), false, ip);
++});
+-- 
+2.34.1
+
