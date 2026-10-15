@@ -16,7 +16,7 @@ const bigBlock = randomBytes(1024 * 1024); // incompressible fixture block
 const root = mkdtempSync(join(tmpdir(), 'rj-pws-'));
 process.env.RJ_DATA = root;
 process.env.RJ_TEST_HOOKS = '1';
-const { pwsUpgrade, testHooks } = await import('../core/pfetch.js');
+const { pwsUpgrade, testHooks, tunnelCompressible } = await import('../core/pfetch.js');
 
 let hits = 0;
 const big = Buffer.alloc(64 * 1024, 'a').toString();
@@ -801,4 +801,27 @@ test('pws: download time counts toward a hit Age', { timeout: 20000 }, async () 
     const age = Number(r2.headers.find(([k]) => k.toLowerCase() === 'age')?.[1]);
     assert.ok(age >= 2, 'Age includes the download duration, got ' + age);
   } finally { ws.close(); }
+});
+
+test('pws: tunnel per-message deflate skipped only for incompressible content types', () => {
+  const ct = (v) => [['content-type', v]];
+  // text: compression earns its CPU (wire savings on real pages)
+  assert.equal(tunnelCompressible(ct('text/html')), true);
+  assert.equal(tunnelCompressible(ct('text/html; charset=utf-8')), true);
+  assert.equal(tunnelCompressible(ct('application/javascript')), true);
+  assert.equal(tunnelCompressible(ct('text/css')), true);
+  assert.equal(tunnelCompressible(ct('application/json; charset=utf-8')), true);
+  assert.equal(tunnelCompressible(ct('image/svg+xml')), true); // svg is xml
+  assert.equal(tunnelCompressible([]), true); // unknown: status quo
+  // already-compressed payloads: zlib CPU is pure waste (23.5 vs 127 MB/s measured)
+  assert.equal(tunnelCompressible(ct('image/png')), false);
+  assert.equal(tunnelCompressible(ct('image/jpeg; quality=80')), false);
+  assert.equal(tunnelCompressible(ct('IMAGE/WEBP')), false); // case-insensitive
+  assert.equal(tunnelCompressible(ct('video/mp4')), false);
+  assert.equal(tunnelCompressible(ct('audio/mpeg')), false);
+  assert.equal(tunnelCompressible(ct('font/woff2')), false);
+  assert.equal(tunnelCompressible(ct('application/octet-stream')), false);
+  assert.equal(tunnelCompressible(ct('application/zip')), false);
+  assert.equal(tunnelCompressible(ct('application/pdf')), false);
+  assert.equal(tunnelCompressible(ct('application/wasm')), false);
 });

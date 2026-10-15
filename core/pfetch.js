@@ -241,6 +241,22 @@ const AC_MAX_DECODE = 256 * 1024 * 1024;
 // (or zlib jobs) from one page can never exhaust the box
 const AC_WALL_MS = 300000, AC_MAX_CONN_STREAMS = 64, AC_MAX_GLOBAL_STREAMS = 256;
 let upstreamActive = 0;
+
+// per-message deflate earns its CPU on text (html/css/js/json) but burns it
+// on already-compressed payloads. data frames for these content-types are
+// sent uncompressed (RFC 7692 allows per-message choice when negotiated).
+const NOCMP_PREFIX = ['video/', 'audio/', 'font/woff'];
+const NOCMP_EXACT = new Set(['application/octet-stream', 'application/zip', 'application/gzip', 'application/x-gzip', 'application/x-brotli', 'application/zstd', 'application/x-7z-compressed', 'application/x-rar-compressed', 'application/x-xz', 'application/pdf', 'application/wasm', 'application/vnd.android.package-archive', 'application/x-msdownload', 'application/x-iso9660-image']);
+export function tunnelCompressible(headers) {
+  let ct = '';
+  for (const [k, v] of headers) if (String(k).toLowerCase() === 'content-type') { ct = String(v); break; }
+  if (!ct) return true; // unknown: keep the status quo (compress)
+  ct = ct.split(';', 1)[0].trim().toLowerCase();
+  if (ct.startsWith('image/')) return ct === 'image/svg+xml'; // svg is xml: compresses well
+  if (NOCMP_PREFIX.some((p) => ct.startsWith(p))) return false;
+  return !NOCMP_EXACT.has(ct);
+}
+
 // relayed websockets are long-lived but never unbounded: an idle wall that
 // any traffic resets, a hard lifetime, per-stream byte and rate budgets,
 // and a per-user stream count on top of the shared global budget
@@ -278,7 +294,7 @@ export function pwsUpgrade(req, socket, head, user, track) {
         if (type === 2 || type === 3) { queueTerminal(id, type, payload); return true; }
         return false;
       }
-      try { ws.send(frame(id, type, payload)); } catch {
+      try { ws.send(frame(id, type, payload), entry && entry.nocmp && type === 1 ? { compress: false } : undefined); } catch {
         // a send that fails outright: terminals stay bounded-pending, streams shed
         if (type === 2 || type === 3) { queueTerminal(id, type, payload); return true; }
         if (entry) destroyEntry(id, entry, 'busy');
@@ -492,6 +508,7 @@ export function pwsUpgrade(req, socket, head, user, track) {
             const remainSec = Math.max(0, Math.floor((hit.exp - Date.now()) / 1000));
             const hHeaders = hit.headers.map(([k, v]) => k.toLowerCase() === 'cache-control' ? [k, String(v).replace(/((?:s-maxage|max-age)=)\d+/g, '$1' + remainSec)] : [k, v]);
             hHeaders.push(['age', String(ageSec)]);
+            entry.nocmp = !tunnelCompressible(hHeaders);
             if (!out(id, 0, Buffer.from(JSON.stringify({ status: hit.status, text: hit.text, headers: hHeaders })), entry)) return;
             let off = 0;
             const pump = () => {
@@ -536,6 +553,7 @@ export function pwsUpgrade(req, socket, head, user, track) {
             }
             entry.src = src;
             const keep = raw.filter(([k]) => !HOP.has(k.toLowerCase()));
+            entry.nocmp = !tunnelCompressible(keep);
             if (!out(id, 0, Buffer.from(JSON.stringify({ status: ur.statusCode, text: ur.statusMessage || '', headers: keep })), entry)) return; // shed at the head: never wire up listeners on a destroyed entry
             const fresh = cacheKey ? acFresh(ur.statusCode, keep) : null;
             // freshness starts at headers time: the download's own duration
