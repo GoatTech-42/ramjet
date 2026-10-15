@@ -576,17 +576,11 @@ async function scStreamPlan(id, force = false) {
 async function pipeScHls(plan, start, end, req, res, track) {
   end = Math.min(end, plan.total - 1);
   if (start > end || start < 0) { res.writeHead(416, { 'content-range': 'bytes */' + plan.total }); res.end(); return { bytes: 0, status: 416 }; }
-  res.writeHead(206, {
-    'content-type': 'audio/mp4',
-    'content-length': end - start + 1,
-    'content-range': 'bytes ' + start + '-' + end + '/' + plan.total,
-    'accept-ranges': 'bytes',
-    'cache-control': 'private, no-store',
-  });
   let sent = 0, dead = false;
   // res close = the client went away (a GET req 'close' fires the moment the
   // empty request stream ends, far too early - that one hangs the stream)
   res.on('close', () => { if (!res.writableEnded) dead = true; });
+  res.on('error', () => { dead = true; });
   for (let k = 0; k < plan.parts.length && !dead; k++) {
     const p0 = plan.offs[k], p1 = p0 + plan.sizes[k] - 1;
     if (p1 < start || p0 > end) continue;
@@ -595,17 +589,45 @@ async function pipeScHls(plan, start, end, req, res, track) {
       buf = plan.parts[k];
     } else {
       const r = await fetch(plan.parts[k], { headers: { 'user-agent': WEB_UA }, signal: AbortSignal.timeout(15000) }).catch(() => null);
-      if (!r || !r.ok) { if (!sent) { dead = true; return { bytes: 0, status: r ? r.status : 502 }; } break; }
+      let failed = false;
+      if (!r || !r.ok) {
+        // headers go out only after a part is proven good, so a first-part
+        // failure (expired signature: 403/410) reaches the caller clean and
+        // its re-resolve branch can actually run
+        if (!sent && !res.headersSent) return { bytes: 0, status: r ? r.status : 502 };
+        failed = true; // midstream: abort the response below - never hang
+      }
+      if (failed) { res.destroy(); return { bytes: sent, status: 206 }; }
       buf = Buffer.from(await r.arrayBuffer());
+    }
+    if (!res.headersSent) {
+      res.writeHead(206, {
+        'content-type': 'audio/mp4',
+        'content-length': end - start + 1,
+        'content-range': 'bytes ' + start + '-' + end + '/' + plan.total,
+        'accept-ranges': 'bytes',
+        'cache-control': 'private, no-store',
+      });
     }
     const lo = Math.max(start - p0, 0), hi = Math.min(end - p0, plan.sizes[k] - 1);
     buf = buf.subarray(lo, hi + 1);
-    if (!res.write(buf)) await new Promise((ok2) => res.once('drain', ok2));
+    if (!res.write(buf)) {
+      // backpressure: settle on drain, but a closed/errored socket must not
+      // park this request forever
+      await new Promise((ok2) => {
+        const fin = () => { res.off('drain', onDrain); res.off('close', fin); res.off('error', fin); ok2(); };
+        const onDrain = () => { res.off('close', fin); res.off('error', fin); ok2(); };
+        res.once('drain', onDrain);
+        res.once('close', fin);
+        res.once('error', fin);
+      });
+      if (dead) break;
+    }
     sent += buf.length;
     track(buf.length);
   }
-  if (!dead) res.end();
-  return { bytes: sent, status: 206 };
+  if (!res.writableEnded && !res.destroyed) res.end();
+  return { bytes: sent, status: res.headersSent ? 206 : 502 };
 }
 
 // ---------- audius ----------
@@ -649,7 +671,7 @@ async function auArtist(uid) {
 // ---------- routes ----------
 
 // pure row mapping exposed for the unit tests
-export const ampInternals = { ymRow, scTrackOk, scMap, auMap, parseM3U8, patchInitDuration };
+export const ampInternals = { ymRow, scTrackOk, scMap, auMap, parseM3U8, patchInitDuration, pipeScHls };
 
 export async function register(req, res, ctx) {
   const { url, sendJson, guard, session } = ctx;
