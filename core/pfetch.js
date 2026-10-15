@@ -352,6 +352,7 @@ export function pwsUpgrade(req, socket, head, user, track) {
       clearTimeout(entry.wall);
       clearTimeout(entry.life);
       if (entry.bp) { clearInterval(entry.bp); entry.bp = null; }
+      if (entry.flushT) { clearTimeout(entry.flushT); entry.flushT = null; entry.pendChunks = null; entry.pendLen = 0; }
       if (entry.collecting) { acCollectingBytes -= entry.collected; entry.collecting = false; entry.collected = 0; }
       if (entry.ws) userWsActive.set(user, (userWsActive.get(user) || 1) - 1);
       try { entry.src?.destroy(); } catch {}
@@ -569,6 +570,19 @@ export function pwsUpgrade(req, socket, head, user, track) {
             let wire = 0;
             ur.on('data', (c) => { wire += c.length; }); // wire bytes: capped, and checked against content-length at end
             let decoded = 0;
+            // frame coalescing: upstream delivers ~64KB socket chunks; each ws
+            // message costs the browser several cross-context hops per frame.
+            // gather bursts into ~256KB frames; a 2ms timer bounds the delay a
+            // slow drip ever waits. terminal frames flush first. (1MB frames
+            // benched slower box-side and no faster end-to-end.)
+            const flushPend = () => {
+              entry.flushT = null;
+              if (active.get(id) !== entry || !entry.pendLen) return;
+              const b = entry.pendChunks.length === 1 ? entry.pendChunks[0] : Buffer.concat(entry.pendChunks, entry.pendLen);
+              entry.pendChunks = null; entry.pendLen = 0;
+              track(b.length);
+              out(id, 1, b, entry);
+            };
             src.on('data', (c) => {
               if (active.get(id) !== entry) return;
               decoded += c.length;
@@ -576,7 +590,10 @@ export function pwsUpgrade(req, socket, head, user, track) {
                 destroyEntry(id, entry, 'too big');
                 return;
               }
-              track(c.length); if (!out(id, 1, c, entry)) return;
+              if (entry.pendChunks) entry.pendChunks.push(c); else entry.pendChunks = [c];
+              entry.pendLen = (entry.pendLen || 0) + c.length;
+              if (entry.pendLen >= 256 * 1024) { if (entry.flushT) { clearTimeout(entry.flushT); entry.flushT = null; } flushPend(); }
+              else if (!entry.flushT) entry.flushT = setTimeout(flushPend, 2);
               if (entry.collecting) {
                 // a capped per-item buffer, and in-flight captures share the
                 // same global budget as stored items; released exactly once,
@@ -589,6 +606,8 @@ export function pwsUpgrade(req, socket, head, user, track) {
             });
             src.on('end', () => {
               if (active.get(id) !== entry) return;
+              if (entry.flushT) { clearTimeout(entry.flushT); entry.flushT = null; }
+              flushPend();
               // completeness: a truncated upstream (declared content-length never
               // arrived) is an error for the page and must never enter the cache
               if (method !== 'HEAD' && ur.statusCode !== 204 && ur.statusCode !== 304 && expected && wire !== expected) { destroyEntry(id, entry, 'truncated'); return; }

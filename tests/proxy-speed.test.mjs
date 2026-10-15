@@ -108,6 +108,19 @@ const upstream = http.createServer((req, res) => {
     res.on('close', () => clearInterval(t));
     return;
   }
+  if (path === '/drip.js') { // 2MB no-store body, 32KB/50ms drip: coalescing must not hold it
+    const total = 2 * 1024 * 1024;
+    res.writeHead(200, { 'content-type': 'text/javascript', 'cache-control': 'no-store', 'content-length': total });
+    let sentBytes = 0;
+    const t = setInterval(() => {
+      const c = Buffer.alloc(Math.min(32 * 1024, total - sentBytes), 'd');
+      sentBytes += c.length;
+      res.write(c);
+      if (sentBytes >= total) { clearInterval(t); res.end(); }
+    }, 50);
+    res.on('close', () => clearInterval(t));
+    return;
+  }
   if (path === '/slow.js') { // 3MB cacheable body, slow drip: cancel mid-capture target
     res.writeHead(200, { 'content-type': 'text/javascript', 'cache-control': 'public, max-age=600', 'content-length': 3 * 1024 * 1024 });
     let sentBytes = 0;
@@ -824,4 +837,36 @@ test('pws: tunnel per-message deflate skipped only for incompressible content ty
   assert.equal(tunnelCompressible(ct('application/zip')), false);
   assert.equal(tunnelCompressible(ct('application/pdf')), false);
   assert.equal(tunnelCompressible(ct('application/wasm')), false);
+});
+
+const wsGetFramed = (ws, url) => new Promise((resolve, reject) => {
+  const id = Math.floor(Math.random() * 1e9);
+  const frames = [];
+  let head = null;
+  const onMsg = (data) => {
+    const buf = Buffer.isBuffer(data) ? data : Buffer.from(data);
+    const mid = buf.readUInt32BE(0), type = buf.readUInt8(4);
+    if (mid !== id) return;
+    if (type === 0) head = JSON.parse(buf.subarray(5).toString('utf8'));
+    else if (type === 1) frames.push(buf.subarray(5));
+    else if (type === 2) { ws.off('message', onMsg); resolve({ ...head, frames }); }
+    else { ws.off('message', onMsg); reject(new Error('upstream error frame: ' + buf.subarray(5).toString('utf8'))); }
+  };
+  ws.on('message', onMsg);
+  ws.send(JSON.stringify({ id, url, method: 'GET', headers: [] }));
+});
+
+test('pws: bursts coalesce into large frames, drips still flow', { timeout: 30000 }, async () => {
+  const ws = await openWs();
+  try {
+    const big = await wsGetFramed(ws, upBase + '/big.js'); // 32MB flood
+    const bigBytes = big.frames.reduce((a, c) => a + c.length, 0);
+    assert.equal(bigBytes, 32 * 1024 * 1024, 'coalescing never loses bytes');
+    assert.ok(big.frames.length <= 160, '32MB arrives in <=160 frames (>=200KB avg), got ' + big.frames.length);
+    assert.ok(big.frames.every((c) => c.length <= 256 * 1024 + 64 * 1024), 'frames stay near the 256KB target');
+    const drip = await wsGetFramed(ws, upBase + '/drip.js'); // 32KB every 50ms, no-store: never a cache replay
+    const dripBytes = drip.frames.reduce((a, c) => a + c.length, 0);
+    assert.equal(dripBytes, 2 * 1024 * 1024, 'drip bytes intact');
+    assert.ok(drip.frames.length >= 20, 'a slow stream is not held back waiting for full frames, got ' + drip.frames.length + ' frames');
+  } finally { ws.close(); }
 });
