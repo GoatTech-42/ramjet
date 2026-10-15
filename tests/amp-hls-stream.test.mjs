@@ -118,3 +118,43 @@ test('client close under backpressure settles the drain wait', async () => {
   sock.removeAllListeners();
   d.server.closeAllConnections?.(); up.server.closeAllConnections?.(); await close(d.server); await close(up.server);
 });
+
+// upstream answers 200 with a full content-length, then kills the body early
+const truncated = async (sendBytes, declared) => {
+  const server = http.createServer((req, res) => {
+    res.writeHead(200, { 'content-length': declared });
+    res.write(Buffer.alloc(sendBytes, 9), () => res.socket.destroy());
+  });
+  const port = await listen(server);
+  return { server, url: `http://127.0.0.1:${port}` };
+};
+
+test('200-then-truncated-body on the first part: clean 502, headers untouched', async () => {
+  const up = await truncated(100, 5000);
+  const plan = { kind: 'hls', parts: [up.url + '/seg0'], sizes: [5000], offs: [0], total: 5000 };
+  const d = serve(plan);
+  const port = await listen(d.server);
+  const r = await get(port);
+  assert.equal(r.status, 502);
+  assert.equal(r.body.length, 0);
+  assert.deepEqual(d.settled(), { bytes: 0, status: 502 });
+  d.server.closeAllConnections?.(); up.server.closeAllConnections?.();
+  await close(d.server); await close(up.server);
+});
+
+test('200-then-truncated-body after a good part: 206 out, socket destroyed, no hang', async () => {
+  const seg0 = Buffer.alloc(5000, 1);
+  const good = await upstream({ '/seg0': { body: seg0 } });
+  const bad = await truncated(100, 5000);
+  const plan = { kind: 'hls', parts: [good.url + '/seg0', bad.url + '/seg1'], sizes: [5000, 5000], offs: [0, 5000], total: 10000 };
+  const d = serve(plan);
+  const port = await listen(d.server);
+  const r = await get(port);
+  assert.equal(r.status, 206);
+  assert.equal(r.aborted, true);
+  assert.equal(r.body.length, 5000);
+  assert.ok(r.body.equals(seg0));
+  assert.deepEqual(d.settled(), { bytes: 5000, status: 206 });
+  d.server.closeAllConnections?.(); good.server.closeAllConnections?.(); bad.server.closeAllConnections?.();
+  await close(d.server); await close(good.server); await close(bad.server);
+});

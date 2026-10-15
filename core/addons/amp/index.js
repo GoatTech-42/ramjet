@@ -589,16 +589,18 @@ async function pipeScHls(plan, start, end, req, res, track) {
       buf = plan.parts[k];
     } else {
       const r = await fetch(plan.parts[k], { headers: { 'user-agent': WEB_UA }, signal: AbortSignal.timeout(15000) }).catch(() => null);
-      let failed = false;
-      if (!r || !r.ok) {
-        // headers go out only after a part is proven good, so a first-part
-        // failure (expired signature: 403/410) reaches the caller clean and
-        // its re-resolve branch can actually run
-        if (!sent && !res.headersSent) return { bytes: 0, status: r ? r.status : 502 };
-        failed = true; // midstream: abort the response below - never hang
+      // a 200 whose body dies mid-read (reset, truncation, timeout) rejects
+      // the read, not the fetch - fold it into the same failure handling
+      const body = r && r.ok ? await r.arrayBuffer().then((b2) => Buffer.from(b2)).catch(() => null) : null;
+      // headers go out only after a part is proven good, so a first-part
+      // failure (expired signature: 403/410) reaches the caller clean and
+      // its re-resolve branch can actually run
+      if (!body) {
+        if (!sent && !res.headersSent) return { bytes: 0, status: r && !r.ok ? r.status : 502 };
+        res.destroy(); // midstream: abort, never hang a half-sent body
+        return { bytes: sent, status: 206 };
       }
-      if (failed) { res.destroy(); return { bytes: sent, status: 206 }; }
-      buf = Buffer.from(await r.arrayBuffer());
+      buf = body;
     }
     if (!res.headersSent) {
       res.writeHead(206, {
