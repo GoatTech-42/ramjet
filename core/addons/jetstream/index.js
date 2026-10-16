@@ -1,4 +1,5 @@
 import { dataPath } from '../../data.js';
+import { TtlCache } from '../../ttlcache.js';
 import dns from 'node:dns';
 import { pin } from '../../net-safe.js';
 import http from 'node:http';
@@ -249,10 +250,14 @@ function scoreCandidate(v, profile, histIds, dis = null, taste = null, jitter = 
 // carry the tag), merged and ranked once. both shelves slice this same list.
 // search results cached briefly: rapid opens should not re-hit InnerTube.
 const searchCache = new Map(); // query -> { at, data }
+const kindSearchTtl = new TtlCache(3 * 60 * 1000, 50); // channel/playlist searches
 async function ytSearch(query) {
   const hit = searchCache.get(query);
   if (hit && Date.now() - hit.at < 3 * 60 * 1000) return hit.data;
   const data = await yt('search', { query });
+  // an http-200 error envelope must not cache as an empty result; a real
+  // search response always carries one of these containers
+  if (!data || typeof data !== 'object' || !(data.contents || data.continuationContents || data.onResponseReceivedCommands)) throw new Error('yt bad payload');
   searchCache.set(query, { at: Date.now(), data });
   if (searchCache.size > 100) searchCache.delete(searchCache.keys().next().value);
   return data;
@@ -1516,7 +1521,13 @@ export async function register(req, res, ctx) {
     const kind = url.searchParams.get('type');
     if (kind === 'channel' || kind === 'playlist') {
       try {
-        const data = await ytWeb('search', { query: q, params: kind === 'channel' ? 'EgIQAg==' : 'EgIQAw==' });
+        // same 3-minute budget as video search: paging through results or
+        // reopening a tab must not re-hit InnerTube for the same query
+        const data = await kindSearchTtl.through(`${kind}:${q}`, async () => {
+          const d = await ytWeb('search', { query: q, params: kind === 'channel' ? 'EgIQAg==' : 'EgIQAw==' });
+          if (!d || typeof d !== 'object' || !(d.contents || d.continuationContents || d.onResponseReceivedCommands)) throw new Error('yt bad payload'); // see ytSearch
+          return d;
+        });
         guard.trackBytes(session.user, 4096);
         return sendJson(res, 200, { ok: true, q, type: kind, results: parseKindSearch(data, kind) });
       } catch {
@@ -1524,7 +1535,9 @@ export async function register(req, res, ctx) {
       }
     }
     try {
-      const data = await yt('search', { query: q });
+      // ytSearch carries the 3-minute cache; calling yt() directly here
+      // bypassed it and every repeat search paid a full InnerTube round trip
+      const data = await ytSearch(q);
       guard.trackBytes(session.user, 4096);
       return sendJson(res, 200, { ok: true, q, results: parseSearch(data) });
     } catch {

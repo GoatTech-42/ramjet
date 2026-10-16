@@ -1,4 +1,5 @@
 import { dataPath } from '../../data.js';
+import { TtlCache } from '../../ttlcache.js';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { randomBytes } from 'node:crypto';
@@ -329,10 +330,13 @@ const ymPost = (endpoint, body) => fetch('https://music.youtube.com/youtubei/v1/
 });
 
 // artist page by channel id: header (visual or immersive) + top songs.
-async function ymArtistById(browseId, card = {}) {
+// upstream-derived ONLY - the cached value is shared across requests, so
+// caller-specific fallbacks are applied by the caller on a clone, never here.
+async function ymArtistByIdLive(browseId) {
   const br = await ymPost('browse', { browseId });
   if (!br.ok) throw new Error('ym browse ' + br.status);
   const bd = await br.json();
+  if (!bd || typeof bd !== 'object' || (!bd.contents && !bd.header)) throw new Error('ym bad payload'); // see ymSearchLive
   const tracks = [];
   const seen = new Set();
   const walk = (node) => {
@@ -346,7 +350,7 @@ async function ymArtistById(browseId, card = {}) {
     Object.values(node).forEach(walk);
   };
   walk(bd);
-  let name = card.cardName || '', art = card.cardArt || '', sub = card.cardSub || '';
+  let name = '', art = '', sub = '';
   try {
     const vh = bd.header.musicVisualHeaderRenderer || bd.header.musicImmersiveHeaderRenderer;
     if (vh) {
@@ -366,12 +370,14 @@ async function ymArtistById(browseId, card = {}) {
   return { name, art, sub, tracks: tracks.slice(0, 20) };
 }
 
-// artist page: resolve the name to a channel through the search top-result
-// card, then browse the channel for its header and top songs.
-async function ymArtist(name) {
+// artist name resolution: the search top-result card points at the channel.
+// this resolution is itself cached (below), so a repeat artist page costs
+// two cache reads and a clone.
+async function ymArtistResolve(name) {
   const sr = await ymPost('search', { query: name });
   if (!sr.ok) throw new Error('ym ' + sr.status);
   const sd = await sr.json();
+  if (!sd || typeof sd !== 'object' || !sd.contents) throw new Error('ym bad payload'); // see ymSearchLive
   let browseId = '', cardName = '', cardArt = '', cardSub = '';
   const findCard = (node) => {
     if (browseId || !node || typeof node !== 'object') return;
@@ -391,15 +397,28 @@ async function ymArtist(name) {
   };
   findCard(sd);
   if (!browseId) throw new Error('no artist page');
-  const out = await ymArtistById(browseId, { cardName, cardArt, cardSub });
-  if (!out.name) out.name = name;
+  return { browseId, cardName, cardArt, cardSub };
+}
+// artist page: cached name resolution + cached channel page; fallbacks (the
+// search card, then the query itself) land on a per-request clone - the
+// cached values are frozen and shared.
+async function ymArtistLive(name) {
+  const r = await ymArtistResolved(name);
+  const base = await ymArtistById(r.browseId);
+  const out = { ...base };
+  if (!out.name) out.name = r.cardName || name;
+  if (!out.art) out.art = r.cardArt;
+  if (!out.sub) out.sub = r.cardSub;
   return out;
 }
 
-async function ymSearch(q) {
+async function ymSearchLive(q) {
   const r = await ymPost('search', { query: q, params: YM_SONGS_PARAMS });
   if (!r.ok) throw new Error('ym ' + r.status);
   const data = await r.json();
+  // an http-200 error envelope must not cache as an empty result; a real
+  // search response always carries contents, even when nothing matched
+  if (!data || typeof data !== 'object' || !data.contents) throw new Error('ym bad payload');
   const items = [];
   const seen = new Set();
   const walk = (node) => {
@@ -468,9 +487,10 @@ const scMap = (t) => ({
   stream: '/api/apps/amp/stream?src=sc&id=' + t.id,
 });
 
-async function scSearch(q) {
+async function scSearchLive(q) {
   const d = await scFetchJson('https://api-v2.soundcloud.com/search/tracks?q=' + encodeURIComponent(q) + '&limit=24');
-  return (d.collection || []).filter(scTrackOk).slice(0, 12).map(scMap);
+  if (!d || !Array.isArray(d.collection)) throw new Error('sc bad payload'); // see ymSearchLive
+  return d.collection.filter(scTrackOk).slice(0, 12).map(scMap);
 }
 
 // artist page: profile + their public tracks, same row shape as search
@@ -706,9 +726,10 @@ const auMap = (t) => {
   };
 };
 
-async function auSearch(q) {
+async function auSearchLive(q) {
   const j = await auGet('/v1/tracks/search?query=' + encodeURIComponent(q));
-  return (j.data || []).slice(0, 12).map(auMap);
+  if (!j || !Array.isArray(j.data)) throw new Error('au bad payload'); // see ymSearchLive
+  return j.data.slice(0, 12).map(auMap);
 }
 
 // artist page: profile + their tracks, same row shape as search
@@ -726,7 +747,24 @@ async function auArtist(uid) {
 // ---------- routes ----------
 
 // pure row mapping exposed for the unit tests
-export const ampInternals = { ymRow, scTrackOk, scMap, auMap, parseM3U8, patchInitDuration, pipeScHls, pipeMedia, ytBlock };
+export const ampInternals = { ymRow, scTrackOk, scMap, auMap, parseM3U8, patchInitDuration, pipeScHls, pipeMedia, ytBlock,
+  // cache-wrapped artist lookups + their stores, exposed for the cache
+  // tests (getters: the caches are declared further down)
+  ymArtist: (...a) => ymArtist(...a), ymArtistById: (...a) => ymArtistById(...a),
+  ymSearch: (...a) => ymSearch(...a), scSearch: (...a) => scSearch(...a), auSearch: (...a) => auSearch(...a),
+  get artistTtl() { return artistTtl; }, get searchTtl() { return searchTtl; } };
+
+// read-path caches, same 3-minute budget as jetstream search: a repeat
+// query (paging, tab reopens, the artist card following a search row) must
+// not re-pay three external round trips. values only - failures never cache.
+const searchTtl = new TtlCache(3 * 60 * 1000, 100);
+const artistTtl = new TtlCache(10 * 60 * 1000, 60);
+const ymSearch = (q) => searchTtl.through('ym:' + q, () => ymSearchLive(q));
+const scSearch = (q) => searchTtl.through('sc:' + q, () => scSearchLive(q));
+const auSearch = (q) => searchTtl.through('au:' + q, () => auSearchLive(q));
+const ymArtistById = (id) => artistTtl.through('ymid:' + id, () => ymArtistByIdLive(id));
+const ymArtistResolved = (name) => artistTtl.through('ymr:' + name, () => ymArtistResolve(name));
+const ymArtist = (name) => ymArtistLive(name); // two cached reads + a per-request clone
 
 export async function register(req, res, ctx) {
   const { url, sendJson, guard, session } = ctx;
@@ -767,8 +805,10 @@ export async function register(req, res, ctx) {
       guard.trackBytes(session.user, 8192);
       if (!out || !out.name) return sendJson(res, 404, { ok: false, error: 'no artist page found' });
       if (!out.tracks.length) return sendJson(res, 404, { ok: false, error: 'nothing to play from them yet' });
-      if (out.art && /^https:/.test(out.art)) out.art = '/api/apps/amp/art?src=ytu&u=' + b64(out.art);
-      return sendJson(res, 200, { ok: true, src, ...out });
+      // cached values are frozen: adapt on a copy, never in place
+      const body = { ...out };
+      if (body.art && /^https:/.test(body.art)) body.art = '/api/apps/amp/art?src=ytu&u=' + b64(body.art);
+      return sendJson(res, 200, { ok: true, src, ...body });
     } catch {
       return sendJson(res, 502, { ok: false, error: 'artist lookup broke - try again' });
     }
