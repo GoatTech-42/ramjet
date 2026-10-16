@@ -3,6 +3,7 @@
   import { readSearches, addSearch, clearSearches } from '../../lib/searchhist.js';
   import Recent from '../../lib/Recent.svelte';
   let qf = $state(false);
+  let searchPh = $state('Search videos, channels or playlists');
   import '../../tokens.css';
   import AppFrame from '../../lib/AppFrame.svelte';
   import { onMount, tick } from "svelte";
@@ -75,6 +76,12 @@
   onMount(async () => {
     const r = await api('/api/apps/jetstream/history');
     if (r.ok) history = r.data.items || [];
+    // the full placeholder fits desktop; on phones it clips mid-word, so swap
+    // in a shorter one under 480px instead of shrinking the type
+    const phMq = matchMedia('(max-width: 480px)');
+    const applyPh = () => (searchPh = phMq.matches ? 'Search videos or channels' : 'Search videos, channels or playlists');
+    applyPh();
+    phMq.addEventListener('change', applyPh);
     api('/api/apps/jetstream/shorts').then((s) => { if (s.ok) shorts = s.data.items || []; });
     api('/api/apps/jetstream/for-you').then((f) => { if (f.ok) forYou = f.data.items || []; });
     api('/api/apps/jetstream/likes').then((l) => { if (l.ok) liked = new Set(l.data.ids || []); });
@@ -1310,7 +1317,7 @@
   </header>
 
   <form class="bar" onsubmit={search}>
-    <input bind:value={q} onfocus={() => (qf = true)} onblur={() => setTimeout(() => (qf = false), 150)} aria-label="Search videos" placeholder="Search videos, channels or playlists" enterkeyhint="search" autocapitalize="off" autocomplete="off" />
+    <input bind:value={q} onfocus={() => (qf = true)} onblur={() => setTimeout(() => (qf = false), 150)} aria-label="Search videos" placeholder={searchPh} enterkeyhint="search" autocapitalize="off" autocomplete="off" />
     <Recent items={recentQ} query={q} focused={qf} onpick={(r) => { q = r; qf = false; search({ preventDefault() {} }); }} onclear={() => (recentQ = clearSearches('js-searches'))} />
     <button type="submit" disabled={busy}>{busy ? 'Searching...' : 'Search'}</button>
   </form>
