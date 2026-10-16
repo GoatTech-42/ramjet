@@ -112,10 +112,13 @@ test('password change kills every other session and re-mints the current browser
     assert.equal((await me(cookieB)).status, 200);
     const ch = await fetch(base + '/api/auth/change-password', { method: 'POST', headers: { 'content-type': 'application/json', cookie: cookieA }, body: JSON.stringify({ current: PASS, next: 'replacement-pass' }) });
     assert.equal(ch.status, 200);
-    const fresh = ch.headers.get('set-cookie');
-    assert.ok(fresh && fresh.includes('rj2_session='), 'the changing browser gets a replacement session');
-    assert.ok(!fresh.includes('Secure'), 'no Secure flag on a plain http deployment');
-    const newCookie = fresh.split(';')[0];
+    const fresh = ch.headers.getSetCookie();
+    const sess = fresh.find((c) => c.startsWith('rj2_session='));
+    assert.ok(sess, 'the changing browser gets a replacement session');
+    assert.ok(!sess.includes('Secure'), 'session cookie stays non-Secure on a plain http deployment');
+    const kd = fresh.find((c) => c.startsWith('__Host-rj_kd='));
+    assert.ok(kd && kd.includes('Secure'), 'the replacement device cookie is Secure always (the __Host- rule)');
+    const newCookie = sess.split(';')[0];
     assert.equal((await me(cookieB)).status, 401, 'the other session survives the password change');
     assert.equal((await me(cookieA)).status, 401, 'the old token of the changing browser survives');
     assert.equal((await me(newCookie)).status, 200, 'the replacement session works');

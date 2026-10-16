@@ -1,5 +1,6 @@
 import { readFileSync, writeFileSync, renameSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
+import { isIP, BlockList } from 'node:net';
 
 export function readJson(path, fallback) {
   try { return JSON.parse(readFileSync(path, 'utf8')); }
@@ -48,22 +49,39 @@ export function parseCookies(req) {
   }
   return out;
 }
-// forwarded identity is only as real as the peer that vouches for it: honor
-// x-forwarded-for from the on-box proxy (loopback, or RJ_TRUST_PROXY peers)
-// and use the socket address for everyone else, or a direct client rotates
-// its identity at will
+// Only an explicitly trusted socket peer may vouch for forwarded identity.
+// Select from the right, never from an attacker-controlled leftmost entry.
 const TRUSTED_PROXY = (process.env.RJ_TRUST_PROXY || '127.0.0.1,::1').split(',').map((s) => s.trim()).filter(Boolean);
+const FORWARDED_HOPS = Number(process.env.RJ_FORWARDED_HOPS || '1');
+if (!Number.isInteger(FORWARDED_HOPS) || FORWARDED_HOPS < 1 || FORWARDED_HOPS > 8) throw Error('Invalid forwarded hop count');
+const forwardedProxyRanges = new BlockList();
+for (const entry of (process.env.RJ_FORWARDED_PROXY_CIDRS || '').split(',').map(s => s.trim()).filter(Boolean)) {
+  const [address, prefixText] = entry.split('/');
+  const family = isIP(address);
+  const prefix = prefixText === undefined ? (family === 4 ? 32 : 128) : Number(prefixText);
+  if (!family || !Number.isInteger(prefix) || prefix < 0 || prefix > (family === 4 ? 32 : 128)) throw Error('Invalid forwarded proxy range');
+  forwardedProxyRanges.addSubnet(address, prefix, family === 4 ? 'ipv4' : 'ipv6');
+}
+const bareIp = value => String(value || '').trim().replace(/^::ffff:/, '');
 export function trustedProxy(req) {
   const peer = req.socket.remoteAddress || '';
-  const bare = peer.replace(/^::ffff:/, '');
-  return TRUSTED_PROXY.includes(peer) || TRUSTED_PROXY.includes(bare);
+  return TRUSTED_PROXY.includes(peer) || TRUSTED_PROXY.includes(bareIp(peer));
 }
 export function clientIp(req) {
-  if (trustedProxy(req)) {
-    const fwd = (req.headers['x-forwarded-for'] || '').split(',')[0].trim();
-    if (fwd) return fwd;
+  const peer = req.socket.remoteAddress || '';
+  if (!trustedProxy(req)) return peer;
+  const raw = req.headers['x-forwarded-for'];
+  if (typeof raw !== 'string' || raw.length > 4096) return peer;
+  const chain = raw.split(',').map(bareIp);
+  if (chain.length < FORWARDED_HOPS || chain.length > 32) return peer;
+  const selected = chain.length - FORWARDED_HOPS;
+  // Every skipped intermediate hop must be an explicitly configured proxy.
+  // A direct-origin request cannot invent a second-last client address.
+  for (let i = selected + 1; i < chain.length; i++) {
+    const family = isIP(chain[i]);
+    if (!family || !forwardedProxyRanges.check(chain[i], family === 4 ? 'ipv4' : 'ipv6')) return peer;
   }
-  return req.socket.remoteAddress || '';
+  return isIP(chain[selected]) ? chain[selected] : peer;
 }
 // session cookies go Secure when the deployment is https-fronted: explicitly
 // (RJ_SECURE_COOKIES=1) or per request when a trusted proxy says the client

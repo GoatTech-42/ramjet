@@ -302,23 +302,54 @@ const server = createServer(async (req, res) => {
   try {
     if (path.startsWith('/api/')) {
       const user = session?.user || `anon:${clientIp(req)}`;
-      if (!guard.allowRequest(user)) return sendJson(res, 429, { ok: false, error: 'slow down a bit' });
+      // login keys its general guard by device trust instead (below): a
+      // remembered device must not inherit its nat neighbors' anon bucket.
+      if (path !== '/api/auth/login' && !guard.allowRequest(user)) return sendJson(res, 429, { ok: false, error: 'slow down a bit' });
 
       if (path === '/api/auth/login' && req.method === 'POST') {
         const body = JSON.parse((await readBody(req)).toString() || '{}');
         const name = String(body.username || '').trim().toLowerCase();
-        // every visitor arrives through the same on-box proxy, so an ip-only
-        // throttle would lock out ALL users at once. throttle the account,
-        // keep a wide per-ip ceiling against password spraying.
-        if (!guard.allowLogin(`acct:${name}`) || !guard.allowLogin(`ip:${clientIp(req)}`, 120)) {
-          return sendJson(res, 429, { ok: false, error: 'too many tries - wait a few minutes' });
+        const acctKey = `acct:${name}`;
+        const kdToken = parseCookies(req)[auth.kdCookieName];
+        const kd = auth.kdEntry(name, kdToken); // cheap hash compare, no scrypt
+        let acct;
+        if (kd) {
+          // a remembered device skips both ip-keyed guards (the general anon
+          // bucket and the login ceiling): a NAT full of strangers must not
+          // lock the owner out. the bounded alternative: the general budget
+          // is spent against the ACCOUNT, and the device has its own
+          // lifetime failure budget, so a stolen cookie stays bounded.
+          if (!guard.allowRequest(`kd:${name}`)) return sendJson(res, 429, { ok: false, error: 'slow down a bit' });
+          acct = auth.verify(name, body.password);
+          if (!acct) { guard.recordLoginFailure(acctKey); auth.recordKdFailure(name, kdToken); return sendJson(res, 401, { ok: false, error: 'wrong username or password' }); }
+        } else {
+          // every visitor arrives through the same on-box proxy, so an ip-only
+          // throttle would lock out ALL users at once. the per-ip ceiling is the
+          // scrypt/cpu guard; the account budget counts failures (below).
+          if (!guard.allowRequest(`anon:${clientIp(req)}`)) return sendJson(res, 429, { ok: false, error: 'slow down a bit' });
+          if (!guard.allowLogin(`ip:${clientIp(req)}`, 120)) {
+            return sendJson(res, 429, { ok: false, error: 'too many tries - wait a few minutes' });
+          }
+          // account over its failure budget: only a device the account already
+          // trusts may spend a verify. unknown usernames accrue the same
+          // failures and the same 429 (and verify pays a dummy scrypt), so
+          // neither status nor timing can confirm a name exists.
+          if (guard.accountLoginLimited(acctKey)) {
+            return sendJson(res, 429, { ok: false, error: 'too many tries - wait a few minutes' });
+          }
+          acct = auth.verify(name, body.password);
+          if (!acct) { guard.recordLoginFailure(acctKey); return sendJson(res, 401, { ok: false, error: 'wrong username or password' }); }
         }
-        const acct = auth.verify(name, body.password);
-        if (!acct) return sendJson(res, 401, { ok: false, error: 'wrong username or password' });
         if (acct.status === 'pending') return sendJson(res, 403, { ok: false, error: 'your account is waiting for approval - try again later' });
         if (acct.status === 'banned') return sendJson(res, 403, { ok: false, error: 'this account is turned off' });
+        guard.resetLoginFailures(acctKey);
         const token = auth.createSession(name);
-        return sendJson(res, 200, { ok: true, user: name }, { 'set-cookie': auth.cookieHeader(token, req) });
+        // a remembered device keeps its entry (renewed in place); anything
+        // else gets a fresh device cookie.
+        const kdOut = (kd && auth.renewKnownDevice(name, kdToken)) ? kdToken : auth.mintKnownDevice(name);
+        const cookies = [auth.cookieHeader(token, req)];
+        if (kdOut) cookies.push(auth.kdCookieHeader(kdOut));
+        return sendJson(res, 200, { ok: true, user: name }, { 'set-cookie': cookies });
       }
       if (path === '/api/auth/signup' && req.method === 'POST') {
         if (!guard.allowLogin(`signup:${clientIp(req)}`, 40)) return sendJson(res, 429, { ok: false, error: 'too many tries - wait a few minutes' });
@@ -333,11 +364,16 @@ const server = createServer(async (req, res) => {
         catch (e) { return sendJson(res, 400, { ok: false, error: e.message }); }
         if (cfg.requireApproval) return sendJson(res, 200, { ok: true, pending: true });
         const token = auth.createSession(name);
-        return sendJson(res, 200, { ok: true, user: name }, { 'set-cookie': auth.cookieHeader(token, req) });
+        const kd = auth.mintKnownDevice(name);
+        const cookies = [auth.cookieHeader(token, req)];
+        if (kd) cookies.push(auth.kdCookieHeader(kd));
+        return sendJson(res, 200, { ok: true, user: name }, { 'set-cookie': cookies });
       }
       if (path === '/api/auth/logout' && req.method === 'POST') {
-        if (session) auth.destroySession(session.token);
-        return sendJson(res, 200, { ok: true }, { 'set-cookie': auth.clearCookieHeader(req) });
+        // logout forgets the asking device too: its cookie must not keep
+        // spending verifies after the session it rode in on is gone.
+        if (session) { auth.revokeKnownDevice(session.user, parseCookies(req)[auth.kdCookieName]); auth.destroySession(session.token); }
+        return sendJson(res, 200, { ok: true }, { 'set-cookie': [auth.clearCookieHeader(req), auth.clearKdCookieHeader()] });
       }
       if (!session) return sendJson(res, 401, { ok: false, error: 'not signed in' });
 
@@ -423,16 +459,34 @@ const server = createServer(async (req, res) => {
       }
       if (path === '/api/auth/change-password' && req.method === 'POST') {
         const body = JSON.parse((await readBody(req)).toString() || '{}');
-        if (!auth.verify(session.user, body.current)) return sendJson(res, 401, { ok: false, error: 'current password is wrong' });
+        // the current password is a verify like any other: it spends the
+        // account failure budget, and a remembered device may spend it even
+        // over budget. this is what keeps a stolen session from probing the
+        // old password unbounded.
+        const acctKey = `acct:${session.user}`;
+        const cpKd = parseCookies(req)[auth.kdCookieName];
+        if (guard.accountLoginLimited(acctKey) && !auth.kdEntry(session.user, cpKd)) {
+          return sendJson(res, 429, { ok: false, error: 'too many tries - wait a few minutes' });
+        }
+        // a wrong current spends BOTH budgets: the account's, and the
+        // presenting device's - a stolen session riding a stolen kd cannot
+        // probe the old password past the device's lifetime budget.
+        if (!auth.verify(session.user, body.current)) { guard.recordLoginFailure(acctKey); auth.recordKdFailure(session.user, cpKd); return sendJson(res, 401, { ok: false, error: 'current password is wrong' }); }
         try { auth.setPassword(session.user, body.next); }
         catch (e) { return sendJson(res, 400, { ok: false, error: e.message }); }
         // a password change revokes everything the old credential could have
         // minted: all 30-day sessions (incl. a stolen one), live proxy pipes,
-        // outstanding tickets and the lite credential cache. the changing
-        // browser gets a fresh session so it is not logged out of itself.
+        // outstanding tickets, the lite credential cache, and every known
+        // device. the changing browser proved the NEW password, so it leaves
+        // with a fresh session AND a fresh device cookie - a password change
+        // never strands the owner behind the throttle it just reset.
         auth.killSessions(session.user);
+        guard.resetLoginFailures(acctKey);
         const token = auth.createSession(session.user);
-        return sendJson(res, 200, { ok: true }, { 'set-cookie': auth.cookieHeader(token, req) });
+        const kd = auth.mintKnownDevice(session.user);
+        const cookies = [auth.cookieHeader(token, req)];
+        if (kd) cookies.push(auth.kdCookieHeader(kd));
+        return sendJson(res, 200, { ok: true }, { 'set-cookie': cookies });
       }
       if (path === '/api/auth/claim-username' && req.method === 'POST') {
         const body = JSON.parse((await readBody(req)).toString() || '{}');

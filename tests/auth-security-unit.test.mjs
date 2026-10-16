@@ -12,7 +12,7 @@ import { providerBaseOk, scrubSecrets } from '../core/addons/sage/index.js';
 
 test('x-forwarded-for is honored only from a trusted proxy peer', () => {
   const req = (peer, fwd) => ({ socket: { remoteAddress: peer }, headers: fwd ? { 'x-forwarded-for': fwd } : {} });
-  assert.equal(clientIp(req('127.0.0.1', '1.2.3.4, 10.0.0.1')), '1.2.3.4', 'on-box proxy passes the client through');
+  assert.equal(clientIp(req('127.0.0.1', '1.2.3.4, 10.0.0.1')), '10.0.0.1', 'select the nearest appended address, not a client-supplied prefix');
   assert.equal(clientIp(req('10.9.9.9', '1.2.3.4')), '10.9.9.9', 'a direct remote client cannot rotate its identity');
   assert.equal(clientIp(req('10.9.9.9')), '10.9.9.9', 'no header: the socket peer');
   assert.equal(clientIp(req('::ffff:127.0.0.1', '1.2.3.4')), '1.2.3.4', 'v4-mapped loopback proxy');
