@@ -6,12 +6,19 @@
   import '../../tokens.css';
   import AppFrame from '../../lib/AppFrame.svelte';
   import { onMount } from 'svelte';
-  import { api } from '../../lib/api.js';
+  import { api, bounceToLoginOn401 } from '../../lib/api.js';
+  // raw fetch sites (streams, one-shot tickets) get the same dead-session
+  // bounce as the shared api helper
+  const bfetch = async (path, opts) => { const r = await fetch(path, opts); bounceToLoginOn401(path, r.status); return r; };
 
   let address = $state('');
   let boot = $state('setting up...');
   let ready = $state(false);
   let failed = $state('');
+  // revision failures (stale page scripts, superseded engine, worker swap)
+  // can only converge with a fresh document: the retry button reloads.
+  // transient same-revision failures (tunnel timeout, refused) just reboot.
+  let failedKind = $state('transient');
   let stageEl = $state(null);
   let ctrl = null;
 
@@ -200,7 +207,7 @@
     (async () => {
       let on = false;
       try {
-        const r = await fetch('/api/apps/browse/sync');
+        const r = await bfetch('/api/apps/browse/sync');
         if (!r.ok) return; // 403: not the admin account - stay local-only
         const d = await r.json();
         if (d && d.sync) {
@@ -227,7 +234,7 @@
           if (beacon && navigator.sendBeacon) {
             navigator.sendBeacon('/api/apps/browse/sync', new Blob([body], { type: 'application/json' }));
           } else {
-            await fetch('/api/apps/browse/sync', { method: 'PUT', headers: { 'content-type': 'application/json' }, body });
+            await bfetch('/api/apps/browse/sync', { method: 'PUT', headers: { 'content-type': 'application/json' }, body });
           }
         } catch {}
       };
@@ -350,7 +357,7 @@
       const urlForOpen = async () => {
         if (!seedUsed && seedTicket && Date.now() - seedAt <= 60000) { seedUsed = true; return ticketUrl(seedTicket); }
         seedUsed = true;
-        const r = await fetch('/api/wisp-ticket' + (ab ? '' : '?ab=0'));
+        const r = await bfetch('/api/wisp-ticket' + (ab ? '' : '?ab=0'));
         const j = await r.json();
         if (!j || !j.ticket) throw new TypeError('no proxy ticket');
         return ticketUrl(j.ticket);
@@ -526,7 +533,7 @@
             else b = toB64(body instanceof Blob ? await body.arrayBuffer() : body instanceof ArrayBuffer ? body : await new Response(body).arrayBuffer());
           }
           if (disposed) throw new TypeError('proxy transport disposed');
-          const r = await fetch('/api/pfetch', { method: 'POST', signal, body: JSON.stringify({ url: remote.href, method, headers, body: b, ab }) });
+          const r = await bfetch('/api/pfetch', { method: 'POST', signal, body: JSON.stringify({ url: remote.href, method, headers, body: b, ab }) });
           const st = r.headers.get('x-rj-status');
           if (!st) throw new TypeError('proxy fetch failed: ' + (r.headers.get('x-rj-error') || r.status));
           const raw = JSON.parse(atob(r.headers.get('x-rj-headers') || 'W10='));
@@ -559,11 +566,14 @@
     let attempts = 0;
     const bootOnce = async () => {
       try {
-        failed = ''; // a (re)boot supersedes any earlier failure copy
+        failed = ''; failedKind = 'transient'; // a (re)boot supersedes any earlier failure copy
         if (!('serviceWorker' in navigator)) { failed = 'this browser is too old for browse'; return; }
         boot = 'loading the engine...'; window.__rjBootPhase = 'engine';
-        const { Controller } = globalThis.$scramjetController;
-        if (!Controller) { failed = 'engine files did not load - check your connection and reload'; return; }
+        // safe lookup: the engine script not loading at all (deploy swapped
+        // the stamped urls, blocked script) must not throw into the catch as
+        // a generic transient error - it is exactly the revision case
+        const Controller = globalThis.$scramjetController?.Controller;
+        if (!Controller) { failed = 'engine files did not load - check your connection and reload'; failedKind = 'revision'; return; }
         boot = 'starting the worker...'; window.__rjBootPhase = 'worker';
         // the worker, the tunnel ticket and the url key are independent, so
         // they load together instead of one after another.
@@ -573,8 +583,8 @@
         // request lands, so a slow response must not make the ticket look
         // younger than it is
         const tkAt = Date.now();
-        const tkP = fetch('/api/wisp-ticket' + (localStorage.getItem('rj-adblock') === 'off' ? '?ab=0' : '')).then(async (r) => ({ ...(await r.json()), at: tkAt })).catch(() => ({}));
-        const kkP = fetch('/api/apps/browse/urlkey').then((r) => r.json()).catch(() => ({}));
+        const tkP = bfetch('/api/wisp-ticket' + (localStorage.getItem('rj-adblock') === 'off' ? '?ab=0' : '')).then(async (r) => ({ ...(await r.json()), at: tkAt })).catch(() => ({}));
+        const kkP = bfetch('/api/apps/browse/urlkey').then((r) => r.json()).catch(() => ({}));
         const swP = (async () => {
           const w0 = await waitForWorker('/browse-sw.js?v=' + ((globalThis.__RJ_ENGINE__) || '0'));
           await navigator.serviceWorker.ready;
@@ -589,6 +599,7 @@
         if (!(await verifyWorkerVersion(sw, (globalThis.__RJ_ENGINE__) || '0'))) {
           if (!sessionStorage.getItem('rj-sw-reload')) { try { sessionStorage.setItem('rj-sw-reload', '1'); } catch {} location.reload(); return; }
           failed = 'the proxy engine is out of date - close this tab and open browse again';
+          failedKind = 'revision';
           return;
         }
         try { sessionStorage.removeItem('rj-sw-reload'); } catch {}
@@ -631,7 +642,7 @@
           // server-side, so a probe on wispUrl would consume the ticket the
           // real transport is about to connect with. no fresh ticket ->
           // probe the bare endpoint (never wispUrl, which holds the ticket)
-          const pt = await fetch('/api/wisp-ticket' + (localStorage.getItem('rj-adblock') === 'off' ? '?ab=0' : '')).then((r) => r.json()).catch(() => ({}));
+          const pt = await bfetch('/api/wisp-ticket' + (localStorage.getItem('rj-adblock') === 'off' ? '?ab=0' : '')).then((r) => r.json()).catch(() => ({}));
           if (cycle.cancelled) return;
           const probeUrl = pt.ticket ? `${wispBase}/wisp-t/${pt.ticket}/` : `${wispBase}/wisp/`;
           await new Promise((res, rej) => {
@@ -684,6 +695,9 @@
           return;
         }
         failed = (e && e.message) ? e.message : 'browse could not start - reload to try again';
+        // a worker that will not start for this page's stamp is a revision
+        // problem (deploy swapped the stamped urls) - only a reload converges
+        if (/worker/i.test(failed)) failedKind = 'revision';
         boot = '';
       }
     };
@@ -862,6 +876,7 @@
         try { currentCycle?.transport?.dispose?.(); } catch {}
         ready = false; boot = '';
         failed = 'ramjet updated - reload to pick up the new version';
+        failedKind = 'revision';
       }));
     } catch {}
     window.addEventListener('message', (e) => {
@@ -964,7 +979,12 @@
   </div>
 
   {#if failed}
-    <div class="center"><p class="dim">{failed}</p></div>
+    <div class="center">
+      <p class="dim">{failed}</p>
+      <!-- same restart the worker-takeover guard uses: bump bootCycle, the
+           boot effect tears down and starts clean - no full page reload -->
+      <div class="chips"><button class="chip" onclick={() => { if (failedKind === 'revision') { location.reload(); } else { failed = ''; bootCycle += 1; } }}>try again</button></div>
+    </div>
   {:else if !surfing}
     <div class="center home">
       <h1>Browse</h1>

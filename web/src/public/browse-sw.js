@@ -121,7 +121,7 @@ function errPage() {
   <div class="box">
     <p class="brand">ramjet<span>.</span></p>
     <p class="msg">that site didn't answer</p>
-    <p class="hint">check the address for typos, or try again in a bit - some sites block proxied visits.</p>
+    <p class="hint">check the address for typos, or <a href="" onclick="location.reload();return false;">try again</a> - some sites block proxied visits.</p>
   </div>
 </body>
 </html>`, { status: 502, headers: { "content-type": "text/html" } });

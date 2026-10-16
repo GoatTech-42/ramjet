@@ -2,7 +2,7 @@
   import { modal } from '../../lib/modal.js';
   import '../../tokens.css';
   import AppFrame from '../../lib/AppFrame.svelte';
-  import { api } from '../../lib/api.js';
+  import { api, bounceToLoginOn401 } from '../../lib/api.js';
 
   // the open conversation boots from localStorage instantly; every exchange
   // also saves to the account so it is on every device
@@ -126,6 +126,7 @@
         body: JSON.stringify({ messages: messages.slice(-20), stream: true, style }),
         signal: ctl.signal,
       });
+      bounceToLoginOn401('/api/apps/sage/chat', res.status);
       const type = res.headers.get('content-type') || '';
       if (!type.includes('text/event-stream')) {
         // plain json: an error, or the non-streaming provider
