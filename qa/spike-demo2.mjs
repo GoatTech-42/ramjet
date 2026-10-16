@@ -1,0 +1,11 @@
+import { chromium } from "playwright";
+const browser = await chromium.launch();
+const page = await browser.newPage();
+const seen = new Set();
+page.on("request", (r) => { const u = r.url(); if (/scram|bare|epoxy|wisp|sw\.js/i.test(u)) seen.add(u.slice(0, 110)); });
+await page.goto("https://scramjet.mercurywork.shop/", { waitUntil: "domcontentloaded" });
+await page.waitForTimeout(5000);
+const v = await page.evaluate(() => (window.$scramjetVersion ? JSON.stringify(window.$scramjetVersion) : "n/a"));
+console.log("DEMO SCRAMJET:", v);
+console.log([...seen].join("\n"));
+await browser.close();

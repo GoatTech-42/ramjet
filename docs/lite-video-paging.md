@@ -1,0 +1,5 @@
+# Shortcut video pagination repair
+
+The Lite API previously sliced8 from a single capped20-result ANDROID response, yielding8/8/4/0. Dedicated WEB search path now reads current client version/visitor context from initial HTML and fetches real continuations on demand. Web feed/player routes unchanged. Search and sheet share a3min query pool (50 queries), serialize fills/dedup by video ID,20 native response limit/20 Shortcut pages/at most6 continuation advances per request. Upstream failures stay errors, not empty pages. No full-page scraping retries or fake infinite results. Success fields unchanged; next_page null on real exhaustion/cap.
+
+Local actual HTTP /api/lite/search proof: pages1-4 all200 and8 results,32 unique. Unit fixtures prove exhaustion/dedup/concurrency/error-safe resume. Box must verify pages1-6 and sheets/thumbs from its egress before calling live fixed. WEB initial HTML/version format is undocumented and can change; fail clearly if it does. Error paths return JSON before headers.

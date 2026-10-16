@@ -1,0 +1,18 @@
+import { chromium } from "playwright";
+const browser = await chromium.launch();
+const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+const errs = [];
+page.on("pageerror", (e) => errs.push(String(e).slice(0, 120)));
+await page.goto("http://127.0.0.1:4599/", { waitUntil: "domcontentloaded" });
+await page.waitForTimeout(9000);
+console.log("STATUS:", await page.textContent("#status"));
+await page.screenshot({ path: "/tmp/browse-spike/v2-example.png" });
+await page.fill("#url", "https://en.wikipedia.org/wiki/Minecraft");
+await page.click("#go");
+await page.waitForTimeout(16000);
+console.log("STATUS2:", await page.textContent("#status"));
+const t = await page.evaluate(() => { try { return document.getElementById("frame").contentDocument?.title } catch (e) { return "guard" } });
+console.log("WIKI TITLE:", t);
+console.log("ERRS:", JSON.stringify(errs.slice(0, 4)));
+await page.screenshot({ path: "/tmp/browse-spike/v2-wiki.png" });
+await browser.close();

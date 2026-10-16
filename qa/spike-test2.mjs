@@ -1,0 +1,18 @@
+import { chromium } from "playwright";
+const browser = await chromium.launch();
+const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+await page.goto("http://127.0.0.1:4599/", { waitUntil: "domcontentloaded" });
+await page.waitForTimeout(5000);
+await page.fill("#url", "https://en.wikipedia.org/wiki/Minecraft");
+await page.click("#go");
+await page.waitForTimeout(10000);
+await page.screenshot({ path: "/tmp/browse-spike/wiki.png" });
+const t = await page.evaluate(() => { try { return document.getElementById("frame").contentDocument?.title } catch (e) { return "guard: " + e.message.slice(0, 50) } });
+console.log("WIKI TITLE:", t);
+await page.fill("#url", "https://duckduckgo.com/?q=minecraft+server");
+await page.click("#go");
+await page.waitForTimeout(9000);
+await page.screenshot({ path: "/tmp/browse-spike/ddg.png" });
+const t2 = await page.evaluate(() => { try { return document.getElementById("frame").contentDocument?.title } catch (e) { return "guard: " + e.message.slice(0, 50) } });
+console.log("DDG TITLE:", t2);
+await browser.close();
