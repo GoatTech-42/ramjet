@@ -11,6 +11,7 @@ import { createHash } from 'node:crypto';
 import { server as wisp } from '@mercuryworkshop/wisp-js';
 import { readerPage } from './reader.js';
 import { notFoundPage } from './notfound.js';
+import { negotiateEncoding, compressed } from './staticzip.js';
 import { handleLite, setJetstream, setAuth } from './lite.js';
 import { handlePFetch, pwsUpgrade, safeLookup } from './pfetch.js';
 import { makeBlockingSocket, stats as adStats, listSize as adListSize } from './adblock.js';
@@ -92,13 +93,37 @@ const ENGINE_STAMP = (() => {
   h.update(PINNED.get('/assets/' + m[1]));
   return h.digest('hex').slice(0, 12);
 })();
-function servePage(res, name, status = 200) {
+// the stamp swap used to re-decode and re-replace the whole page on every
+// request; pages are frozen at boot, so the stamped bytes (and their etag,
+// and later their compressed copies) are computed once and reused
+const STAMPED_PAGES = new Map();
+function stampedPage(name) {
+  let e = STAMPED_PAGES.get(name);
+  if (e) return e;
   const html = page(name);
-  if (!html) { res.writeHead(503, { 'content-type': 'text/plain' }); res.end('building... check back in a minute'); return; }
-  res.writeHead(status, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-cache' });
+  if (!html) return null;
   // swap only the quoted placeholder and the ?v= marker: a bare replaceAll
   // would rewrite the `self.__RJ_ENGINE__` identifier into invalid js
-  res.end(html.toString('utf8').replaceAll('v=__RJ_ENGINE__', 'v=' + ENGINE_STAMP).replaceAll("'__RJ_ENGINE__'", "'" + ENGINE_STAMP + "'"));
+  const buf = Buffer.from(html.toString('utf8').replaceAll('v=__RJ_ENGINE__', 'v=' + ENGINE_STAMP).replaceAll("'__RJ_ENGINE__'", "'" + ENGINE_STAMP + "'"), 'utf8');
+  const hash = createHash('sha256').update(buf).digest('hex').slice(0, 20);
+  e = { raw: buf, br: null, gz: null, etag: 'W/"' + buf.length + '-' + hash + '"' };
+  STAMPED_PAGES.set(name, e);
+  return e;
+}
+async function servePage(req, res, name, status = 200) {
+  const e = stampedPage(name);
+  if (!e) { res.writeHead(503, { 'content-type': 'text/plain' }); res.end('building... check back in a minute'); return; }
+  const headers = { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-cache', etag: e.etag, vary: 'Accept-Encoding' };
+  if (req.headers['if-none-match'] === e.etag) { res.writeHead(304, headers); res.end(); return; }
+  let body = e.raw;
+  const enc = e.raw.length > 1024 ? negotiateEncoding(req.headers['accept-encoding']) : '';
+  if (enc) {
+    try { body = await compressed(e, enc); headers['content-encoding'] = enc; }
+    catch { body = e.raw; } // compression trouble must never take a page down
+  }
+  headers['content-length'] = body.length;
+  res.writeHead(status, headers);
+  res.end(body);
 }
 // static files are read, compressed (brotli, else gzip) and kept in memory:
 // the engine wasm and js are several MB and every byte crosses the tunnel.
@@ -128,7 +153,7 @@ function readStatic(safe) {
   }
   return null; // raced a rebuild twice: decline rather than serve mixed bytes
 }
-function serveStatic(req, res, urlPath) {
+async function serveStatic(req, res, urlPath) {
   const safe = resolve(DIST, '.' + urlPath);
   if (!safe.startsWith(DIST)) return false;
   // pinned (stamped) entries are served from the boot snapshot with no
@@ -168,15 +193,12 @@ function serveStatic(req, res, urlPath) {
   let body = e.raw;
   if (COMPRESSIBLE.has(ext) && body.length > 1024) {
     headers.vary = 'Accept-Encoding';
-    // q=0 means NOT acceptable: br;q=0 must fall through to gzip or identity
-    const ae = String(req.headers['accept-encoding'] || '');
-    const q = (name) => { const m = new RegExp('(?:^|,)\\s*' + name + '\\s*(?:;\\s*q\\s*=\\s*([01](?:\\.\\d+)?))?').exec(ae); return m ? (m[1] === undefined ? 1 : Number(m[1])) : -1; };
-    const enc = q('br') > 0 ? 'br' : q('gzip') > 0 ? 'gzip' : '';
+    const enc = negotiateEncoding(req.headers['accept-encoding']);
     if (enc) {
-      if (enc === 'br' && !e.br) e.br = brotliCompressSync(e.raw, { params: { [zc.BROTLI_PARAM_QUALITY]: 6, [zc.BROTLI_PARAM_SIZE_HINT]: e.raw.length } });
-      if (enc === 'gzip' && !e.gz) e.gz = gzipSync(e.raw, { level: 9 });
-      body = enc === 'br' ? e.br : e.gz;
-      headers['content-encoding'] = enc;
+      try {
+        body = await compressed(e, enc);
+        headers['content-encoding'] = enc;
+      } catch { body = e.raw; } // compression trouble must never 500 a static file
     }
   }
   headers['content-length'] = body.length;
@@ -433,23 +455,23 @@ const server = createServer(async (req, res) => {
 
     if (path === '/' || path === '/index.html') {
       if (!session) return redirect(res, '/login');
-      return servePage(res, 'index');
+      return servePage(req, res, 'index');
     }
     if (path === '/login' || path === '/login.html') {
       if (session) return redirect(res, '/');
-      return servePage(res, 'login');
+      return servePage(req, res, 'login');
     }
     if (path === '/signup') {
       if (session) return redirect(res, '/');
-      return servePage(res, 'login');
+      return servePage(req, res, 'login');
     }
     if (path === '/password') {
       if (!session) return redirect(res, '/login');
-      return servePage(res, 'password');
+      return servePage(req, res, 'password');
     }
     if (path === '/claim') {
       if (!session) return redirect(res, '/login');
-      return servePage(res, 'claim');
+      return servePage(req, res, 'claim');
     }
     if (path === '/auth/ai-key') return sendJson(res, 200, { has: false });
     if(path.startsWith('/browse-reader/'))return browseReader(req,res,session,path.slice(14)+(url.search||''));
@@ -465,14 +487,14 @@ const server = createServer(async (req, res) => {
     const stampV = url.searchParams.get('v');
     if (stampV && stampV !== ENGINE_STAMP && STAMPED_PATHS.has(path)) { res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' }); res.end('superseded build - reload'); return; }
     if (path.startsWith('/assets/') || /^\/(favicon\.svg|favicon-32\.png|icon-192\.png|apple-touch-icon\.png|logo-512\.png|manifest\.webmanifest)$/.test(path) || path.startsWith('/cloak/') || path.startsWith('/scramjet/') || path.startsWith('/controller/') || path.startsWith('/epoxy/') || path.startsWith('/libcurl/') || path === '/browse-sw.js') {
-      if (serveStatic(req, res, path)) return;
+      if (await serveStatic(req, res, path)) return;
     }
     if (!session && (/^\/(browse|jetstream|amp|sage|banter|settings)\/?$/.test(path))) return redirect(res, "/login");
     // shipped app pages; the rest land on the hub shell until they ship
     const appPages = { jetstream: 'jetstream', browse: 'browse', amp: 'amp', sage: 'sage', banter: 'banter', settings: 'settings' };
-    if (session && appPages[path.slice(1)]) return servePage(res, appPages[path.slice(1)]);
+    if (session && appPages[path.slice(1)]) return servePage(req, res, appPages[path.slice(1)]);
     if (session && /^\/(browse|amp|sage|settings)\/?$/.test(path)) {
-      return servePage(res, 'index');
+      return servePage(req, res, 'index');
     }
     res.writeHead(404, { 'content-type': 'text/html; charset=utf-8' });
     res.end(notFoundPage());
@@ -567,6 +589,24 @@ server.on('upgrade', (req, socket, head) => {
   wisp.routeRequest(req, socket, head, adOn ? { TCPSocket: makeBlockingSocket(NodeTCPSocket, meterUser) } : {});
 });
 
-server.listen(PORT, HOST, () => console.log(`ramjet2 on ${HOST}:${PORT}, data ${DATA}, addons: ${[...addons.keys()].join(', ') || 'none'}`));
+server.listen(PORT, HOST, () => {
+  console.log(`ramjet2 on ${HOST}:${PORT}, data ${DATA}, addons: ${[...addons.keys()].join(', ') || 'none'}`);
+  // warm the compression cache in the background so even the first request
+  // after a deploy never pays a cold multi-MB compress: pinned engine files
+  // plus every page, both encodings, all on zlib worker threads
+  for (const [urlPath, raw] of PINNED) {
+    const hash = createHash('sha256').update(raw).digest('hex').slice(0, 20);
+    const e = { mtimeMs: 0, ctimeMs: 0, size: raw.length, raw, br: null, gz: null, etag: 'W/"' + raw.length + '-' + hash + '"' };
+    sCache.set(resolve(DIST, '.' + urlPath), e);
+    compressed(e, 'br').catch(() => {});
+    compressed(e, 'gzip').catch(() => {});
+  }
+  for (const name of PAGES.keys()) {
+    const e = stampedPage(name);
+    if (!e) continue;
+    compressed(e, 'br').catch(() => {});
+    compressed(e, 'gzip').catch(() => {});
+  }
+});
 process.on("SIGTERM", () => { guard.flush(); process.exit(0); });
 process.on("SIGINT", () => { guard.flush(); process.exit(0); });
