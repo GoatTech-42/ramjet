@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { createShortsFeed, shortsSeeds } from '../core/addons/jetstream/shorts-rank.js';
 
 // jetstream /shorts endpoint contract, in-process against the real register()
 // with a stubbed InnerTube: no network, no box. pins the reviewer findings:
@@ -116,19 +117,39 @@ test('EP3: a drained feed waits out the rebuild and serves a fresh disjoint batc
   }));
   const u = 'ep3-profiled';
   const seen = new Set();
-  let refilled = false;
-  let prev = 14;
+  const beforeSeeds = new Set(searchCalls);
+  const batches = [];
   for (let i = 0; i < 15; i++) {
     const out = await shorts(u);
     assert.equal(out.code, 200);
     if (out.obj.items.length === 0) break;
-    if (out.obj.items.length > prev) refilled = true; // a short batch followed by a full one: the rebuild refilled
-    prev = out.obj.items.length;
+    batches.push(ids(out));
     for (const id of ids(out)) { assert.ok(!seen.has(id), 'repeat across feed batches'); seen.add(id); }
   }
   // 6 rotated " shorts" seed queries x 20 parseSearch-capped candidates
   assert.ok(seen.size >= 120, 'rotated pools must serve at least 120 distinct shorts');
-  assert.ok(refilled, 'a drained feed must rebuild into a fresh batch instead of dead-ending');
+  assert.ok(batches.length >= 9, 'serve enough disjoint batches to require multiple builds');
+  assert.ok(new Set(searchCalls.filter(q => !beforeSeeds.has(q))).size >= 2, 'real endpoint explores distinct uncached seed queries');
+  // Batch sizes need not dip before a refill. Count actual builds at the feed
+  // seam and use the real seed rotation instead of a monotonic-size oracle.
+  let builds = 0;
+  const seedBuilds = [];
+  const profile = { topic: new Map(), chan: new Map() };
+  const feed = createShortsFeed({ build: async (user, hit) => {
+    builds++;
+    const seeds = shortsSeeds(profile, hit.n, () => 0);
+    seedBuilds.push(seeds);
+    return Array.from({ length: 28 }, (_, i) => ({ id: `${seeds.join('|')}:${i}` }));
+  }});
+  const served = new Set();
+  for (let i = 0; i < 6; i++) {
+    const batch = await feed.get('explicit-build-fixture');
+    assert.equal(batch.length, 14);
+    for (const v of batch) { assert.ok(!served.has(v.id), 'explicit build repeats a prior batch'); served.add(v.id); }
+    feed.serve('explicit-build-fixture', batch);
+  }
+  assert.equal(builds, 3, 'six 14-item batches consume three 28-item builds');
+  assert.deepEqual(seedBuilds, [['satisfying shorts'], ['skill shorts'], ['animals shorts']], 'build count advances the real deterministic seed rotation');
 });
 
 test('EP5: a query returns a stable, repeatable order', async () => {
