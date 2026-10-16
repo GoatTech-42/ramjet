@@ -3,7 +3,9 @@
   import { readSearches, addSearch, clearSearches } from '../../lib/searchhist.js';
   import Recent from '../../lib/Recent.svelte';
   let qf = $state(false);
+  let searchPh = $state('Search videos, channels or playlists');
   import '../../tokens.css';
+  import AppFrame from '../../lib/AppFrame.svelte';
   import { onMount, tick } from "svelte";
   import { api } from '../../lib/api.js';
 
@@ -74,6 +76,12 @@
   onMount(async () => {
     const r = await api('/api/apps/jetstream/history');
     if (r.ok) history = r.data.items || [];
+    // the full placeholder fits desktop; on phones it clips mid-word, so swap
+    // in a shorter one under 480px instead of shrinking the type
+    const phMq = matchMedia('(max-width: 480px)');
+    const applyPh = () => (searchPh = phMq.matches ? 'Search videos or channels' : 'Search videos, channels or playlists');
+    applyPh();
+    phMq.addEventListener('change', applyPh);
     api('/api/apps/jetstream/shorts').then((s) => { if (s.ok) shorts = s.data.items || []; });
     api('/api/apps/jetstream/for-you').then((f) => { if (f.ok) forYou = f.data.items || []; });
     api('/api/apps/jetstream/likes').then((l) => { if (l.ok) liked = new Set(l.data.ids || []); });
@@ -113,8 +121,8 @@
     }
   }
 
-
-
+  // subscriptions manager: every sub, tap through to the
+  // channel, unsubscribe in place.
   async function openSubs() {
     back();
     chanPage = null;
@@ -156,7 +164,7 @@
   let feedOpen = $state(false);
   let feedWrap = $state(null);
   let feedQ = $state('');
-  let feedSearchOpen = $state(false); 
+  let feedSearchOpen = $state(false); // the search pill stays out of the way until asked for
   let feedMode = $state('foryou'); // 'foryou' = your ranked feed, 'search' = searched shorts
   let feedSearchErr = $state('');
   let liked = $state(new Set());
@@ -189,7 +197,7 @@
     if (statsOpen) { readStats(); statsTimer = setInterval(readStats, 700); }
   }
   let newSubs = $state([]); // fresh uploads from subscribed channels
-  let subsPage = $state(null); 
+  let subsPage = $state(null); // subscriptions manager
   let fyBusy = false; let fyDone = false;
   let subs = $state(new Set()); // subscribed channel ids
   let autoplay = $state(null); // { items, idx, channelName } - the play-all chain
@@ -252,14 +260,14 @@
     feedAudio[i] = a;
   }
 
-
-
-
-
-
-
-
-
+  // sync, old-jetstream port: the exact
+  // model the old watch page ran for months on iPhone. one video holds a
+  // src at a time (no prebuffer, no muted-play warmup), the audio element is
+  // DOM-attached and lazily built, and a 600ms caretaker mirrors the old
+  // player's: audio follows play/pause, hard-seeks past 0.3s of drift, and
+  // restarts the audio if it died while the video runs. no rate API, no
+  // waiting-event interference - audio rides through a video stall, exactly
+  // like the old build that never froze for him.
   function syncSlideAudio(i, hard) {
     const v = feedVideo(i); const a = feedAudio[i];
     if (!v || !a) return;
@@ -291,19 +299,19 @@
 
   function onSlidePause(i) { feedAudio[i]?.pause(); }
 
-
-
-
-
-
+  // direct-first: if the network doesn't filter googlevideo,
+  // the CDN serves him straight and the box leaves the path - that is the
+  // whole speed problem gone. every slide starts direct with a 5s no-data
+  // watchdog; a blocked or dead source swaps to the ramjet proxy exactly
+  // once and that slide stays proxied. the proxy carries filtered networks.
   const slideResolve = {};
   const slideProxy = {};
   const directWatchdog = {};
-
-
-
-
-
+  // once direct fails anywhere it fails everywhere on this network - one
+  // probe per SESSION, not per slide. Scrolling took
+  // forever because every slide burned a dead direct try on a filtered
+  // network before the proxy swap. the flag resets with the tab (a new
+  // network gets a fresh probe).
   let directDead = sessionStorage.getItem('rj-direct') === 'dead';
   function markDirectDead() {
     directDead = true;
@@ -333,12 +341,12 @@
     vid.load();
     if (feedPlaying === i) vid.play().catch(() => {});
     api('/api/apps/jetstream/clientlog', { method: 'POST', body: { kind: 'slide-proxy-fallback', id: shorts[i]?.id || '', why: why || '', ua: navigator.userAgent } }).catch(() => {});
-
-
-
-
-
-
+    // one dead direct means the network filters googlevideo: re-point every
+    // slide that was ALREADY attached direct (the pre-warmed next slides got
+    // their src before the session flag flipped) instead of letting each one
+    // burn its own dead direct try. Telemetry showed 26 fallbacks in
+    // one session - every one was a slide waiting on a try that could never
+    // work.
     for (const k of Object.keys(slideResolve)) {
       const j = +k;
       if (j !== i && !slideProxy[j] && feedVideo(j)?.dataset.srcmode === 'direct') swapToProxy(j, 'direct-dead-session');
@@ -391,8 +399,8 @@
 
   function feedVideo(i) { return feedWrap?.querySelector(`video[data-idx="${i}"]`) || null; }
 
-
-
+  // desktop chrome/firefox decode vp9 webm - that unlocks 1080p on videos
+  // whose avc1 ladder stops short. safari says no, stays avc1.
   const canVp9 = (() => { try { return document.createElement('video').canPlayType('video/webm; codecs="vp9"') === 'probably'; } catch { return false; } })();
   // phone = low-data mode: 720p tier (pixel-exact on a phone screen, about half
   // the bytes of 1080p) and lighter prefetch. desktop keeps the full tier.
@@ -477,12 +485,21 @@
     prog = { ...prog, [i]: { cur: v.currentTime, dur: v.duration } };
   }
 
+  function seekSlideKey(i, e) {
+    const v = feedVideo(i);
+    if (!v || !isFinite(v.duration) || v.duration <= 0 || !['ArrowLeft', 'ArrowRight', 'ArrowDown', 'ArrowUp', 'Home', 'End'].includes(e.key)) return;
+    e.preventDefault(); e.stopPropagation();
+    v.currentTime = e.key === 'Home' ? 0 : e.key === 'End' ? v.duration : Math.max(0, Math.min(v.duration, v.currentTime + (['ArrowRight', 'ArrowUp'].includes(e.key) ? 5 : -5)));
+    if (feedAudio[i]) feedAudio[i].currentTime = v.currentTime;
+    prog = { ...prog, [i]: { cur: v.currentTime, dur: v.duration } };
+  }
+
   async function activateSlide(i) {
     const vid = feedVideo(i);
     if (!vid || feedErr[i]) return;
     lastActive = i;
     // tell the box where he is: the next slides jump the prefetch queue so
-    // his scroll position always has warm disk behind it, not the live proxy
+    // the scroll position always has warm disk behind it, not the live proxy
     if (i !== lastAheadAt) {
       lastAheadAt = i;
       const ahead = shorts.slice(i + 1, i + (isPhone ? 4 : 6)).map((s) => s?.id).filter(Boolean);
@@ -527,8 +544,8 @@
         const r = await api(watchUrl(shorts[i].id));
         feedLoading = { ...feedLoading, [i]: false };
         if (!r.ok) {
-
-
+          // can't play = never surface: the slide leaves the
+          // feed instead of showing an error card.
           shorts = shorts.filter((_, x) => x !== i);
           return;
         }
@@ -550,11 +567,11 @@
         await vid.play().catch(() => {});
       }
       onSlidePlay(i);
-
-
-
-
-
+      // ios-safe warm swipe, now
+      // settle-guarded: a slide must HOLD the spotlight for
+      // half a second before anything warms, so fast-scrolling past never
+      // spins up loads. the next slide's video buffers (src + preload=auto)
+      // but NEVER plays, and no audio element exists until it's active.
       const gen = ++prefetchGen;
       setTimeout(() => {
         if (gen !== prefetchGen || feedPlaying !== i) return;
@@ -597,11 +614,11 @@
     feedWrap.querySelectorAll('.slide').forEach((s) => observer.observe(s));
   }
 
-
-
-
-
-
+  // root fix: the tapped short is ALWAYS the one that plays first.
+  // the old code swapped the whole list out from under the playing slide when the
+  // fresh re-rank landed, so a different short could take over. now the fresh list
+  // is fetched BEFORE opening (500ms cap), the tapped one is pinned to slot 0, and
+  // nothing swaps once the feed is open.
   let savedShorts = null; // home shelf, parked while a channel's shorts take over the feed
   async function openFeed(i) {
     const picked = shorts[i];
@@ -891,9 +908,9 @@
     if (hard || Math.abs(au.currentTime - videoEl.currentTime) > 0.8) au.currentTime = videoEl.currentTime;
   }
 
-
-
-
+  // direct-first on the watch page too: start on the CDN
+  // urls, 6s no-data watchdog, one swap to the proxy and it sticks until
+  // the next video. filtered networks land on the proxy every time.
   let watchDirect = false;
   let watchDog = null;
 
@@ -1075,10 +1092,10 @@
 
   function onVidPlay() { if (au) { syncAudio(true); au.play().catch(() => {}); } }
 
-
-
-
-
+  // watched to the end: it leaves keep watching (the shelf is for things
+  // you are mid-way through), and the server marks it complete.
+  // autoplay chain advance; a dead video is skipped and dropped from the
+  // chain entirely.
   function autoplayNext() {
     if (autoplay && autoplay.idx + 1 < autoplay.items.length) {
       const next = autoplay.idx + 1;
@@ -1134,10 +1151,10 @@
     const k = Object.keys(o); if (k.length > 40) delete o[k[0]];
     posWrite(o);
   }
-
-
-
-
+  // custom controls overlay. native chrome is off; this draws play/pause,
+  // prev/next (autoplay chains), a scrub bar, time, quality and fullscreen over the video.
+  // iPhone Safari can only fullscreen the <video> itself (native controls take over there,
+  // no way around that); desktop/iPad/Android fullscreen the whole frame so this stays.
   let frameEl = $state(null);
   let vcur = $state(0), vdur = $state(0), vpaused = $state(true), vui = $state(true), vscrub = $state(false), isFs = $state(false);
   let vuiTimer = null, vLastTap = 0;
@@ -1197,9 +1214,9 @@
     tick().then(() => requestAnimationFrame(() => { window.scrollTo(0, y); setTimeout(() => window.scrollTo(0, y), 120); }));
   }
   function back() { statsOpen = false; clearInterval(statsTimer); dropAudio(); autoplay = null; watching = null; watchInfo = null; portrait = false; streamError = false; hdDropped = false; stalling = false; }
-
-
-
+  // channel pages: scroll a channel's shorts, subscribe,
+  // autoplay everything they've made. videos + shorts load together, the
+  // sub folds into the same taste profile the feeds rank with.
   function goChannelFromShort(v) {
     if (!v?.channelId) return;
     closeFeed();
@@ -1286,6 +1303,7 @@
   const lthumb = (id) => `/api/apps/jetstream/thumb?id=${id}${lite ? '&lite=1' : ''}`;
 </script>
 
+<AppFrame active="/jetstream">
 <main>
   <header>
     {#if viewKey}
@@ -1293,15 +1311,15 @@
     {:else}
       <a class="home" href="/" aria-label="back to hub"><svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7" /></svg></a>
     {/if}
-    <div class="brand">jetstream</div>
+    <div class="heading"><h1>Jetstream</h1><p>Find something worth watching.</p></div>
     <button class="subs-link" onclick={openSubs}>subscriptions</button>
     <span class="spacer"></span>
   </header>
 
   <form class="bar" onsubmit={search}>
-    <input bind:value={q} onfocus={() => (qf = true)} onblur={() => setTimeout(() => (qf = false), 150)} placeholder="search anything" enterkeyhint="search" autocapitalize="off" autocomplete="off" />
+    <input bind:value={q} onfocus={() => (qf = true)} onblur={() => setTimeout(() => (qf = false), 150)} aria-label="Search videos" placeholder={searchPh} enterkeyhint="search" autocapitalize="off" autocomplete="off" />
     <Recent items={recentQ} query={q} focused={qf} onpick={(r) => { q = r; qf = false; search({ preventDefault() {} }); }} onclear={() => (recentQ = clearSearches('js-searches'))} />
-    <button type="submit" disabled={busy}>{busy ? '...' : 'go'}</button>
+    <button type="submit" disabled={busy}>{busy ? 'Searching...' : 'Search'}</button>
   </form>
 
   {#if error}<p class="err" role="alert">{error}</p>{/if}
@@ -1408,7 +1426,7 @@ network {stats.net} · ready {stats.ready}</pre>
         <section class="results">
           {#each results.filter((r) => r.id !== watching.id) as v (v.id)}
             <button class="row" onclick={() => watch(v)}>
-              <img src={lthumb(v.id)} alt="" loading="lazy" />
+              <img src={lthumb(v.id)} alt="" loading="lazy" onerror={(e) => { e.currentTarget.style.visibility = 'hidden'; }} />
               <span class="txt">
                 <span class="title">{v.title}</span>
                 <span class="meta">{v.channel}{v.duration ? ` · ${v.duration}` : ''}</span>
@@ -1464,7 +1482,7 @@ network {stats.net} · ready {stats.ready}</pre>
             <section class="results">
               {#each plPage.items as v (v.id)}
                 <button class="row" onclick={() => playPlFrom(v)}>
-                  <img src={lthumb(v.id)} alt="" loading="lazy" />
+                  <img src={lthumb(v.id)} alt="" loading="lazy" onerror={(e) => { e.currentTarget.style.visibility = 'hidden'; }} />
                   <span class="txt">
                     <span class="title">{v.title}</span>
                     <span class="meta">{v.channel}{v.duration ? ` · ${v.duration}` : ''}</span>
@@ -1522,7 +1540,7 @@ network {stats.net} · ready {stats.ready}</pre>
             <section class="results">
               {#each chanPage.videos as v (v.id)}
                 <button class="row" onclick={() => watch(v)}>
-                  <img src={lthumb(v.id)} alt="" loading="lazy" />
+                  <img src={lthumb(v.id)} alt="" loading="lazy" onerror={(e) => { e.currentTarget.style.visibility = 'hidden'; }} />
                   <span class="txt">
                     <span class="title">{v.title}</span>
                     <span class="meta">{v.duration}{v.views ? ` · ${v.views}` : ''}</span>
@@ -1541,7 +1559,7 @@ network {stats.net} · ready {stats.ready}</pre>
           <div class="hist">
             {#each chanPage.playlists as pl (pl.id)}
               <button class="hcard" onclick={() => openPlaylist(pl.id, pl.title, chanPage.name)}>
-                <span class="hthumb">{#if pl.thumbVid}<img src={lthumb(pl.thumbVid)} alt="" loading="lazy" />{/if}</span>
+                <span class="hthumb">{#if pl.thumbVid}<img src={lthumb(pl.thumbVid)} alt="" loading="lazy" onerror={(e) => { e.currentTarget.style.visibility = 'hidden'; }} />{/if}</span>
                 <span class="htitle">{pl.title}</span>
               </button>
             {/each}
@@ -1558,7 +1576,7 @@ network {stats.net} · ready {stats.ready}</pre>
             <div class="hist">
               {#each chanPage.shorts as v, si (v.id)}
                 <button class="hcard scard" onclick={() => scrollChannelShorts(si)}>
-                  <span class="hthumb"><img class="sthumb" src={lthumb(v.id)} alt="" loading="lazy" /></span>
+                  <span class="hthumb"><img class="sthumb" src={lthumb(v.id)} alt="" loading="lazy" onerror={(e) => { e.currentTarget.style.visibility = 'hidden'; }} /></span>
                   <span class="htitle">{v.title}</span>
                 </button>
               {/each}
@@ -1582,7 +1600,7 @@ network {stats.net} · ready {stats.ready}</pre>
         <div class="hist">
           {#each newSubs as v (v.id)}
             <button class="hcard" onclick={() => watch(v)}>
-              <span class="hthumb"><img src={lthumb(v.id)} alt="" loading="lazy" /></span>
+              <span class="hthumb"><img src={lthumb(v.id)} alt="" loading="lazy" onerror={(e) => { e.currentTarget.style.visibility = 'hidden'; }} /></span>
               <span class="htitle">{v.title}</span>
               <span class="hchan">{v.channel}</span>
             </button>
@@ -1593,14 +1611,13 @@ network {stats.net} · ready {stats.ready}</pre>
         <p class="hist-h">watch later</p>
         <div class="hist">
           {#each later as v (v.id)}
-            <button class="hcard" onclick={() => openLater(v)}>
+            <div class="hcard saved-card"><button class="saved-open" onclick={() => openLater(v)} aria-label={'Play saved video ' + v.title}>
               <span class="hthumb">
-                <img src={lthumb(v.id)} alt="" loading="lazy" />
-                <span class="hx" role="button" tabindex="-1" aria-label="remove from watch later" onclick={(e) => { e.stopPropagation(); toggleLater(v); }}>x</span>
+                <img src={lthumb(v.id)} alt="" loading="lazy" onerror={(e) => { e.currentTarget.style.visibility = 'hidden'; }} />
               </span>
               <span class="htitle">{v.title}</span>
               <span class="hchan">{v.channel}</span>
-            </button>
+            </button><button type="button" class="hx" aria-label={'Remove saved video ' + v.title} onclick={() => toggleLater(v)}>x</button></div>
           {/each}
         </div>
       {/if}
@@ -1608,14 +1625,13 @@ network {stats.net} · ready {stats.ready}</pre>
         <p class="hist-h">keep watching</p>
         <div class="hist">
           {#each history as v (v.id)}
-            <button class="hcard" onclick={() => watch(v)}>
+            <div class="hcard saved-card"><button class="saved-open" onclick={() => watch(v)} aria-label={'Continue video ' + v.title}>
               <span class="hthumb">
-                <img src={lthumb(v.id)} alt="" loading="lazy" />
-                <span class="hx" role="button" tabindex="-1" aria-label="remove from keep watching" onclick={(e) => removeHistory(v, e)}>x</span>
+                <img src={lthumb(v.id)} alt="" loading="lazy" onerror={(e) => { e.currentTarget.style.visibility = 'hidden'; }} />
               </span>
               <span class="htitle">{v.title}</span>
               <span class="hchan">{v.channel}</span>
-            </button>
+            </button><button type="button" class="hx" aria-label={'Remove continue video ' + v.title} onclick={(e) => removeHistory(v, e)}>x</button></div>
           {/each}
         </div>
       {/if}
@@ -1627,7 +1643,7 @@ network {stats.net} · ready {stats.ready}</pre>
         <div class="hist">
           {#each shorts as v, i (v.id)}
             <button class="hcard scard" onclick={() => openFeed(i)}>
-              <span class="hthumb"><img class="sthumb" src={lthumb(v.id)} alt="" loading="lazy" /></span>
+              <span class="hthumb"><img class="sthumb" src={lthumb(v.id)} alt="" loading="lazy" onerror={(e) => { e.currentTarget.style.visibility = 'hidden'; }} /></span>
               <span class="htitle">{v.title}</span>
             </button>
           {/each}
@@ -1638,7 +1654,7 @@ network {stats.net} · ready {stats.ready}</pre>
         <div class="fygrid">
           {#each forYou as v (v.id)}
             <button class="hcard" onclick={() => watch(v)}>
-              <span class="hthumb"><img src={lthumb(v.id)} alt="" loading="lazy" /></span>
+              <span class="hthumb"><img src={lthumb(v.id)} alt="" loading="lazy" onerror={(e) => { e.currentTarget.style.visibility = 'hidden'; }} /></span>
               <span class="htitle">{v.title}</span>
               <span class="hchan">{v.channel}</span>
             </button>
@@ -1658,7 +1674,7 @@ network {stats.net} · ready {stats.ready}</pre>
         {#if kres.channel === null}<p class="empty">looking for channels...</p>{/if}
         {#each kres.channel || [] as c (c.id)}
           <button class="row crow" onclick={() => openChannel(c.id, c.name)}>
-            {#if c.avatar}<img class="av" src={avatar(c.avatar)} alt="" loading="lazy" />{:else}<span class="av avph">{(c.name || '?')[0]}</span>{/if}
+            {#if c.avatar}<img class="av" src={avatar(c.avatar)} alt="" loading="lazy" onerror={(e) => { e.currentTarget.style.visibility = 'hidden'; }} />{:else}<span class="av avph">{(c.name || '?')[0]}</span>{/if}
             <span class="txt">
               <span class="title">{c.name}</span>
               <span class="meta">{c.handle ? c.handle + ' · ' : ''}{c.subs}</span>
@@ -1673,7 +1689,7 @@ network {stats.net} · ready {stats.ready}</pre>
         {#if kres.playlist === null}<p class="empty">looking for playlists...</p>{/if}
         {#each kres.playlist || [] as pl (pl.id)}
           <button class="row" onclick={() => openPlaylist(pl.id, pl.title, pl.channel)}>
-            {#if pl.thumbVid}<img src={lthumb(pl.thumbVid)} alt="" loading="lazy" />{:else}<span class="avph plph"></span>{/if}
+            {#if pl.thumbVid}<img src={lthumb(pl.thumbVid)} alt="" loading="lazy" onerror={(e) => { e.currentTarget.style.visibility = 'hidden'; }} />{:else}<span class="avph plph"></span>{/if}
             <span class="txt">
               <span class="title">{pl.title}</span>
               <span class="meta">{pl.channel}{pl.count ? ` · ${pl.count}` : ''}</span>
@@ -1686,7 +1702,7 @@ network {stats.net} · ready {stats.ready}</pre>
     <section class="results">
       {#each results as v (v.id)}
         <button class="row" onclick={() => watch(v)}>
-          <img src={lthumb(v.id)} alt="" loading="lazy" />
+          <img src={lthumb(v.id)} alt="" loading="lazy" onerror={(e) => { e.currentTarget.style.visibility = 'hidden'; }} />
           <span class="txt">
             <span class="title">{v.title}</span>
             <span class="meta">{v.channel}{v.duration ? ` · ${v.duration}` : ''}</span>
@@ -1696,7 +1712,7 @@ network {stats.net} · ready {stats.ready}</pre>
         {#if searched && !busy && !error}
           <p class="empty">nothing came up. try different words.</p>
         {:else if !searched}
-          <p class="empty">search it, watch it. that's the whole app.</p>
+          <p class="empty">Your next watch starts with a search.</p>
         {/if}
       {/each}
     </section>
@@ -1750,7 +1766,7 @@ network {stats.net} · ready {stats.ready}</pre>
             <button class="slide-dislike" class:disliked={dislikedSet.has(v.id)} onclick={() => toggleDislike(i)} aria-label={dislikedSet.has(v.id) ? 'undo not interested' : 'not interested'}>
               <svg viewBox="0 0 24 24"><path d="M15 3H6c-.83 0-1.54.5-1.84 1.22l-3.02 7.05c-.09.23-.14.47-.14.73v2c0 1.1.9 2 2 2h6.31l-.95 4.57-.03.32c0 .41.17.79.44 1.06L9.83 23l6.59-6.59c.36-.36.58-.86.58-1.41V5c0-1.1-.9-2-2-2zm4 0v12h4V3h-4z" /></svg>
             </button>
-            <div class="slide-prog" onclick={(e) => seekSlide(i, e)} role="slider" aria-label="seek" aria-valuenow={Math.round(progPct(i))}>
+            <div class="slide-prog" onclick={(e) => seekSlide(i, e)} onkeydown={(e) => seekSlideKey(i, e)} tabindex="0" role="slider" aria-valuemin="0" aria-valuemax="100" aria-label="seek" aria-valuenow={Math.round(progPct(i))}>
               <div class="slide-prog-fill" style={`width:${progPct(i)}%`}></div>
             </div>
             <div class="slide-meta">
@@ -1768,29 +1784,19 @@ network {stats.net} · ready {stats.ready}</pre>
   {/if}
 </main>
 
+</AppFrame>
+
 <style>
-  main { max-width: 640px; margin: 0 auto; padding: 16px 14px 48px; }
-  header { display: flex; align-items: center; gap: 10px; padding: 6px 6px 16px; }
-  .home { width: 34px; height: 34px; display: grid; place-items: center; border-radius: 50%; }
-  .home:hover { background: var(--rj-surface); }
+  main { max-width: 1180px; margin: 0 auto; padding: 32px 40px 64px; }
+  header { display: flex; align-items: center; gap: 12px; margin-bottom: 30px; }
+  .heading { flex: 1; min-width: 0; } .heading h1 { font-size: 34px; font-weight: 600; letter-spacing: -.04em; margin: 0 0 8px; } .heading p { color: var(--rj-text-dim); margin: 0; font-size: 15px; }
+  .home { width: 40px; height: 40px; display: grid; place-items: center; border: 1px solid var(--rj-border); border-radius: 12px; background: var(--rj-surface); }
   .home svg { width: 18px; height: 18px; fill: none; stroke: var(--rj-text-dim); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
-  .brand { font-size: 20px; font-weight: 700; letter-spacing: -0.02em; }
-  .spacer { width: 34px; margin-left: auto; }
-  .bar { display: flex; gap: 8px; margin-bottom: 18px; }
-  .bar input {
-    flex: 1; height: 48px; padding: 0 18px;
-    font-size: 16px; color: var(--rj-text);
-    background: var(--rj-surface); border: 1px solid transparent;
-    border-radius: var(--rj-pill); outline: none;
-    transition: border-color .15s, background .15s;
-  }
+  header>a.home { display: none; } .spacer { display: none; }
+  .bar { position: relative; display: flex; gap: 8px; margin-bottom: 20px; padding: 7px; background: var(--rj-surface); border: 1px solid var(--rj-border); border-radius: 20px; max-width: 760px; }
+  .bar input { flex: 1; min-width: 0; height: 44px; padding: 0 12px; font-size: 16px; color: var(--rj-text); background: none; border: 0; border-radius: 12px; }
   .bar input::placeholder { color: var(--rj-text-faint); }
-  .bar input:focus { border-color: rgba(255,255,255,.24); background: var(--rj-surface-2); }
-  .bar button {
-    height: 48px; padding: 0 22px; border: none; border-radius: var(--rj-pill);
-    font-size: 15px; font-weight: 700;
-    color: var(--rj-accent-ink); background: var(--rj-accent);
-  }
+  .bar button { padding: 0 20px; border: 0; border-radius: 13px; font-size: 14px; font-weight: 600; color: var(--rj-accent-ink); background: var(--rj-accent); }
   .bar button:disabled { opacity: .5; }
   .chips { display: flex; flex-wrap: wrap; gap: 8px; margin: -4px 2px 16px; }
   .chip {
@@ -1801,6 +1807,9 @@ network {stats.net} · ready {stats.ready}</pre>
   .err { margin: 0 6px 12px; color: var(--rj-danger); font-size: 13px; }
   .results { display: grid; gap: 4px; }
   .hist-h { font-size: 14px; font-weight: 700; color: var(--rj-text-dim); margin: 18px 2px 8px; }
+  .saved-card { position: relative; }
+  .saved-open { display: block; padding: 0; width: 100%; border: 0; background: none; color: inherit; text-align: left; }
+  .saved-card > .hx { position: absolute; top: 5px; right: 5px; border: 0; }
   .hist { display: flex; gap: 10px; overflow-x: auto; padding-bottom: 6px; scrollbar-width: none; }
   .hist::-webkit-scrollbar { display: none; }
   .fygrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px; }
@@ -1828,13 +1837,7 @@ network {stats.net} · ready {stats.ready}</pre>
   }
   .meta { font-size: 12px; color: var(--rj-text-dim); }
   .uplabel { margin: 22px 4px 10px; font-size: 13px; font-weight: 600; color: var(--rj-text-dim); }
-  .qbtn {
-    padding: 1px 10px; border: 1px solid var(--rj-border); border-radius: var(--rj-pill);
-    background: none; color: var(--rj-text); font-size: 12px; font-weight: 600;
-    vertical-align: baseline;
-  }
   .nerd { margin: 6px 0; padding: 10px 12px; background: var(--rj-surface); border: 1px solid var(--rj-border); border-radius: calc(var(--rj-radius) - 4px); font: 12px/1.55 var(--rj-mono); color: var(--rj-text-dim); white-space: pre-wrap; }
-  .sumrow { margin: 6px 0 2px; }
   .sumcard { background: var(--rj-surface); border: 1px solid var(--rj-border); border-radius: var(--rj-radius); padding: 14px 16px; margin: 8px 0 12px; }
   .sumtl { margin: 0 0 8px; font-weight: 700; font-size: 15px; line-height: 1.4; }
   .sumcard ul { margin: 0 0 10px; padding-left: 18px; color: var(--rj-text-dim); font-size: 14px; line-height: 1.5; }
@@ -1842,8 +1845,6 @@ network {stats.net} · ready {stats.ready}</pre>
   .summ button { background: var(--rj-surface-2); border: 1px solid var(--rj-border); color: var(--rj-text); border-radius: var(--rj-pill); padding: 6px 12px; font-size: 13px; }
   .summ b { color: var(--rj-accent); font-variant-numeric: tabular-nums; margin-right: 4px; }
   .sumfoot { margin: 0; font-size: 11px; color: var(--rj-text-faint); }
-  .qbtn { white-space: nowrap; }
-  .qbtn:hover { background: var(--rj-surface); }
   .chanlink { background: none; border: none; padding: 0; color: var(--rj-text); font-size: 12px; font-weight: 600; }
   .chanlink:hover { text-decoration: underline; }
   .chan-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 18px 2px 4px; }
@@ -1866,12 +1867,12 @@ network {stats.net} · ready {stats.ready}</pre>
   .cbiotxt.open { display: block; -webkit-line-clamp: unset; line-clamp: unset; }
   .plmore { text-align: center; font-size: 12px; color: var(--rj-text-faint); padding: 18px 0 8px; }
   .plctl { display: flex; gap: 6px; }
-  .playall.on { background: var(--rj-accent); color: #060608; border-color: var(--rj-accent); }
+  .playall.on { background: var(--rj-accent); color: var(--rj-accent-ink); border-color: var(--rj-accent); }
   .plsearch { width: 100%; box-sizing: border-box; height: 40px; margin: 0 0 10px; padding: 0 14px; border-radius: var(--rj-pill); border: 1px solid var(--rj-border); background: var(--rj-surface); color: var(--rj-text); font-size: 14px; }
   .home { background: none; border: 0; padding: 0; cursor: pointer; }
   .ktabs { display: flex; gap: 8px; margin: 0 2px 12px; }
   .ktab { height: 32px; padding: 0 14px; border: 1px solid var(--rj-border); border-radius: var(--rj-pill); background: none; color: var(--rj-text-dim); font-size: 13px; font-weight: 600; }
-  .ktab.on { color: #060608; background: var(--rj-accent); border-color: var(--rj-accent); }
+  .ktab.on { color: var(--rj-accent-ink); background: var(--rj-accent); border-color: var(--rj-accent); }
   .crow .av { width: 64px; height: 64px; border-radius: 50%; object-fit: cover; flex: none; background: var(--rj-surface); }
   .avph { display: grid; place-items: center; width: 64px; height: 64px; border-radius: 50%; background: var(--rj-surface); color: var(--rj-text-dim); font-weight: 800; font-size: 22px; text-transform: uppercase; flex: none; }
   .plph { width: 120px; height: 68px; border-radius: 10px; }
@@ -1909,13 +1910,13 @@ network {stats.net} · ready {stats.ready}</pre>
   .vo-b { width: 44px; height: 44px; border: 0; border-radius: 50%; background: rgba(0,0,0,.45); color: #fff; display: grid; place-items: center; padding: 0; cursor: pointer; }
   .vo-b:disabled { opacity: .35; }
   .vo-b svg { width: 22px; height: 22px; fill: currentColor; }
-  .vo-play { width: 62px; height: 62px; background: var(--rj-accent); color: #060608; }
+  .vo-play { width: 62px; height: 62px; background: var(--rj-accent); color: var(--rj-accent-ink); }
   .vo-play svg { width: 30px; height: 30px; }
   .vo-sm { width: 34px; height: 34px; background: none; }
   .vo-sm svg { width: 20px; height: 20px; }
   .vo-bot { display: flex; align-items: center; gap: 8px; padding: 0 10px 8px; }
   .vo-t { font-size: 12px; color: #fff; font-variant-numeric: tabular-nums; min-width: 34px; text-align: center; }
-  .vo-q.on, .qbtn.on { background: var(--rj-accent); color: #000; border-color: var(--rj-accent); }
+  .vo-q.on { background: var(--rj-accent); color: var(--rj-accent-ink); border-color: var(--rj-accent); }
   .vo-q { height: 24px; padding: 0 8px; border: 1px solid rgba(255,255,255,.4); border-radius: var(--rj-pill); background: none; color: #fff; font-size: 11px; font-weight: 700; }
   .vo-seek { flex: 1; min-width: 0; height: 28px; -webkit-appearance: none; appearance: none; background: transparent; margin: 0; }
   .vo-seek::-webkit-slider-runnable-track { height: 4px; border-radius: 2px; background: linear-gradient(to right, var(--rj-accent) var(--p), rgba(255,255,255,.3) var(--p)); }
@@ -1940,7 +1941,7 @@ network {stats.net} · ready {stats.ready}</pre>
   .backbtn:hover { color: var(--rj-text); }
   .scard { flex: 0 0 88px; height: 172px; overflow: hidden; }
   .scard .sthumb { height: 112px; aspect-ratio: 3/4; }
-  .feed { position: fixed; inset: 0; z-index: 60; background: #000; }
+  .feed { position: fixed; inset: 0; z-index: 100; background: #000; }
   .feed-scroll { height: 100%; max-width: 430px; margin: 0 auto; overflow-y: auto; scroll-snap-type: y mandatory; scrollbar-width: none; }
   .feed-scroll::-webkit-scrollbar { display: none; }
   .slide { position: relative; height: 100%; scroll-snap-align: start; scroll-snap-stop: always; background: #000; }
@@ -1966,13 +1967,13 @@ network {stats.net} · ready {stats.ready}</pre>
   .zone-open { height: 28px; padding: 0 12px; border: 1px solid var(--rj-border); border-radius: var(--rj-pill); background: none; color: var(--rj-text-dim); font-size: 12px; }
   .zone-open:hover { color: var(--rj-text); background: var(--rj-surface); }
   .subs-link { background: none; border: none; color: var(--rj-accent); font-size: 15px; font-weight: 600; padding: 6px 10px; cursor: pointer; }
-  .subspage h1 { margin: 18px 16px 12px; font-size: 24px; color: #fff; }
-  .subspage .empty { margin: 12px 16px; color: rgba(255,255,255,.6); font-size: 14px; }
+  .subspage h1 { margin: 18px 16px 12px; font-size: 24px; color: var(--rj-text); }
+  .subspage .empty { margin: 12px 16px; color: var(--rj-text-dim); font-size: 14px; }
   .subslist { display: flex; flex-direction: column; gap: 2px; margin: 0 10px; }
   .subrow { display: flex; align-items: center; gap: 10px; padding: 10px 8px; border-radius: 12px; }
-  .subrow:hover { background: rgba(255,255,255,.05); }
-  .subgo { flex: 1; text-align: left; background: none; border: none; color: #fff; font-size: 15px; font-weight: 600; cursor: pointer; padding: 4px 6px; }
-  .unsub { border: 1px solid rgba(255,255,255,.18); background: none; color: rgba(255,255,255,.75); font-size: 13px; padding: 6px 14px; border-radius: 999px; cursor: pointer; }
+  .subrow:hover { background: var(--rj-hover); }
+  .subgo { flex: 1; text-align: left; background: none; border: none; color: var(--rj-text); font-size: 15px; font-weight: 600; cursor: pointer; padding: 4px 6px; }
+  .unsub { border: 1px solid var(--rj-border); background: none; color: var(--rj-text-dim); font-size: 13px; padding: 6px 14px; border-radius: 999px; cursor: pointer; }
   .feed-search { position: absolute; top: max(12px, env(safe-area-inset-top)); left: 58px; right: 12px; z-index: 61; }
   .feed-search-btn { position: absolute; top: max(12px, env(safe-area-inset-top)); left: 58px; z-index: 61; width: 38px; height: 38px; border: none; border-radius: 50%; background: rgba(0,0,0,.5); display: grid; place-items: center; }
   .feed-search-btn svg { width: 20px; height: 20px; fill: none; stroke: #fff; stroke-width: 2; stroke-linecap: round; }
@@ -2042,4 +2043,9 @@ network {stats.net} · ready {stats.ready}</pre>
   .player .uplabel { margin: 18px 4px 8px; font-size: 13px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--rj-text-faint); }
   @media (min-width: 1000px) { .player h1 { font-size: 22px; } .player .wactions { flex-wrap: wrap; overflow: visible; } }
   form.bar { position: relative; }
+  main { max-width: 1180px; }
+  .results { gap: 12px; } .hcard { border-color: var(--rj-border); padding: 10px; } .fygrid { grid-template-columns: repeat(auto-fill,minmax(220px,1fr)); gap: 16px; }
+  .subs-link { background: var(--rj-surface); color: var(--rj-text-dim); border: 1px solid var(--rj-border); padding: 10px 14px; border-radius: 12px; font-size: 13px; }
+  @media(min-width:1000px) { .results { grid-template-columns: repeat(2,minmax(0,1fr)); } }
+  @media(max-width:760px) { main { padding: 28px 20px 40px; } .heading h1 { font-size: 30px; } .heading p { font-size: 13px; } header { gap: 10px; } .subs-link { padding: 10px; font-size: 12px; } .bar button { padding: 0 14px; } .fygrid { grid-template-columns: repeat(2,minmax(0,1fr)); gap: 10px; } }
 </style>

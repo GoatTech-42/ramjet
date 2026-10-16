@@ -1,9 +1,9 @@
 import './autoclear.js';
-
-
-
-
-
+// Tab cloak, shared by every app.
+// While rj-cloak is on in this browser, the tab reads "Google Docs" with the
+// Google Docs favicon, on every page, and later title/icon changes by the app
+// are put back. Off by default; the ` key toggles it everywhere except browse
+// (browse owns its own key handler and button).
 const TITLE = 'Google Docs';
 const ICONS = [['image/png', '/cloak/docs-32.png', '32x32'], ['image/x-icon', '/cloak/docs.ico', null]];
 let guard = false;
@@ -39,7 +39,6 @@ export function setCloak(on) {
   try { localStorage.setItem('rj-cloak', on ? '1' : '0'); } catch {}
   applyCloak();
 }
-export function isCloaked() { return isOn(); }
 applyCloak();
 new MutationObserver(applyCloak).observe(document.head, { childList: true, subtree: true, characterData: true, attributes: true });
 window.addEventListener('storage', (e) => { if (e.key === 'rj-cloak') applyCloak(); });

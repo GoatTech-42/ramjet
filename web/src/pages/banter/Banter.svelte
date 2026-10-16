@@ -1,5 +1,7 @@
 <script>
+  import { modal } from '../../lib/modal.js';
   import '../../tokens.css';
+  import AppFrame from '../../lib/AppFrame.svelte';
   import { onMount, tick } from 'svelte';
   import { api } from '../../lib/api.js';
 
@@ -266,12 +268,13 @@
 <svelte:window onkeydown={ovKey} />
 <svelte:head><title>{totalUnread ? '(' + totalUnread + ') ' : ''}banter - ramjet</title></svelte:head>
 
+<AppFrame active="/banter">
 <div class="app" class:inchat={cur}>
   <aside class="side">
     <header class="top">
       <a class="back" href="/" aria-label="back to ramjet"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg></a>
-      <span class="brand">banter</span>
-      <button class="pill" onclick={() => { sheet = 'new'; sheetErr = ''; }}>new</button>
+      <h1 class="brand">Banter</h1>
+      <button class="pill" onclick={() => { sheet = 'new'; sheetErr = ''; }}>New chat</button>
     </header>
     {#if !loaded}
       <p class="hint">loading</p>
@@ -295,7 +298,7 @@
           {/each}
         {:else}
           <div class="addrow">
-            <input class="field" placeholder="username or friend code" bind:value={addName} onkeydown={(e) => e.key === 'Enter' && addFriend()} />
+            <input class="field" aria-label="Add a friend" placeholder="Username or friend code" bind:value={addName} onkeydown={(e) => e.key === 'Enter' && addFriend()} />
             <button class="mini" onclick={addFriend}>add</button>
           </div>
           {#each incoming as n}
@@ -371,7 +374,7 @@
               {#if mine}<button class="dng" onclick={() => delMsg(m)} aria-label="delete">delete</button>{/if}
               <button onclick={() => (selMsg = m.id)} aria-label="react">&#9786;</button>
             </span>{/if}
-            <span class="ts">{clock(m.ts)}</span>
+            <span class="ts">{clock(m.ts)}</span>{#if m.type !== 'deleted' && m.type !== 'invite'}<button class="message-actions" aria-label={'Actions for message from ' + m.from} onclick={() => { selMsg = m.id; }}>•••</button>{/if}
           </div>
           {/if}
         {:else}
@@ -379,7 +382,7 @@
         {/each}
       </div>
       {#if selM && selRect && selM.type !== 'deleted'}
-        <div class="ov" style={ovPos()} role="dialog" aria-label="message actions">
+        <div class="ov" style={ovPos()} role="dialog" aria-modal="true" tabindex="-1" aria-label="message actions" use:modal={() => { selMsg = 0; }}>
           <button class="ov-bd" aria-label="close" onclick={() => (selMsg = 0)}></button>
           <div class="ov-emo">{#each EMOJI as e}<button onclick={() => react(selM, e)} aria-label="react {e}" class:on={selM.reacts?.[e]?.includes(me)}>{e}</button>{/each}</div>
           <div class="ov-prev" class:mine={selM.from === me}>
@@ -403,7 +406,7 @@
         <label class="ic" aria-label="photo"><input type="file" accept="image/*" hidden onchange={pickPhoto} /><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="3"/><circle cx="9" cy="10" r="1.6"/><path d="M21 16l-5-5-8 9"/></svg></label>
         <button class="ic" aria-label="gif" onclick={() => { sheet = 'gif'; gifQ = ''; gifs = []; sheetErr = ''; }}>gif</button>
         <button class="ic" aria-label="poll" onclick={() => { sheet = 'poll'; sheetErr = ''; }}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 20V10M12 20V4M19 20v-7"/></svg></button>
-        <textarea rows="1" placeholder="message" bind:value={composer} onkeydown={onKey}></textarea>
+        <textarea rows="1" aria-label="Message" placeholder="message" bind:value={composer} onkeydown={onKey}></textarea>
         <button class="send" onclick={sendText} disabled={!composer.trim()} aria-label="send"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button>
       </div>
     {:else}
@@ -413,14 +416,15 @@
 </div>
 
 {#if sheet}
-  <div class="overlay" onclick={() => (sheet = '')}>
-    <div class="sheet" onclick={(e) => e.stopPropagation()}>
+  <div class="overlay" role="presentation" onclick={() => (sheet = '')}>
+    <div class="sheet" role="dialog" aria-modal="true" aria-label="Chat options" tabindex="-1" use:modal={() => { sheet = ''; }} onkeydown={(e) => e.stopPropagation()} onclick={(e) => e.stopPropagation()}>
+        <button class="sheet-close" type="button" aria-label="Close chat options" onclick={() => { sheet = ''; }}>Close</button>
       {#if sheet === 'new'}
         <p class="sh">new group</p>
-        <input class="field" placeholder="group name" maxlength="40" bind:value={draftName} onkeydown={(e) => e.key === 'Enter' && createGroup()} />
+        <input class="field" aria-label="Group name" placeholder="group name" maxlength="40" bind:value={draftName} onkeydown={(e) => e.key === 'Enter' && createGroup()} />
         <button class="go" onclick={createGroup}>make it</button>
         <p class="sh">join with a code</p>
-        <input class="field" placeholder="code" bind:value={draftCode} onkeydown={(e) => e.key === 'Enter' && joinGroup()} />
+        <input class="field" aria-label="Group invite code" placeholder="code" bind:value={draftCode} onkeydown={(e) => e.key === 'Enter' && joinGroup()} />
         <button class="go alt" onclick={() => joinGroup()}>join</button>
       {:else if sheet === 'group'}
         <p class="sh">{cur.title}</p>
@@ -442,12 +446,12 @@
         {:else if relOf(person) === 'sent'}<p class="hint">request sent</p>
         {:else}<button class="go" onclick={() => rel('friend')}>add friend</button>{/if}
       {:else if sheet === 'gif'}
-        <input class="field" placeholder="search gifs" bind:value={gifQ} oninput={gifInput} />
+        <input class="field" aria-label="Search GIFs" placeholder="search gifs" bind:value={gifQ} oninput={gifInput} />
         <div class="gifs">{#each gifs as g}<button class="gif" onclick={() => sendGif(g)}><img src={proxied(g.tiny)} alt="" /></button>{/each}</div>
       {:else if sheet === 'poll'}
         <p class="sh">new poll</p>
-        <input class="field" placeholder="question" maxlength="120" bind:value={pollQ} />
-        {#each pollOpts as _, i}<input class="field" placeholder="option {i + 1}" maxlength="40" bind:value={pollOpts[i]} />{/each}
+        <input class="field" aria-label="Poll question" placeholder="question" maxlength="120" bind:value={pollQ} />
+        {#each pollOpts as _, i}<input class="field" aria-label="Poll option {i + 1}" placeholder="option {i + 1}" maxlength="40" bind:value={pollOpts[i]} />{/each}
         {#if pollOpts.length < 6}<button class="mini" onclick={() => (pollOpts = [...pollOpts, ''])}>+ option</button>{/if}
         <button class="go" onclick={sendPoll}>post poll</button>
       {/if}
@@ -456,18 +460,21 @@
   </div>
 {/if}
 
+</AppFrame>
+
 <style>
   .app { display: grid; grid-template-columns: 340px minmax(0, 1fr); height: 100dvh; width: 100%; overflow: hidden; }
   .side, .chat { display: flex; flex-direction: column; min-height: 0; min-width: 0; background: var(--rj-bg); }
-  .side { border-right: 1px solid var(--rj-border); }
-  .top { display: flex; align-items: center; gap: 10px; padding: calc(10px + env(safe-area-inset-top)) 14px 10px; border-bottom: 1px solid var(--rj-border); }
-  .brand { font-weight: 700; font-size: 17px; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .side { border-right: 1px solid var(--rj-border); background: var(--rj-surface); }
+  .side .back { display: none; }
+  .top { display: flex; align-items: center; gap: 12px; padding: 28px 22px 20px; border-bottom: 1px solid var(--rj-border); }
+  .brand { margin: 0; font-weight: 600; font-size: 28px; letter-spacing: -.04em; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .back { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; background: none; border: 0; color: var(--rj-text); }
   .back svg { width: 20px; height: 20px; }
   .pill { background: var(--rj-accent); color: var(--rj-accent-ink); border: 0; border-radius: var(--rj-pill); padding: 7px 16px; font-weight: 700; font-size: 14px; }
   .tabs { display: flex; gap: 6px; padding: 10px 14px 4px; }
   .tabs button { background: var(--rj-surface); color: var(--rj-text-dim); border: 0; border-radius: var(--rj-pill); padding: 7px 14px; font-size: 13.5px; }
-  .tabs button.on { background: var(--rj-text); color: #000; font-weight: 600; }
+  .tabs button.on { background: var(--rj-surface-2); color: var(--rj-text); font-weight: 600; }
   .rtx { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
   .rtx .rn { flex: none; }
   .rp { font-size: 13px; color: var(--rj-text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -484,11 +491,6 @@
   .rx { display: inline-flex; align-items: center; gap: 4px; height: 26px; padding: 0 9px; border: 1px solid var(--rj-border); border-radius: var(--rj-pill); background: var(--rj-surface); color: var(--rj-text); font-size: 14px; }
   .rx b { font-size: 12px; font-weight: 600; color: var(--rj-text-dim); }
   .rx.mine { border-color: var(--rj-accent); }
-  .emo { display: flex; gap: 2px; margin-top: 4px; padding: 3px 6px; background: var(--rj-surface); border: 1px solid var(--rj-border); border-radius: var(--rj-pill); }
-  .emo button { width: 36px; height: 36px; border: 0; background: none; font-size: 20px; border-radius: 50%; }
-  .macts { display: flex; gap: 6px; margin-top: 3px; }
-  .macts button { height: 28px; padding: 0 12px; border: 1px solid var(--rj-border); border-radius: var(--rj-pill); background: none; color: var(--rj-text); font-size: 12px; font-weight: 600; }
-  .macts .dng { color: #ff6b6b; }
   .replychip { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 0 10px; padding: 6px 12px; border-left: 3px solid var(--rj-accent); background: var(--rj-surface); border-radius: 8px; font-size: 13px; color: var(--rj-text-dim); }
   .replychip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .replychip b { color: var(--rj-text); }
@@ -505,7 +507,6 @@
   .av.sm { width: 32px; height: 32px; font-size: 14px; }
   .hint { color: var(--rj-text-faint); font-size: 14px; padding: 18px 14px; margin: 0; }
   .hint.mid { text-align: center; padding-top: 40px; }
-  .gate { padding: 28px 18px; display: flex; flex-direction: column; gap: 12px; }
   .big { font-size: 22px; font-weight: 700; margin: 0; }
   .field { background: var(--rj-surface); border: 1px solid var(--rj-border); color: var(--rj-text); border-radius: 14px; padding: 13px 14px; font-size: 16px; width: 100%; outline: none; }
   .field:focus { border-color: color-mix(in srgb, var(--rj-accent) 50%, transparent); }
@@ -543,12 +544,11 @@
   .none { margin: auto; text-align: center; }
   .none .hint { padding-top: 6px; }
 
-  .overlay { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.6); display: flex; align-items: flex-end; justify-content: center; z-index: 10; }
+  .overlay { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.6); display: flex; align-items: flex-end; justify-content: center; z-index: 100; }
   .sheet { background: var(--rj-surface); width: min(480px, 100%); max-height: 80dvh; overflow-y: auto; border-radius: 22px 22px 0 0; padding: 18px 16px calc(20px + env(safe-area-inset-bottom)); display: flex; flex-direction: column; gap: 10px; }
   @media (min-width: 700px) { .overlay { align-items: center; } .sheet { border-radius: 22px; } }
   .sh { margin: 6px 0 0; font-weight: 700; font-size: 17px; }
   .code { margin: 0; color: var(--rj-text-dim); } .code b { color: var(--rj-accent); font-family: var(--rj-mono); font-size: 17px; }
-  .bio { margin: 0; color: var(--rj-text-dim); }
   .gifs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
   .gif { padding: 0; border: 0; border-radius: 10px; overflow: hidden; background: var(--rj-surface-2); aspect-ratio: 1; }
   .gif img { width: 100%; height: 100%; object-fit: cover; display: block; }
@@ -567,25 +567,25 @@
   .hov { display: none; position: absolute; top: -14px; gap: 2px; padding: 2px; background: var(--rj-surface); border: 1px solid var(--rj-border); border-radius: var(--rj-pill); z-index: 3; box-shadow: 0 4px 14px rgba(0,0,0,.35); }
   .m.mine .hov { right: 0; } .m:not(.mine) .hov { left: 0; }
   .hov button { height: 26px; padding: 0 10px; border: 0; background: none; color: var(--rj-text); font-size: 12px; font-weight: 600; border-radius: var(--rj-pill); }
-  .hov button:hover { background: var(--rj-hover); } .hov .dng { color: #ff6b6b; }
+  .hov button:hover { background: var(--rj-hover); } .hov .dng { color: var(--rj-danger); }
   @media (hover: hover) and (pointer: fine) { .m:hover .hov { display: inline-flex; } }
 
-  .ov { position: fixed; inset: 0; z-index: 60; }
+  .ov { position: fixed; inset: 0; z-index: 100; }
   .ov-bd { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; padding: 0; background: color-mix(in srgb, var(--rj-bg) 55%, transparent); -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px); animation: ovf .16s ease-out; }
-  .ov-emo { position: absolute; top: var(--et); left: var(--el); display: flex; gap: 2px; padding: 6px 8px; background: var(--rj-surface-2, var(--rj-surface)); border: 1px solid var(--rj-border); border-radius: 999px; box-shadow: 0 10px 30px rgba(0,0,0,.45); -webkit-backdrop-filter: blur(var(--rj-g-blur, 0px)); backdrop-filter: blur(var(--rj-g-blur, 0px)); animation: ovp .18s cubic-bezier(.2,1.2,.4,1); transform-origin: bottom center; }
+  .ov-emo { position: absolute; top: var(--et); left: var(--el); display: flex; gap: 2px; padding: 6px 8px; background: var(--rj-surface-2, var(--rj-surface)); border: 1px solid var(--rj-border); border-radius: 999px; box-shadow: var(--rj-shadow); -webkit-backdrop-filter: blur(var(--rj-g-blur, 0px)); backdrop-filter: blur(var(--rj-g-blur, 0px)); animation: ovp .18s cubic-bezier(.2,1.2,.4,1); transform-origin: bottom center; }
   .ov-emo button { width: 40px; height: 40px; border: 0; background: none; font-size: 24px; border-radius: 50%; transition: transform .12s; }
   .ov-emo button:hover, .ov-emo button:active { transform: scale(1.28); background: var(--rj-hover); }
   .ov-emo button.on { background: color-mix(in srgb, var(--rj-accent) 28%, transparent); }
   .ov-prev { position: absolute; top: var(--pt); left: var(--pl); width: var(--pw); max-height: var(--ph); overflow: hidden; pointer-events: none; display: flex; }
   .ov-prev.mine { justify-content: flex-end; }
-  .ov-prev .bub { max-width: 100%; box-shadow: 0 8px 28px rgba(0,0,0,.4); }
-  .ov-prev .img { max-width: 100%; max-height: var(--ph); border-radius: var(--rj-radius, 14px); box-shadow: 0 8px 28px rgba(0,0,0,.4); }
-  .ov-menu { position: absolute; top: var(--mt); left: var(--ml); width: 220px; background: var(--rj-surface-2, var(--rj-surface)); border: 1px solid var(--rj-border); border-radius: calc(var(--rj-radius, 14px) + 2px); overflow: hidden; box-shadow: 0 14px 40px rgba(0,0,0,.5); -webkit-backdrop-filter: blur(var(--rj-g-blur, 0px)); backdrop-filter: blur(var(--rj-g-blur, 0px)); animation: ovp .18s ease-out; transform-origin: top center; }
+  .ov-prev .bub { max-width: 100%; box-shadow: var(--rj-shadow); }
+  .ov-prev .img { max-width: 100%; max-height: var(--ph); border-radius: var(--rj-radius, 14px); box-shadow: var(--rj-shadow); }
+  .ov-menu { position: absolute; top: var(--mt); left: var(--ml); width: 220px; background: var(--rj-surface-2, var(--rj-surface)); border: 1px solid var(--rj-border); border-radius: calc(var(--rj-radius, 14px) + 2px); overflow: hidden; box-shadow: var(--rj-shadow); -webkit-backdrop-filter: blur(var(--rj-g-blur, 0px)); backdrop-filter: blur(var(--rj-g-blur, 0px)); animation: ovp .18s ease-out; transform-origin: top center; }
   .ov-menu button { display: flex; width: 100%; align-items: center; justify-content: space-between; min-height: 46px; padding: 0 16px; border: 0; background: none; color: var(--rj-text); font: inherit; font-size: 15.5px; text-align: left; }
   .ov-menu button + button { border-top: 1px solid var(--rj-border); }
   .ov-menu button:hover, .ov-menu button:active { background: var(--rj-hover); }
   .ov-menu svg { width: 19px; height: 19px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; opacity: .85; }
-  .ov-menu .dng { color: #ff6b6b; }
+  .ov-menu .dng { color: var(--rj-danger); }
   @keyframes ovf { from { opacity: 0; } to { opacity: 1; } }
   @keyframes ovp { from { opacity: 0; transform: scale(.9); } to { opacity: 1; transform: none; } }
   /* banter wide v2 */
@@ -595,4 +595,15 @@
     .chat .bub { max-width: 620px; font-size: 15.5px; }
   }
   @media (min-width: 1600px) { .app { grid-template-columns: 380px 1fr; } }
+
+  .tabs { padding: 8px 18px 14px; gap: 4px; } .tabs button { background: none; min-height: 40px; }
+  .rows { padding: 4px 14px; } .row { border-radius: 14px; } .hint { font-size: 14px; line-height: 1.7; color: var(--rj-text-dim); }
+  .composer { padding: 14px 20px 20px; } .composer textarea { border: 1px solid var(--rj-border); border-radius: 16px; }
+  .bub { border: 1px solid var(--rj-border); } .m.mine .bub { border-color: transparent; }
+  @media(max-width:760px) { .app { height: calc(100dvh - 90px - env(safe-area-inset-bottom)); } .top { padding: 24px 20px 18px; } .composer { padding: 12px 14px 8px; } }
+  .side, .chat { background: transparent; }
+  .side { border-right-color: color-mix(in srgb, var(--rj-border) 45%, transparent); }
+  .top, .composer { background: transparent; border-color: color-mix(in srgb, var(--rj-border) 45%, transparent); }
+  .sheet-close { align-self: flex-end; min-height: 40px; padding: 8px 14px; background: var(--rj-surface-2); color: var(--rj-text); border: 1px solid var(--rj-border); border-radius: 12px; }
+  .message-actions { display: block; margin: 4px 4px 0; min-width: 36px; min-height: 28px; border: 1px solid var(--rj-border); border-radius: 10px; background: transparent; color: var(--rj-text-dim); } .m.mine .message-actions { align-self: flex-end; }
 </style>

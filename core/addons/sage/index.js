@@ -1,3 +1,4 @@
+import { dataPath } from '../../data.js';
 // sage: ask an AI anything in a clean conversation. the browser never
 // talks to the model provider - ramjet relays each turn server-side, so
 // the shape of the network stays the same as every other ramjet call.
@@ -6,7 +7,6 @@
 // groq with a key for heavier answers - the route does not change.
 
 import { readFileSync, existsSync } from 'fs';
-import { fileURLToPath } from 'url';
 import { randomBytes } from 'node:crypto';
 import { readJson, writeJson } from '../../util.js';
 
@@ -15,7 +15,7 @@ const MAX_CHARS = 4000;
 
 // conversations: per-account, so a chat started on the phone is there on
 // the laptop. titles come from the first user message; capped small.
-const CONV_FILE = fileURLToPath(new URL('../../../data/sage-conversations.json', import.meta.url));
+const CONV_FILE = dataPath('sage-conversations.json');
 const MAX_CONVS = 20;
 const MAX_CONV_MSGS = 100;
 
@@ -45,14 +45,36 @@ function cleanMessages(input) {
 // ({ "base": "https://api.groq.com/openai/v1", "model": "...", "key": "..." })
 // and sage talks to any openai-compatible api with that key instead. no
 // file = pollinations.ai's free keyless endpoint (daily anonymous quota).
-const CONF = fileURLToPath(new URL('../../../data/sage-provider.json', import.meta.url));
+const CONF = dataPath('sage-provider.json');
+
+// a keyed provider sends its reusable key as Authorization on every call:
+// the key must never reach a plaintext destination, so a configured base
+// must be https (loopback http stays allowed for local development)
+export function providerBaseOk(base) {
+  try {
+    const u = new URL(String(base));
+    if (u.protocol === 'https:') return true;
+    return u.protocol === 'http:' && /^(127\.0\.0\.1|localhost|::1|\[::1\])$/.test(u.hostname);
+  } catch { return false; }
+}
+// an upstream error body can echo the very credential it rejected; keep it
+// out of the logs
+export function scrubSecrets(text, key) {
+  let s = String(text);
+  if (key) s = s.split(String(key)).join('[redacted]');
+  return s.slice(0, 200);
+}
 
 function provider() {
   try {
     if (existsSync(CONF)) {
       const c = JSON.parse(readFileSync(CONF, 'utf8'));
       if (c.base && c.key) {
-        return { url: String(c.base).replace(/\/+$/, '') + '/chat/completions', model: c.model || 'openai/gpt-oss-120b', key: c.key };
+        if (!providerBaseOk(c.base)) {
+          console.error('sage provider config rejected: keyed providers require an https destination');
+        } else {
+          return { url: String(c.base).replace(/\/+$/, '') + '/chat/completions', model: c.model || 'openai/gpt-oss-120b', key: c.key };
+        }
       }
     }
   } catch {}
@@ -153,7 +175,7 @@ export async function register(req, res, ctx) {
           signal: AbortSignal.timeout(60000),
         });
         if (!r.ok) {
-          const detail = (await r.text().catch(() => '')).slice(0, 200);
+          const detail = scrubSecrets(await r.text().catch(() => ''), p.key);
           console.error('sage upstream', r.status, detail);
           // 402 = the anonymous daily quota is spent; retrying changes nothing
           if (r.status === 429) { const w = Math.min(120, Math.max(1, Math.ceil(parseFloat(r.headers.get('retry-after')) || 10))); return sendJson(res, 429, { ok: false, error: 'sage is busy right now - give it about ' + w + ' seconds' }); }

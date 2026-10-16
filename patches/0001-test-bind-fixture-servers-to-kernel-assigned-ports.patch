@@ -1,0 +1,174 @@
+From aa3045b1e4a0784f698da1af8201e5d4d76a42f1 Mon Sep 17 00:00:00 2001
+From: ponytail <ponytail@users.noreply.github.com>
+Date: Wed, 14 Oct 2026 17:42:16 -0700
+Subject: [PATCH 1/2] test: bind fixture servers to kernel-assigned ports
+
+---
+ tests/fixture-server.test.mjs    | 34 +++++++++++++++++
+ tests/fixtures/server.mjs        |  8 ++++
+ tests/fixtures/start-server.mjs  | 63 ++++++++++++++++++++++++++++++++
+ tests/lite-image-errors.test.mjs |  5 ++-
+ tests/shortcut-images.test.mjs   | 15 ++++----
+ 5 files changed, 115 insertions(+), 10 deletions(-)
+ create mode 100644 tests/fixture-server.test.mjs
+ create mode 100644 tests/fixtures/server.mjs
+ create mode 100644 tests/fixtures/start-server.mjs
+
+diff --git a/tests/fixture-server.test.mjs b/tests/fixture-server.test.mjs
+new file mode 100644
+index 0000000..7886d83
+--- /dev/null
++++ b/tests/fixture-server.test.mjs
+@@ -0,0 +1,34 @@
++import test from 'node:test';
++import assert from 'node:assert/strict';
++import { existsSync, readFileSync } from 'node:fs';
++import { join } from 'node:path';
++import { withTempServer } from './fixtures/start-server.mjs';
++
++test('concurrent fixture servers use distinct ports and isolated roots', async () => {
++  const user = { username: 'isolation-user', password: 'isolation-password' };
++  await Promise.all([
++    withTempServer(async ({ root, base }) => {
++      assert.equal((await fetch(base + '/login')).status, 200);
++      // write real account data through this server's own API
++      const signup = await fetch(base + '/api/auth/signup', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(user) });
++      assert.equal(signup.status, 200);
++      const stored = JSON.parse(readFileSync(join(root, 'users.json'), 'utf8'))[user.username];
++      assert.ok(stored, 'own root holds the created user');
++      // known-but-pending (403) here proves the account lives in THIS root's store
++      const login = await fetch(base + '/api/auth/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(user) });
++      assert.equal(login.status, stored.status === 'pending' ? 403 : 200);
++    }),
++    withTempServer(async ({ root, base }) => {
++      assert.equal((await fetch(base + '/login')).status, 200);
++      // the other server's user must not exist here: not on disk, not by login
++      const usersPath = join(root, 'users.json');
++      assert.ok(!existsSync(usersPath) || !JSON.parse(readFileSync(usersPath, 'utf8'))[user.username], 'this root never sees the other server\'s user');
++      // unknown-account 401 (not the pending 403) proves it never leaked into this root
++      const login = await fetch(base + '/api/auth/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(user) });
++      assert.equal(login.status, 401);
++    }),
++    withTempServer(async ({ base }) => {
++      assert.equal((await fetch(base + '/login')).status, 200);
++    }),
++  ]);
++});
+diff --git a/tests/fixtures/server.mjs b/tests/fixtures/server.mjs
+new file mode 100644
+index 0000000..dc16d8c
+--- /dev/null
++++ b/tests/fixtures/server.mjs
+@@ -0,0 +1,8 @@
++// Test-only bootstrap: bind port zero and publish the actual kernel-assigned port.
++import { Server } from 'node:net';
++const listen = Server.prototype.listen;
++Server.prototype.listen = function (...args) {
++  this.once('listening', () => process.stdout.write(`TEST_READY ${this.address().port}\n`));
++  return listen.apply(this, args);
++};
++await import('../../core/index.js');
+diff --git a/tests/fixtures/start-server.mjs b/tests/fixtures/start-server.mjs
+new file mode 100644
+index 0000000..daba94d
+--- /dev/null
++++ b/tests/fixtures/start-server.mjs
+@@ -0,0 +1,63 @@
++import { spawn } from 'node:child_process';
++import { once } from 'node:events';
++import { mkdtempSync, rmSync } from 'node:fs';
++import { tmpdir } from 'node:os';
++import { join } from 'node:path';
++
++const waitExit = async (child, ms) => {
++  if (child.exitCode !== null || child.signalCode !== null) return true;
++  const exit = once(child, 'exit').then(() => true, () => true);
++  const timeout = new Promise((r) => setTimeout(() => r(false), ms));
++  return Promise.race([exit, timeout]);
++};
++
++export async function startServer(root) {
++  const child = spawn(process.execPath, [new URL('./server.mjs', import.meta.url).pathname], {
++    cwd: new URL('../../', import.meta.url),
++    env: { ...process.env, RJ_HOST: '127.0.0.1', RJ_PORT: '0', RJ_DATA: root, RJ_ADMIN: 'reviewer' },
++    stdio: ['ignore', 'pipe', 'pipe'],
++  });
++  let log = '';
++  child.stderr.on('data', b => { log = (log + b).slice(-2000); });
++  // SIGTERM, then SIGKILL when the child ignores it - a stuck server must
++  // never hang the suite.
++  let stopped = false;
++  const stop = async () => {
++    if (stopped) return;
++    stopped = true;
++    if (child.exitCode !== null || child.signalCode !== null) return;
++    child.kill('SIGTERM');
++    if (!(await waitExit(child, 3000))) {
++      child.kill('SIGKILL');
++      await waitExit(child, 3000);
++    }
++  };
++  try {
++    const base = await new Promise((resolve, reject) => {
++      let output = '';
++      const timer = setTimeout(() => reject(Error('fixture startup timeout: ' + log)), 10000);
++      child.once('error', e => { clearTimeout(timer); reject(e); });
++      child.once('exit', code => { clearTimeout(timer); reject(Error('fixture exited ' + code + ': ' + log)); });
++      child.stdout.on('data', b => { output += b; const m = /TEST_READY (\d+)/.exec(output); if (m) { clearTimeout(timer); resolve('http://127.0.0.1:' + m[1]); } });
++    });
++    return { child, base, stop };
++  } catch (e) { await stop(); throw e; }
++}
++
++// Cleanup scope: owns the temp root's whole lifecycle. setup(root) runs
++// before the server starts (seed caches, users); fn never runs on startup
++// failure; the server is stopped and the root removed on every exit path,
++// so a failed startup cannot leak a mkdtemp root.
++export async function withTempServer(setup, fn) {
++  if (fn === undefined) { fn = setup; setup = null; }
++  const root = mkdtempSync(join(tmpdir(), 'rj-fixture-'));
++  let server = null;
++  try {
++    if (setup) await setup(root);
++    server = await startServer(root);
++    return await fn({ root, base: server.base });
++  } finally {
++    if (server) await server.stop();
++    rmSync(root, { recursive: true, force: true });
++  }
++}
+diff --git a/tests/lite-image-errors.test.mjs b/tests/lite-image-errors.test.mjs
+index 47fbd67..b1f5b0a 100644
+--- a/tests/lite-image-errors.test.mjs
++++ b/tests/lite-image-errors.test.mjs
+@@ -1,2 +1,3 @@
+-import test from'node:test';import assert from'node:assert/strict';import{mkdtempSync,writeFileSync,rmSync}from'node:fs';import{join}from'node:path';import{tmpdir}from'node:os';import{spawn}from'node:child_process';import{once}from'node:events';import{Auth}from'../core/auth.js';
+-test('both image endpoints return cached provider-block JSON, never rich-text HTML',async()=>{const root=mkdtempSync(join(tmpdir(),'rj-img-errors-'));new Auth(root).createUser('reviewer','fixture-password');const key=JSON.stringify(['ddg-direct-v1','fixture',1,0]);writeFileSync(join(root,'ddg-images-cache.json'),JSON.stringify({[key]:{error:'unavailable',failure:{code:'provider_blocked',upstream_status:403},expires:Date.now()+60000}}));const child=spawn(process.execPath,['core/index.js'],{env:{...process.env,RJ_DATA:root,RJ_PORT:'15328',RJ_HOST:'127.0.0.1',RJ_ADMIN:'reviewer'},stdio:'ignore'});try{for(let i=0;i<100;i++){try{if((await fetch('http://127.0.0.1:15328/login')).ok)break;}catch{}await new Promise(r=>setTimeout(r,50));}for(const route of['imgsearch','imgsheet']){const r=await fetch('http://127.0.0.1:15328/api/lite/'+route+'?q=fixture&safe=off',{headers:{authorization:'Basic '+Buffer.from('reviewer:fixture-password').toString('base64')}});assert.equal(r.status,502);assert.match(r.headers.get('content-type'),/^application\/json/);const body=await r.json();assert.equal(body.code,'provider_blocked');assert.equal(body.upstream_status,403);assert.equal(body.ok,false);}}finally{child.kill();await once(child,'exit');rmSync(root,{recursive:true,force:true});}});
++import {withTempServer}from'./fixtures/start-server.mjs';
++import test from'node:test';import assert from'node:assert/strict';import{writeFileSync}from'node:fs';import{join}from'node:path';import{Auth}from'../core/auth.js';
++test('both image endpoints return cached provider-block JSON, never rich-text HTML',async()=>withTempServer((root)=>{new Auth(root).createUser('reviewer','fixture-password');const key=JSON.stringify(['ddg-direct-v1','fixture',1,0]);writeFileSync(join(root,'ddg-images-cache.json'),JSON.stringify({[key]:{error:'unavailable',failure:{code:'provider_blocked',upstream_status:403},expires:Date.now()+60000}}));},async({base})=>{for(const route of['imgsearch','imgsheet']){const r=await fetch(base+'/api/lite/'+route+'?q=fixture&safe=off',{headers:{authorization:'Basic '+Buffer.from('reviewer:fixture-password').toString('base64')}});assert.equal(r.status,502);assert.match(r.headers.get('content-type'),/^application\/json/);const body=await r.json();assert.equal(body.code,'provider_blocked');assert.equal(body.upstream_status,403);assert.equal(body.ok,false);}}));
+diff --git a/tests/shortcut-images.test.mjs b/tests/shortcut-images.test.mjs
+index 3e3147e..4244c34 100644
+--- a/tests/shortcut-images.test.mjs
++++ b/tests/shortcut-images.test.mjs
+@@ -1,10 +1,9 @@
+-import test from 'node:test';import assert from 'node:assert/strict';import {mkdtempSync,writeFileSync,rmSync}from'node:fs';import{tmpdir}from'node:os';import{join}from'node:path';import{spawn}from'node:child_process';import{once}from'node:events';import{Auth}from'../core/auth.js';
+-test('authenticated Shortcut images reuse native cache, preserve source/safe separation, reject unauthenticated',async()=>{
+- const root=mkdtempSync(join(tmpdir(),'rj-shortcut-'));const auth=new Auth(root);auth.createUser('reviewer','fixture-password');
++import {withTempServer}from'./fixtures/start-server.mjs';
++import test from 'node:test';import assert from 'node:assert/strict';import {writeFileSync}from'node:fs';import{join}from'node:path';import{Auth}from'../core/auth.js';
++test('authenticated Shortcut images reuse native cache, preserve source/safe separation, reject unauthenticated',async()=>withTempServer((root)=>{
++ const auth=new Auth(root);auth.createUser('reviewer','fixture-password');
+  const key=JSON.stringify(['ddg-direct-v1','fixture',1,1]);writeFileSync(join(root,'ddg-images-cache.json'),JSON.stringify({[key]:{expires:Date.now()+60000,data:{results:[{title:'DDG fixture',url:'https://example.com/',img_src:'https://example.com/image.jpg',thumbnail_src:'https://example.com/thumb.jpg',engine:'duckduckgo images'}]}}}));
+- const child=spawn(process.execPath,['core/index.js'],{env:{...process.env,RJ_DATA:root,RJ_PORT:'15327',RJ_HOST:'127.0.0.1',RJ_ADMIN:'reviewer'},stdio:'ignore'});try{
+-  for(let i=0;i<100;i++){try{if((await fetch('http://127.0.0.1:15327/login')).ok)break;}catch{}await new Promise(r=>setTimeout(r,50));}
+-  const path='http://127.0.0.1:15327/api/lite/imgsearch?q=fixture';assert.equal((await fetch(path)).status,401);
++},async({base})=>{
++  const path=base+'/api/lite/imgsearch?q=fixture';assert.equal((await fetch(path)).status,401);
+   const header={authorization:'Basic '+Buffer.from('reviewer:fixture-password').toString('base64')};const response=await fetch(path,{headers:header});assert.equal(response.status,200);const data=await response.json();assert.equal(data.results[0].source,'duckduckgo');assert.equal(data.results[0].site,'example.com');assert.equal(data.page,1);assert.equal(data.results[0].title,'DDG fixture');
+- }finally{child.kill();await once(child,'exit');rmSync(root,{recursive:true,force:true});}
+-});
++}));
+-- 
+2.34.1
+

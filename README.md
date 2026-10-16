@@ -1,27 +1,27 @@
-# ramjet (rebuild)
 
-Self-hosted web hub: one login, a themed home, and the apps behind it.
+## Proxy MIME behavior
 
-- **browse** - proxied web browser with tabs, bookmarks, history, reader, per-site ad blocking, downloads
-- **ramjet search** - own results page (web, images, videos, news, maps) over a self-hosted SearXNG
-- **jetstream** - video feed with a warm disk cache
-- **amp** - music search and queue across catalogs
-- **sage** - chat assistant (free hosted models, no keys)
-- **banter** - chat with friends
-- **settings** - themes (ramjet, glass, terminal, paper), layouts, data saver, privacy (saving searches is off by default)
+For script destinations the proxy preserves the origin's
+`X-Content-Type-Options: nosniff` header, so the browser refuses non-JS
+script types exactly as it would on a direct connection. A classic script
+without nosniff has no MIME gate (browser behavior, proxied or not), so a
+wrong-typed response without nosniff still executes; module scripts keep
+their own stricter JS-type requirement.
 
-Press Ctrl/Cmd-K for the command palette.
+## Deploys and tests
 
-## Run
+Deploys must restart the server process. The engine build stamp
+(`?v=<ENGINE_STAMP>` on the engine/boot urls), the stamped asset bytes and the
+pages are all snapshotted into memory at boot; a rebuild without a restart
+keeps serving the boot bytes under the boot stamp. Restart on every deploy.
 
-    npm install
-    npm run build        # web/ -> dist
-    node core/index.js   # RJ_PORT (default 14224), RJ_HOST (default 127.0.0.1), RJ_DATA
+Tests need dependencies and a build first:
 
-Per-account state lives in data/ (not in git). Static proxy files under /cloak, /scramjet, /controller, /epoxy and /libcurl are served no-cache.
+    npm ci
+    npm run build
+    node --test tests/*.test.mjs
 
-## Notes
+Browser tests additionally need playwright and a chrome binary:
 
-- Thumbnails: settings > data saver (auto / on / off). On or auto-on-cellular sends smaller thumbnails and video.
-- Docs: docs/features.md, docs/cutover-runbook.md, docs/domain-transfer-prep.md. Build log: PROGRESS.md.
-- Branch rebuild-v2 is the live rebuild; main still holds the older v1.
+    RJ_PLAYWRIGHT=/path/to/playwright/index.mjs RJ_CHROME=/path/to/chrome node tests/browser/proxied-ws.mjs
+    RJ_PLAYWRIGHT=/path/to/playwright/index.mjs RJ_CHROME=/path/to/chrome node tests/browser/local-fixture-smoke.mjs

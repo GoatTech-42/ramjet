@@ -1,10 +1,10 @@
-
-
-
+// command palette: ctrl/cmd-K anywhere in ramjet, plus a small
+// button on the home page for phones. plain js, themed with the --rj-* tokens
+// so every theme and mode gets it for free.
 (function () {
   if (window.__rjPalette) return; window.__rjPalette = 1;
   var PAGES = [['home', '/', 'the ramjet home page'], ['browse', '/browse', 'the whole web'], ['jetstream', '/jetstream', 'search and watch videos'], ['amp', '/amp', 'your music'], ['sage', '/sage', 'ask anything'], ['banter', '/banter', 'chat with friends'], ['settings', '/settings', 'look, account, privacy']];
-  var LAYOUTS = ['list', 'grid', 'dock'];
+  var LAYOUTS = [['list', 'Simple'], ['grid', 'Compact'], ['dock', 'Widgets']];
   var css = '#rjp-b{position:fixed;z-index:2147483000;right:14px;bottom:calc(14px + env(safe-area-inset-bottom));height:40px;min-width:40px;padding:0 13px;border-radius:20px;border:1px solid var(--rj-border,rgba(255,255,255,.12));background:var(--rj-surface,#212121);color:var(--rj-text-dim,#b4b4b4);font:500 13px/1 var(--rj-font,system-ui,sans-serif);display:flex;align-items:center;gap:8px;cursor:pointer;box-shadow:0 6px 22px rgba(0,0,0,.35);-webkit-tap-highlight-color:transparent}' +
     '#rjp-b svg{width:17px;height:17px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;flex:none}#rjp-b kbd{font:inherit;font-size:11px;opacity:.7;border:1px solid var(--rj-border,rgba(255,255,255,.14));border-radius:5px;padding:2px 5px}#rjp-b:hover{color:var(--rj-text,#ececec)}' +
     '@media (pointer:coarse){#rjp-b{width:44px;height:44px;padding:0;justify-content:center;border-radius:22px}#rjp-b span,#rjp-b kbd{display:none}}' +
@@ -17,7 +17,7 @@
     '#rjp .e{padding:20px;text-align:center;color:var(--rj-text-faint,#8e8e8e);font-size:14px}#rjp .f{display:flex;gap:14px;padding:8px 14px;border-top:1px solid var(--rj-border,rgba(255,255,255,.08));font-size:11.5px;color:var(--rj-text-faint,#8e8e8e)}@media (pointer:coarse){#rjp .f{display:none}}';
   var st = document.createElement('style'); st.textContent = css; document.head.appendChild(st);
   var mag = '<svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>';
-  var root = document.createElement('div'); root.id = 'rjp'; root.setAttribute('role', 'dialog'); root.setAttribute('aria-label', 'command palette');
+  var root = document.createElement('div'); root.id = 'rjp'; root.setAttribute('role', 'dialog'); root.setAttribute('aria-label', 'command palette'); root.setAttribute('aria-modal', 'true');
   root.innerHTML = '<div class="c"><div class="q">' + mag + '<input type="text" placeholder="go anywhere, or search..." autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="command palette"></div><div class="l"></div><div class="f"><span>&uarr;&darr; move</span><span>enter open</span><span>esc close</span></div></div>';
   document.body.appendChild(root);
   var inp = root.querySelector('input'), list = root.querySelector('.l'), items = [], sel = 0;
@@ -34,7 +34,7 @@
       out.push({ g: 'search', n: 'ask sage: "' + t + '"', d: 'sage', run: function () { openIn('/sage', 'rj-ask', t); } });
     }
     PAGES.forEach(function (p) { if (has(p[0] + ' ' + p[2])) out.push({ g: 'go to', n: p[0], d: p[2], cur: (p[1] === here), run: function () { location.href = p[1]; } }); });
-    LAYOUTS.forEach(function (l) { if (has('layout ' + l)) out.push({ g: 'home layout', n: 'layout: ' + l, d: 'switch the home page', run: function () { try { localStorage.setItem('rj-layout', l); } catch (e) {} location.href = '/'; } }); });
+    LAYOUTS.forEach(function (entry) { var l = entry[0], name = entry[1]; if (has('layout ' + name)) out.push({ g: 'home layout', n: 'layout: ' + name, d: 'switch the home page', run: function () { try { localStorage.setItem('rj-layout', l); } catch (e) {} location.href = '/'; } }); });
     if (has('log out sign out')) out.push({ g: 'account', n: 'log out', d: '', run: function () { fetch('/api/auth/logout', { method: 'POST' }).catch(function () {}).then(function () { location.href = '/login'; }); } });
     var seen = {}, rec = [];
     (saving() ? jget('rj-browse-searches') : []).slice(0, 8).forEach(function (s) { if (typeof s === 'string' && s && !seen[s] && has(s)) { seen[s] = 1; rec.push({ g: 'recent', n: s, d: 'search again', run: function () { openIn('/browse', 'rj-open', s); } }); } });
@@ -51,9 +51,16 @@
     list.innerHTML = h;
     var s = list.querySelector('.s'); if (s && s.scrollIntoView) s.scrollIntoView({ block: 'nearest' });
   }
-  function open() { root.classList.add('on'); inp.value = ''; sel = 0; render(); setTimeout(function () { inp.focus(); }, 20); }
-  function close() { root.classList.remove('on'); inp.blur(); }
+  var previousFocus = null;
+  function open() { previousFocus = document.activeElement; root.classList.add('on'); inp.value = ''; sel = 0; render(); setTimeout(function () { inp.focus(); }, 20); }
+  function close() { root.classList.remove('on'); inp.blur(); if (previousFocus && previousFocus.isConnected) previousFocus.focus(); }
   function run(i) { var it = items[i]; if (it) { close(); it.run(); } }
+  root.addEventListener('keydown', function (e) {
+    if (e.key !== 'Tab') return;
+    var focusable = [inp].concat(Array.from(list.querySelectorAll('button')));
+    var i = focusable.indexOf(document.activeElement);
+    e.preventDefault(); focusable[(i + (e.shiftKey ? -1 : 1) + focusable.length) % focusable.length].focus();
+  });
   inp.addEventListener('input', function () { sel = 0; render(); });
   list.addEventListener('click', function (e) { var b = e.target.closest && e.target.closest('.i'); if (b) run(+b.getAttribute('data-i')); });
   list.addEventListener('mousemove', function (e) { var b = e.target.closest && e.target.closest('.i'); if (b && +b.getAttribute('data-i') !== sel) { sel = +b.getAttribute('data-i'); var o = list.querySelector('.s'); if (o) o.classList.remove('s'); b.classList.add('s'); } });

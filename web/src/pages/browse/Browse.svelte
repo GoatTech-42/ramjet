@@ -1,8 +1,10 @@
 <script>
+  import { modal } from '../../lib/modal.js';
   import { readSearches, addSearch, clearSearches } from '../../lib/searchhist.js';
   import Recent from '../../lib/Recent.svelte';
   let qf = $state(false);
   import '../../tokens.css';
+  import AppFrame from '../../lib/AppFrame.svelte';
   import { onMount } from 'svelte';
   import { api } from '../../lib/api.js';
 
@@ -13,8 +15,8 @@
   let stageEl = $state(null);
   let ctrl = null;
 
-
-
+  // tabs: every tab is its own proxied iframe, kept
+  // alive (hidden) while you are on another tab so pages keep their state.
   let tabs = $state([]);
   let activeId = $state(0);
   let nextId = 1;
@@ -29,8 +31,8 @@
       v.el.style.display = k === activeId && t?.surfing ? 'block' : 'none';
     }
   }
-
-
+  // per-site "allow ads": the block list stays on everywhere
+  // else. the choice is per device, kept in localStorage rj-ads-allow.
   let menuOpen = $state(false);
   $effect(() => { if (ready && !surfing && typeof matchMedia === 'function' && matchMedia('(pointer: fine)').matches) document.getElementById('br-omni')?.focus(); });
   let adAllow = $state((() => { try { const v = JSON.parse(localStorage.getItem('rj-ads-allow') || '[]'); return Array.isArray(v) ? v.filter((x) => typeof x === 'string').slice(0, 200) : []; } catch { return []; } })());
@@ -58,9 +60,9 @@
     if (t.title) return t.title;
     return t.surfing ? 'loading...' : 'new tab';
   }
-
-
-
+  // address bar follows the page: the proxied frame's document
+  // url is the real address, so read it on load and while the page lives
+  // (covers link clicks, redirects, pushState, back/forward).
   function syncAddr(id) {
     const v = live.get(id);
     const tb = tabs.find((x) => x.id === id);
@@ -137,18 +139,15 @@
     if (!v) return null;
     const looksLikeUrl = /^[a-z]+:\/\//i.test(v) || (/^[^\s]+\.[^\s]{2,}/.test(v) && !v.includes(' '));
     if (looksLikeUrl) return /^[a-z]+:\/\//i.test(v) ? v : 'https://' + v;
-
-
-
-    return '/searx/search?q=' + encodeURIComponent(v);
+    return 'https://duckduckgo.com/?q=' + encodeURIComponent(v);
   }
 
 
-
-
-
-
-
+  // url encryption: a proxied address must not be readable in
+  // the url itself - a filter or a glance at the bar sees gibberish, not the
+  // destination. scramjet serializes these with .toString() into the service
+  // worker and proxied frames, so the session key is baked into the source
+  // and everything they touch is defined inside - no closures.
   function makeUrlCodec(keyHex) {
     const body =
       'var KH="' + keyHex + '";var K=[];for(var i=0;i<KH.length;i+=2)K.push(parseInt(KH.slice(i,i+2),16));' +
@@ -175,9 +174,9 @@
   }
 
 
-
-
-
+  // tab cloak: one tap (or the ` key) and the tab reads as
+  // homework - innocuous title + a docs-look icon, and proxied page titles
+  // stop reaching the tab (and browser history) while it is on.
   const CLOAK_TITLE = 'Google Docs';
   const CLOAK_ICON = '/cloak/docs-32.png';
   let cloaked = $state(true);
@@ -193,10 +192,10 @@
     applyCloak();
   }
 
-
-
-
-
+  // cookie + localStorage cloud sync: admin account only -
+  // the server 403s everyone else, so this silently turns itself off for
+  // other users. restores before the first navigation, pushes every 15s and
+  // on tab close. last writer wins.
   function startSync(controller) {
     (async () => {
       let on = false;
@@ -237,36 +236,195 @@
     })();
   }
 
+  // the epoxy engine (~1.7MB of wasm/js) is only fetched and parsed when a
+  // transport actually needs it: the default tunnel transport fetches and
+  // relays websockets box-side over the one multiplexed socket, so epoxy
+  // only lazy-loads when rj-transport = 'epoxy' (or when the server fallback
+  // transport's connect path is exercised).
+  let epoxyP = null;
+  const loadEpoxy = () => epoxyP || (epoxyP = import(/* @vite-ignore */ '/epoxy/index.mjs?v=' + ((globalThis.__RJ_ENGINE__) || '0')).then((m) => m.default));
   // transport: ws (default, box-side fetch over one multiplexed socket, with a box-side asset cache), epoxy (set rj-transport=epoxy) or libcurl (http/2 + connection reuse). pick with
   // localStorage rj-transport = 'curl' while it is being compared.
-  async function makeTransport(Epoxy, wisp) {
+  // version handshake with the active worker: the script url carrying the
+  // stamp is necessary but the worker must also ANSWER at that stamp - an
+  // old worker still controlling this tab says its own (old) version and
+  // boot must not proceed mixed.
+  async function verifyWorkerVersion(w, stamp, timeoutMs = 3000) {
+    const got = await new Promise((res) => {
+      const t = setTimeout(() => res(''), timeoutMs);
+      let ch;
+      try { ch = new MessageChannel(); } catch { clearTimeout(t); res(''); return; }
+      ch.port1.onmessage = (ev) => { clearTimeout(t); res((ev.data && ev.data.$rjVersion) || ''); };
+      try { w.postMessage({ $rjVersionCheck: 1 }, [ch.port2]); } catch { clearTimeout(t); res(''); }
+    });
+    return got === stamp;
+  }
+
+  // register() alone can hand back last deploy's ACTIVE worker while the new
+  // stamped revision is still installing, and navigator.serviceWorker.ready
+  // doesn't wait for the new revision either - wiring the controller against
+  // the old worker pairs new page code with the old engine. wait until the
+  // active worker's script url is exactly the requested stamped one.
+  async function waitForWorker(swUrl, timeoutMs = 12000) {
+    const wanted = new URL(swUrl, location.href).href;
+    const reg = await navigator.serviceWorker.register(swUrl);
+    if (reg.active && reg.active.scriptURL === wanted && reg.active.state === 'activated') return reg.active;
+    return await new Promise((res, rej) => {
+      const t = setTimeout(() => rej(new Error('worker did not start in time')), timeoutMs);
+      const checkActive = () => {
+        const a = reg.active;
+        if (a && a.scriptURL === wanted && a.state === 'activated') { clearTimeout(t); res(a); return true; }
+        return false;
+      };
+      let watched = null;
+      const watch = (w) => {
+        if (!w || w === watched) return;
+        watched = w;
+        w.addEventListener('statechange', () => {
+          if (w.state === 'activated') checkActive();
+          if (w.state === 'redundant' && w.scriptURL === wanted) { clearTimeout(t); rej(new Error('service worker failed')); }
+        });
+      };
+      if (!checkActive()) {
+        watch(reg.installing || reg.waiting);
+        reg.addEventListener('updatefound', () => watch(reg.installing));
+      }
+    });
+  }
+
+  // a new worker taking over mid-session means a deploy landed: this tab's
+  // page code is now paired with a worker it never handshook with. the first
+  // controllerchange is just the initial claim at boot - only a takeover
+  // after that tears the tunnel down and asks for a reload.
+  function makeControllerGuard(onTakeover) {
+    let had = !!(navigator.serviceWorker && navigator.serviceWorker.controller);
+    return () => { if (!had) { had = true; return; } onTakeover(); };
+  }
+
+  // the committing worker must be the controller that actually holds the
+  // page: strict identity, so even a same-scriptURL replacement (a restart
+  // that re-installed identical bytes) can never double-publish ready
+  // against the worker that left
+  function sameWorker(a, b) {
+    return !!(a && b) && a === b;
+  }
+
+  async function makeTransport(wisp, seed) {
     if ((localStorage.getItem('rj-transport') || 'ws') === 'ws') {
-      const epoxy = new Epoxy({ wisp });
       const ab = localStorage.getItem('rj-adblock') !== 'off';
-      const pwsUrl = wisp.replace('/wisp-t/', '/pws-t/');
+      // tunnel urls are built from the base + a real ticket, never by
+      // rewriting the wisp url in place: without a ticket there is no valid
+      // pws url at all, and opening one anyway would silently land on the
+      // wrong (wisp) protocol endpoint and falsely "prove" connectivity.
+      const wm = /^(.*)\/wisp-t\/([^/]+)\//.exec(wisp) || /^(.*)\/wisp\//.exec(wisp) || [null, wisp, null];
+      const wsBase = wm[1];
+      const ticketUrl = (t) => `${wsBase}/pws-t/${t}/`;
+      // the seeded boot ticket is spent on its FIRST socket and only while it
+      // cannot have expired server-side: the seed carries the ticket's
+      // receipt time (90s server life, 30s safety margin), and every later
+      // open (reconnects included) fetches a fresh ticket.
+      let seedTicket = (seed && seed.ticket) || wm[2] || null;
+      // an unverifiable seed age must fail safe: treat it as expired and
+      // refresh, never as fresh
+      const seedAt = (seed && Number.isFinite(seed.at)) ? seed.at : -Infinity;
+      let seedUsed = false;
       const toB64 = (buf) => { let s = ''; const u = new Uint8Array(buf); for (let i = 0; i < u.length; i += 0x8000) s += String.fromCharCode.apply(null, u.subarray(i, i + 0x8000)); return btoa(s); };
-      let sock = null, opening = null, nextId = 1;
+      let sock = null, opening = null, openingSock = null, nextId = 1, disposed = false;
       const pend = new Map();
-      const freshUrl = async () => { try { const r = await fetch('/api/wisp-ticket' + (ab ? '' : '?ab=0')); const j = await r.json(); if (j && j.ticket) return pwsUrl.replace(/\/pws-t\/[a-f0-9]+/, '/pws-t/' + j.ticket); } catch {} return pwsUrl; };
-      const open = () => sock && sock.readyState === 1 ? Promise.resolve(sock) : opening || (opening = freshUrl().then((url) => new Promise((res, rej) => {
-        const w = new WebSocket(url); w.binaryType = 'arraybuffer';
-        w.onopen = () => { sock = w; opening = null; res(w); };
-        w.onerror = () => { opening = null; rej(new TypeError('proxy socket failed')); };
-        w.onclose = () => { sock = null; for (const [, p] of pend) p.fail('proxy socket closed'); pend.clear(); };
+      const urlForOpen = async () => {
+        if (!seedUsed && seedTicket && Date.now() - seedAt <= 60000) { seedUsed = true; return ticketUrl(seedTicket); }
+        seedUsed = true;
+        const r = await fetch('/api/wisp-ticket' + (ab ? '' : '?ab=0'));
+        const j = await r.json();
+        if (!j || !j.ticket) throw new TypeError('no proxy ticket');
+        return ticketUrl(j.ticket);
+      };
+      const wsMsg = (obj) => open().then((w) => { if (w.readyState === 1) w.send(JSON.stringify(obj)); }).catch(() => {});
+      const open = () => {
+        if (disposed) return Promise.reject(new TypeError('proxy socket disposed'));
+        if (sock && sock.readyState === 1) return Promise.resolve(sock);
+        return opening || (opening = urlForOpen().then((url) => {
+          // disposed while the ticket fetch was in flight: never open
+          if (disposed) throw new TypeError('proxy socket disposed');
+          return new Promise((res, rej) => {
+          const w = new WebSocket(url); openingSock = w; w.binaryType = 'arraybuffer';
+          w.onopen = () => { opening = null; openingSock = null; if (disposed) { try { w.close(); } catch {} rej(new TypeError('proxy socket disposed')); return; } sock = w; res(w); };
+          w.onerror = () => { opening = null; openingSock = null; rej(new TypeError('proxy socket failed')); };
+          w.onclose = () => {
+            if (openingSock === w) openingSock = null;
+            if (sock === w) sock = null;
+            else { opening = null; rej(new TypeError('proxy socket closed before open')); }
+            for (const [, p] of pend) p.fail('proxy socket closed'); pend.clear();
+          };
         w.onmessage = (ev) => {
           const dv = new DataView(ev.data); const id = dv.getUint32(0); const type = dv.getUint8(4); const p = pend.get(id);
           if (!p) return;
+          if (p.ws) {
+            // relayed websocket stream: head carries the negotiated protocol,
+            // data frames are [kind, ...bytes] (0 text / 1 binary), end
+            // carries the close code/reason, fail is the error text
+            if (type === 0) { clearTimeout(p.wall); const h = JSON.parse(new TextDecoder().decode(new Uint8Array(ev.data, 5))); p.ws.onopen(h.protocol || '', ''); }
+            else if (type === 1) { const u8 = new Uint8Array(ev.data, 5); if (u8[0] === 0) p.ws.onmessage(new TextDecoder().decode(u8.subarray(1))); else p.ws.onmessage(ev.data.slice(6)); }
+            else if (type === 2) { clearTimeout(p.wall); pend.delete(id); let c = 1006, r = ''; try { const j = JSON.parse(new TextDecoder().decode(new Uint8Array(ev.data, 5))); c = j.code; r = j.reason; } catch {} p.ws.onclose(c, r); }
+            else { clearTimeout(p.wall); pend.delete(id); p.ws.onerror(new TextDecoder().decode(new Uint8Array(ev.data, 5))); }
+            return;
+          }
           if (type === 0) { const h = JSON.parse(new TextDecoder().decode(new Uint8Array(ev.data, 5))); p.head(h); }
           else if (type === 1) p.ctl?.enqueue(new Uint8Array(ev.data, 5));
-          else if (type === 2) { pend.delete(id); try { p.ctl?.close(); } catch {} }
-          else { pend.delete(id); p.fail(new TextDecoder().decode(new Uint8Array(ev.data, 5))); }
+          else if (type === 2) { clearTimeout(p.wall); pend.delete(id); try { p.ctl?.close(); } catch {} }
+          else { clearTimeout(p.wall); pend.delete(id); p.fail(new TextDecoder().decode(new Uint8Array(ev.data, 5))); }
         };
-      })).catch((e) => { opening = null; throw e; }));
+          });
+        }).catch((e) => { opening = null; throw e; }));
+      };
       return {
-        ready: false,
-        async init() { await epoxy.init(); this.ready = true; },
-        meta: () => epoxy.meta?.(),
-        connect: (...a) => epoxy.connect(...a),
+        ready: true,
+        async init() {}, // nothing to warm: requests ride the one tunnel socket
+        // opens the multiplexed tunnel socket up front so boot can prove
+        // connectivity (and the first page never pays the connect cost)
+        // without a disposable probe socket or a second ticket fetch.
+        warm: () => open(),
+        // full teardown: close the live socket, cancel a socket still
+        // opening (a late open is closed the moment it lands), and fail
+        // every pending request. after dispose the transport is dead:
+        // boot calls this on warm timeout/failure and on page teardown so
+        // no orphan socket can survive a retry or an unmount.
+        dispose: () => {
+          disposed = true;
+          const w = sock; sock = null;
+          if (w) { try { w.close(); } catch {} }
+          // a socket still CONNECTING is closed now, not when it lands
+          const c = openingSock; openingSock = null;
+          if (c) { try { c.close(); } catch {} }
+          const o = opening; opening = null;
+          if (o) o.then((late) => { try { late.close(); } catch {} }, () => {});
+          for (const [, p] of pend) p.fail('transport disposed');
+          pend.clear();
+        },
+        meta: () => undefined, // epoxy meta only exists after a lazy connect
+        // proxied websockets ride the same multiplexed socket: one browser
+        // connection, box-side relay, no epoxy on the default path. connect
+        // must return the [send, close] tuple synchronously (the controller
+        // destructures it); sends queue behind the tunnel opening.
+        connect: (url, protocols, headers, onopen, onmessage, onclose, onerror) => {
+          const id = nextId++;
+          // the tunnel always answers a connect - but when it cannot (a shed
+          // terminal frame on a flooded socket), the page must not hang
+          const wall = setTimeout(() => { if (pend.delete(id)) { wsMsg({ id, cancel: true }); try { onerror('proxy connect timed out'); } catch {} } }, 60000);
+          pend.set(id, { ws: { onopen, onmessage, onclose, onerror }, wall, fail: (m) => { clearTimeout(wall); try { onerror(m); } catch {} } });
+          // a connect that timed out while the tunnel was opening must never
+          // reach the box late: the pend is gone, so this send is blocked
+          open().then((w) => { if (w.readyState === 1 && pend.has(id)) w.send(JSON.stringify({ id, ws: url.href, protocols: protocols || [], headers: headers || [] })); }).catch(() => {});
+          return [
+            async (d) => {
+              let b64; const text = typeof d === 'string';
+              if (text) b64 = btoa(unescape(encodeURIComponent(d)));
+              else { const buf = d instanceof Blob ? await d.arrayBuffer() : d instanceof ArrayBuffer ? d : ArrayBuffer.isView(d) ? d.buffer.slice(d.byteOffset, d.byteOffset + d.byteLength) : d; b64 = toB64(buf); }
+              await wsMsg({ id, wssend: b64, text });
+            },
+            async (c, r) => { await wsMsg({ id, wsclose: { code: c || 1000, reason: r || '' } }); },
+          ];
+        },
         async request(remote, method, body, headers, signal) {
           let b = null;
           if (body != null) {
@@ -277,11 +435,15 @@
           const id = nextId++;
           return await new Promise((resolve, reject) => {
             let ctl = null, headed = false;
-            const stream = new ReadableStream({ start(c) { ctl = c; }, cancel() { pend.delete(id); try { w.send(JSON.stringify({ id, cancel: true })); } catch {} } });
+            const stream = new ReadableStream({ start(c) { ctl = c; }, cancel() { pend.delete(id); clearTimeout(rec.wall); try { w.send(JSON.stringify({ id, cancel: true })); } catch {} } });
             const rec = {
               get ctl() { return ctl; },
+              // slightly past the box's own 300s request wall: the answer
+              // always arrives - but a dropped terminal frame must not hang
+              // the page forever
+              wall: setTimeout(() => { if (pend.delete(id)) { wsMsg({ id, cancel: true }); rec.fail('proxy request timed out'); } }, 330000),
               head: (h) => { headed = true; resolve({ body: stream, headers: h.headers, status: h.status, statusText: h.text || '' }); },
-              fail: (m) => { if (!headed) reject(new TypeError('proxy fetch failed: ' + m)); else { try { ctl.error(new TypeError(m)); } catch {} } },
+              fail: (m) => { clearTimeout(rec.wall); if (!headed) reject(new TypeError('proxy fetch failed: ' + m)); else { try { ctl.error(new TypeError(m)); } catch {} } },
             };
             pend.set(id, rec);
             if (signal) signal.addEventListener('abort', () => { pend.delete(id); try { w.send(JSON.stringify({ id, cancel: true })); } catch {} rec.fail('aborted'); }, { once: true });
@@ -291,25 +453,63 @@
       };
     }
     if (localStorage.getItem('rj-transport') === 'curl') {
-      const url = '/libcurl/index.mjs';
+      const url = '/libcurl/index.mjs?v=' + ((globalThis.__RJ_ENGINE__) || '0');
       const m = await import(/* @vite-ignore */ url);
       return new m.default({ wisp });
     }
     if (localStorage.getItem('rj-transport') === 'server') {
-      const epoxy = new Epoxy({ wisp });
+      let disposed = false;
+      const openConns = new Set();
+      let epP = null;
+      // dispose owns freeing the instance (via epP) so it happens exactly once
+      const epoxyForConnect = () => epP || (epP = (async () => { const inst = new (await loadEpoxy())({ wisp }); await inst.init?.(); return inst; })());
       const ab = localStorage.getItem('rj-adblock') !== 'off';
       const toB64 = (buf) => { let s = ''; const u = new Uint8Array(buf); for (let i = 0; i < u.length; i += 0x8000) s += String.fromCharCode.apply(null, u.subarray(i, i + 0x8000)); return btoa(s); };
       return {
-        ready: false,
-        async init() { await epoxy.init(); this.ready = true; },
-        meta: () => epoxy.meta?.(),
-        connect: (...a) => epoxy.connect(...a),
+        ready: true,
+        async init() {},
+        meta: () => undefined, // epoxy meta only exists after a lazy connect
+        // takeover and teardown call dispose() unconditionally: close every
+        // tracked connection and refuse new ones
+        dispose: () => {
+          disposed = true;
+          for (const close of openConns) { try { close(1000, 'transport disposed'); } catch {} }
+          openConns.clear();
+          if (epP) epP.then((inst) => { try { inst.free?.(); } catch {} }, () => {});
+        },
+        // connect must return the [send, close] tuple synchronously (the
+        // controller destructures it); only send/close may await the lazy
+        // epoxy init.
+        connect: (...a) => {
+          if (disposed) throw new TypeError('proxy transport disposed');
+          let inner = null;
+          const ready = epoxyForConnect().then((inst) => {
+            // dispose can land while the lazy init is in flight: a late
+            // continuation must never open a connection teardown gave up on
+            if (disposed) { try { a[6]?.(new TypeError('proxy transport disposed')); } catch {} return; }
+            inner = inst.connect(...a);
+            openConns.add(inner[1]);
+          }).catch((e) => { try { a[6]?.(e); } catch {} });
+          // epoxy's wasm send accepts string/ArrayBuffer/Blob but rejects
+          // Uint8Array views; normalize views to a sliced ArrayBuffer.
+          const norm = async (d) => {
+            if (d instanceof Blob) return await d.arrayBuffer();
+            if (typeof d === 'string' || d instanceof ArrayBuffer) return d;
+            if (ArrayBuffer.isView(d)) return d.buffer.slice(d.byteOffset, d.byteOffset + d.byteLength);
+            return d;
+          };
+          return [
+            async (d) => { await ready; if (!inner) throw new TypeError('proxy transport disposed'); return inner[0](await norm(d)); },
+            async (c, r) => { await ready; if (!inner) return; return inner[1](c, r); },
+          ];
+        },
         async request(remote, method, body, headers, signal) {
           let b = null;
           if (body != null) {
             if (typeof body === 'string') b = btoa(unescape(encodeURIComponent(body)));
             else b = toB64(body instanceof Blob ? await body.arrayBuffer() : body instanceof ArrayBuffer ? body : await new Response(body).arrayBuffer());
           }
+          if (disposed) throw new TypeError('proxy transport disposed');
           const r = await fetch('/api/pfetch', { method: 'POST', signal, body: JSON.stringify({ url: remote.href, method, headers, body: b, ab }) });
           const st = r.headers.get('x-rj-status');
           if (!st) throw new TypeError('proxy fetch failed: ' + (r.headers.get('x-rj-error') || r.status));
@@ -318,80 +518,159 @@
         },
       };
     }
-    return new Epoxy({ wisp });
+    const inst = new (await loadEpoxy())({ wisp });
+    await inst.init?.();
+    return inst;
   }
+
+  // every boot cycle owns its generation: cancellation and the transport
+  // live in a per-cycle closure, never component-global - an old cycle's
+  // awaited work can never resume "uncancelled" after a restart resets
+  // shared state, nor dispose the new cycle's transport. the guard reaches
+  // the live cycle through currentCycle only.
+  let currentCycle = null;
+  // bumped by the controllerchange guard on a mid-boot worker swap: the
+  // effect depends on it, so a swap tears the in-flight boot down (cleanup
+  // cancels + disposes) and boots again against the new controller instead
+  // of ever publishing ready against the worker that just left
+  let bootCycle = $state(0);
 
   $effect(() => {
     if (!stageEl) return;
-    let cancelled = false;
+    void bootCycle; // tracked: the controllerchange guard restarts the boot by bumping this
+    const cycle = { cancelled: false, transport: null };
+    currentCycle = cycle;
     let attempts = 0;
     const bootOnce = async () => {
       try {
+        failed = ''; // a (re)boot supersedes any earlier failure copy
         if (!('serviceWorker' in navigator)) { failed = 'this browser is too old for browse'; return; }
-        boot = 'loading the engine...';
+        boot = 'loading the engine...'; window.__rjBootPhase = 'engine';
         const { Controller } = globalThis.$scramjetController;
-        const EpoxyTransport = window.EpoxyTransport;
-        if (!Controller || !EpoxyTransport) { failed = 'engine files did not load - check your connection and reload'; return; }
-        boot = 'starting the worker...';
+        if (!Controller) { failed = 'engine files did not load - check your connection and reload'; return; }
+        boot = 'starting the worker...'; window.__rjBootPhase = 'worker';
         // the worker, the tunnel ticket and the url key are independent, so
         // they load together instead of one after another.
         // some browsers (iOS Safari) withhold cookies on websocket upgrades,
         // so the tunnel authenticates with a short-lived ticket instead.
-        const tkP = fetch('/api/wisp-ticket' + (localStorage.getItem('rj-adblock') === 'off' ? '?ab=0' : '')).then((r) => r.json()).catch(() => ({}));
+        // stamped at request START: the server mints the ticket when the
+        // request lands, so a slow response must not make the ticket look
+        // younger than it is
+        const tkAt = Date.now();
+        const tkP = fetch('/api/wisp-ticket' + (localStorage.getItem('rj-adblock') === 'off' ? '?ab=0' : '')).then(async (r) => ({ ...(await r.json()), at: tkAt })).catch(() => ({}));
         const kkP = fetch('/api/apps/browse/urlkey').then((r) => r.json()).catch(() => ({}));
         const swP = (async () => {
-          const reg = await navigator.serviceWorker.register('/browse-sw.js');
-          const w0 = reg.active || await new Promise((res, rej) => {
-            const w = reg.installing || reg.waiting;
-            if (!w) return rej(new Error('no service worker'));
-            const t = setTimeout(() => rej(new Error('worker did not start in time')), 12000);
-            w.addEventListener('statechange', () => {
-              if (w.state === 'activated') { clearTimeout(t); res(w); }
-              if (w.state === 'redundant') { clearTimeout(t); rej(new Error('service worker failed')); }
-            });
-          });
+          const w0 = await waitForWorker('/browse-sw.js?v=' + ((globalThis.__RJ_ENGINE__) || '0'));
           await navigator.serviceWorker.ready;
           return w0;
         })();
         const [sw, tk, kk] = await Promise.all([swP, tkP, kkP]);
-        if (cancelled) return;
-        boot = 'connecting...';
+        if (cycle.cancelled) return;
+        // the worker must answer at this page's stamp before any engine
+        // wiring: a mismatch means a stale worker/tab mix - reload once to
+        // converge, then fail loudly instead of ever running mixed.
+        if (!(await verifyWorkerVersion(sw, (globalThis.__RJ_ENGINE__) || '0'))) {
+          if (!sessionStorage.getItem('rj-sw-reload')) { try { sessionStorage.setItem('rj-sw-reload', '1'); } catch {} location.reload(); return; }
+          failed = 'the proxy engine is out of date - close this tab and open browse again';
+          return;
+        }
+        try { sessionStorage.removeItem('rj-sw-reload'); } catch {}
+        if (cycle.cancelled) return; // the handshake await is a cancellation window too
+        boot = 'connecting...'; window.__rjBootPhase = 'warm';
         const urlCodec = kk.key ? makeUrlCodec(kk.key) : undefined;
         const wispBase = (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host;
         const wispUrl = tk.ticket ? `${wispBase}/wisp-t/${tk.ticket}/` : `${wispBase}/wisp/`;
-        await new Promise((res, rej) => {
-          const probe = new WebSocket(wispUrl);
-          const t = setTimeout(() => { try { probe.close(); } catch {} ; rej(new Error('the tunnel timed out after 15s - this network may be blocking websockets')); }, 15000);
-          probe.onopen = () => { clearTimeout(t); probe.close(); res(); };
-          probe.onerror = () => { /* onclose carries the detail */ };
-          probe.onclose = (ev) => { clearTimeout(t); rej(new Error(`the tunnel was refused (code ${ev.code || 'none'})`)); };
-        });
-        if (cancelled) return;
-        boot = 'waking the proxy...';
-        const controller = new Controller({ serviceworker: sw, transport: await makeTransport(EpoxyTransport, wispUrl), ...(urlCodec ? { config: { codec: urlCodec } } : {}) });
+        const transport = await makeTransport(wispUrl, { ticket: tk.ticket, at: tk.at });
+        // every transport carries a dispose: takeover/teardown must never
+        // depend on what a vendor transport happens to implement. a vendor
+        // transport without one gets a dead switch (late calls reject) plus
+        // a best-effort wasm free.
+        if (typeof transport.dispose !== 'function') {
+          let dead = false;
+          for (const k of ['request', 'connect']) {
+            if (typeof transport[k] === 'function') { const orig = transport[k].bind(transport); transport[k] = (...a) => { if (dead) throw new TypeError('proxy transport disposed'); return orig(...a); }; }
+          }
+          transport.dispose = () => { dead = true; try { transport.free?.(); } catch {} };
+        }
+        // construction is itself async (curl import / epoxy init): a cleanup
+        // during it disposed nothing (cycle.transport was still null), so the
+        // late-arriving resource is this cycle's to tear down - never warm it
+        if (cycle.cancelled) { try { transport.dispose?.(); } catch {} return; }
+        cycle.transport = transport;
+        // connectivity proof: the default tunnel proves itself by opening the
+        // one multiplexed socket it will actually use - no disposable probe
+        // socket, no second ticket fetch. the throwaway probe only remains
+        // for the wisp-based transports, which need it. a timed-out or
+        // refused warm tears the transport down so no late-opening orphan
+        // socket can leak into the retry.
+        if ((localStorage.getItem('rj-transport') || 'ws') === 'ws') {
+          await new Promise((res, rej) => {
+            const bail = (e) => { try { transport.dispose?.(); } catch {} rej(e); };
+            const t = setTimeout(() => bail(new Error('the tunnel timed out after 15s - this network may be blocking websockets')), 15000);
+            transport.warm().then(() => { clearTimeout(t); res(); }, () => { clearTimeout(t); bail(new Error('the tunnel was refused')); });
+          });
+        } else {
+          // the probe must burn its OWN ticket: tickets are single-use
+          // server-side, so a probe on wispUrl would consume the ticket the
+          // real transport is about to connect with. no fresh ticket ->
+          // probe the bare endpoint (never wispUrl, which holds the ticket)
+          const pt = await fetch('/api/wisp-ticket' + (localStorage.getItem('rj-adblock') === 'off' ? '?ab=0' : '')).then((r) => r.json()).catch(() => ({}));
+          if (cycle.cancelled) return;
+          const probeUrl = pt.ticket ? `${wispBase}/wisp-t/${pt.ticket}/` : `${wispBase}/wisp/`;
+          await new Promise((res, rej) => {
+            const probe = new WebSocket(probeUrl);
+            const t = setTimeout(() => { try { probe.close(); } catch {} ; rej(new Error('the tunnel timed out after 15s - this network may be blocking websockets')); }, 15000);
+            probe.onopen = () => { clearTimeout(t); probe.close(); res(); };
+            probe.onerror = () => { /* onclose carries the detail */ };
+            probe.onclose = (ev) => { clearTimeout(t); rej(new Error(`the tunnel was refused (code ${ev.code || 'none'})`)); };
+          });
+        }
+        if (cycle.cancelled) return;
+        boot = 'waking the proxy...'; window.__rjBootPhase = 'controllerwait';
+        // every engine asset the controller loads (engine, inject, wasm)
+        // rides the build stamp - unversioned defaults could pair this
+        // deploy's page with whatever bytes a cache kept from the last one
+        const ev = '?v=' + ((globalThis.__RJ_ENGINE__) || '0');
+        const controller = new Controller({ serviceworker: sw, transport, config: { scramjetPath: '/scramjet/scramjet.js' + ev, injectPath: '/controller/controller.inject.js' + ev, wasmPath: '/scramjet/scramjet.wasm' + ev, ...(urlCodec ? { codec: urlCodec } : {}) } });
         await Promise.race([
           controller.wait(),
           new Promise((_, rej) => setTimeout(() => rej(new Error('the proxy did not wake in time - reload to try again')), 15000)),
         ]);
-        if (cancelled) return;
+        if (cycle.cancelled) return;
+        // bind the commit to the handshook controller: a swap that slipped
+        // past the event guard (or raced it) must restart the boot, never
+        // publish ready against a dead page/worker pairing
+        if (!sameWorker(navigator.serviceWorker.controller, sw)) throw new Error('the proxy worker changed during startup');
         ctrl = controller;
         startSync(controller);
         newTab();
-        ready = true; boot = '';
-        try { const h = sessionStorage.getItem('rj-open'); if (h) { sessionStorage.removeItem('rj-open'); setTimeout(() => { address = h; go(); }, 80); } } catch {}
+        ready = true; boot = ''; window.__rjBootPhase = 'ready';
+        try { const h = new URLSearchParams(location.search).get('q') || sessionStorage.getItem('rj-open'); if (h) { sessionStorage.removeItem('rj-open'); setTimeout(() => { address = h; go(); }, 80); } } catch {}
       } catch (e) {
-        if (!cancelled && attempts < 2) { // one automatic retry, then give up loudly
+        // a failed boot attempt must not leave its transport (and its
+        // socket) alive behind the retry
+        try { cycle.transport?.dispose?.(); } catch {}
+        cycle.transport = null;
+        // a cancelled boot (worker swap restart / unmount) owns no state:
+        // the next cycle must never see its failure copy
+        if (cycle.cancelled) return;
+        if (attempts < 2) { // one automatic retry, then give up loudly
           attempts += 1;
           boot = 'retrying...';
           await new Promise((r) => setTimeout(r, 2500));
-          if (!cancelled) return bootOnce();
+          if (!cycle.cancelled) return bootOnce();
+          return;
         }
         failed = (e && e.message) ? e.message : 'browse could not start - reload to try again';
         boot = '';
       }
     };
     bootOnce();
-    return () => { cancelled = true; };
+    return () => {
+      cycle.cancelled = true;
+      try { cycle.transport?.dispose?.(); } catch {}
+      if (currentCycle === cycle) currentCycle = null;
+    };
   });
 
   // recent sites: this device only (localStorage), host-level, never recorded
@@ -496,7 +775,7 @@
     const u = normalize(t.address || '');
     if (!u || u.startsWith('/')) return;
     t.title = 'reader';
-    v.el.src = '/searx/reader?u=' + encodeURIComponent(u);
+    v.el.src = '/browse-reader/reader?u=' + encodeURIComponent(u);
   }
 
   let recentQ = $state(readSearches('rj-browse-searches'));
@@ -515,7 +794,7 @@
     t.title = '';
     try { document.getElementById('br-omni')?.blur(); } catch {}
     syncDisplay();
-    if (url.startsWith('/searx/')) { v.el.src = url; return; }
+    if (url.startsWith('/browse-reader/')) { v.el.src = url; return; }
     v.frame.go(url);
   }
 
@@ -544,9 +823,25 @@
       if (e.altKey && !e.ctrlKey && !e.metaKey && e.code === 'KeyL') { e.preventDefault(); const a = document.querySelector('.bar input, input[placeholder*=address]'); if (a) { a.focus(); a.select(); } }
       if (e.altKey && !e.ctrlKey && !e.metaKey && /^Digit[1-9]$/.test(e.code)) { const t = tabs[+e.code.slice(5) - 1]; if (t) { e.preventDefault(); switchTab(t.id); } }
     });
-    // the /searx/ results page is same-origin, so its external links message
-    // up here instead of navigating - send them through the proxy frame.
     try { navigator.serviceWorker.addEventListener('message', (e) => onDl(e.data && e.data.rjdl)); } catch {}
+    try {
+      navigator.serviceWorker.addEventListener('controllerchange', makeControllerGuard(() => {
+        if (!ready) {
+          // a controller swap mid-boot is NOT safe to ignore: once the page
+          // has verified and handshook a worker, that pairing is captured -
+          // if the controller changes before ready publishes, the boot must
+          // restart against the new worker (the effect cleanup cancels the
+          // in-flight boot and disposes its transport)
+          bootCycle += 1;
+          return;
+        }
+        // a takeover of a RUNNING session is a mixed-revision hazard
+        if (currentCycle) currentCycle.cancelled = true;
+        try { currentCycle?.transport?.dispose?.(); } catch {}
+        ready = false; boot = '';
+        failed = 'ramjet updated - reload to pick up the new version';
+      }));
+    } catch {}
     window.addEventListener('message', (e) => {
       if (e.origin !== location.origin) return;
       const u = e.data && e.data.rjBrowseGo;
@@ -593,6 +888,7 @@
 
 </script>
 
+<AppFrame active="/browse">
 <div class="shell" class:surfing>
   <div class="chrome">
   <header>
@@ -649,8 +945,8 @@
     <div class="center"><p class="dim">{failed}</p></div>
   {:else if !surfing}
     <div class="center home">
-      <h1>browse</h1>
-      <p class="dim">{boot || 'the open web, through ramjet'}</p>
+      <h1>Browse</h1>
+      <p class="dim">{boot || 'The open web. Your way.'}</p>
       <div class="chips">
         {#each quick as s}
           <button class="chip" onclick={() => open(s)} disabled={!ready}>{s.name}</button>
@@ -682,7 +978,7 @@
 
   {#if dlOpen}
     <div class="hov" role="presentation" onclick={() => (dlOpen = false)}>
-      <div class="hsheet" role="dialog" aria-label="downloads" tabindex="-1" onclick={(e) => e.stopPropagation()}>
+      <div class="hsheet" role="dialog" aria-modal="true" aria-label="downloads" tabindex="-1" use:modal={() => { dlOpen = false; }} onkeydown={(e) => e.stopPropagation()} onclick={(e) => e.stopPropagation()}>
         <div class="hhead"><b>downloads</b><button class="hclose" onclick={() => (dlOpen = false)} aria-label="close">&times;</button></div>
         <div class="hlist">
           {#each dls as d (d.id)}
@@ -703,7 +999,7 @@
 
   {#if histOpen}
     <div class="hov" role="presentation" onclick={() => (histOpen = false)}>
-      <div class="hsheet" role="dialog" aria-label="history" tabindex="-1" onclick={(e) => e.stopPropagation()}>
+      <div class="hsheet" role="dialog" aria-modal="true" aria-label="history" tabindex="-1" use:modal={() => { histOpen = false; }} onkeydown={(e) => e.stopPropagation()} onclick={(e) => e.stopPropagation()}>
         <div class="hhead"><b>history</b><button class="hclose" onclick={() => (histOpen = false)} aria-label="close">&times;</button></div>
         {#if closed.length}
           <p class="hsec">recently closed</p>
@@ -711,7 +1007,7 @@
             <button class="hrow" onclick={() => reopenClosed(i)}><span class="ht">{c.title || hostShort(c.url)}</span><span class="hu">{hostShort(c.url)}</span></button>
           {/each}
         {/if}
-        <input class="hq" placeholder="search your history" bind:value={histQ} />
+        <input class="hq" aria-label="Search your history" placeholder="search your history" bind:value={histQ} />
         <div class="hlist">
           {#each histShown as r}
             {#if r.head}<p class="hsec">{r.head}</p>
@@ -739,9 +1035,9 @@
   {#if surfing && loadMs && techOn()}<span class="techchip">loaded in {(loadMs / 1000).toFixed(1)} s · via scramjet</span>{/if}
 </div>
 
+</AppFrame>
+
 <style>
-  .jsb { color: var(--rj-accent); }
-  .adb.on { color: var(--rj-accent); }
   .findbar { position: fixed; z-index: 30; right: 12px; top: 108px; display: flex; gap: 4px; align-items: center; padding: 6px; background: var(--rj-surface-2); border: 1px solid var(--rj-border); border-radius: 12px; box-shadow: 0 8px 28px rgba(0,0,0,.5); max-width: calc(100vw - 24px); }
   .findbar input { width: 190px; min-width: 0; font-size: 16px; background: transparent; border: 0; outline: 0; color: var(--rj-text); padding: 6px 8px; }
   @media (max-width: 640px) { .findbar { top: 146px; } }
@@ -753,7 +1049,6 @@
   .back { width: 32px; height: 32px; display: grid; place-items: center; border-radius: 50%; flex: none; }
   .back:hover { background: var(--rj-surface); }
   .back svg { width: 18px; height: 18px; fill: none; stroke: var(--rj-text-dim); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
-  .brand { font-weight: 700; font-size: 17px; letter-spacing: 0.2px; }
   .navbtns { display: flex; gap: 4px; margin-left: 6px; }
   .navbtns button {
     background: var(--rj-surface); border: 1px solid var(--rj-border); color: var(--rj-text);
@@ -761,7 +1056,6 @@
   }
   .navbtns button:hover { background: var(--rj-surface-2); }
   .navbtns button { display: grid; place-items: center; }
-  .navbtns button.on { background: var(--rj-accent); color: var(--rj-accent-ink); border-color: var(--rj-accent); }
   .navbtns svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
   form { flex: 1; display: flex; gap: 8px; min-width: 0; }
   input {
@@ -786,7 +1080,6 @@
   .chip:disabled { opacity: 0.4; }
   .bms { margin-top: 22px; width: 100%; max-width: 420px; display: flex; flex-direction: column; gap: 6px; }
   .recents { margin-top: 18px; width: 100%; max-width: 420px; }
-  .dlb { position: relative; }
   .dlbadge { position: absolute; top: -3px; right: -3px; min-width: 16px; height: 16px; border-radius: 8px; background: var(--rj-accent); color: var(--rj-accent-ink); font-size: 10px; font-style: normal; font-weight: 800; display: grid; place-items: center; padding: 0 4px; }
   .dlrow { display: flex; flex-direction: column; gap: 6px; padding: 10px 6px; border-bottom: 1px solid var(--rj-border); }
   .dltop { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
@@ -798,7 +1091,7 @@
   .dlbar.bad i { background: var(--rj-text-faint); }
   .dlbar i.ind { animation: dlind 1.1s ease-in-out infinite alternate; }
   @keyframes dlind { from { margin-left: 0; } to { margin-left: 60%; } }
-  .hov { position: fixed; inset: 0; z-index: 50; background: rgba(0,0,0,.6); display: flex; align-items: flex-end; justify-content: center; }
+  .hov { position: fixed; inset: 0; z-index: 100; background: rgba(0,0,0,.6); display: flex; align-items: flex-end; justify-content: center; }
   .hsheet { width: min(560px, 100%); max-height: 82vh; overflow: auto; background: var(--rj-bg, #000); border: 1px solid var(--rj-border); border-radius: 22px 22px 0 0; padding: 16px 16px 24px; display: flex; flex-direction: column; gap: 6px; }
   @media (min-width: 700px) { .hov { align-items: center; } .hsheet { border-radius: 22px; } }
   .hhead { display: flex; align-items: center; justify-content: space-between; font-size: 17px; }
@@ -849,7 +1142,6 @@
   @media (max-width: 640px) { .tab { width: 148px; } }
   .surfing header { border-bottom: 1px solid var(--rj-border); }
   @media (max-width: 640px) {
-    .brand { display: none; }
     header { flex-wrap: wrap; }
     form { order: 3; flex: 1 1 100%; }
     .navbtns { flex: 1; margin-left: 0; }
@@ -859,20 +1151,13 @@
   input::placeholder { color: var(--rj-text-faint); opacity: 1; }
   input:focus { border-color: var(--rj-accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--rj-accent) 22%, transparent); }
   header form input { padding: 10px 18px; }
-  .hero { flex: none; width: min(640px, 100%); display: flex; align-items: center; gap: 10px; margin-top: 14px; padding: 6px 6px 6px 18px; height: 56px; border-radius: var(--rj-pill); background: var(--rj-surface); border: 1px solid var(--rj-border); color: var(--rj-text-faint); backdrop-filter: blur(var(--rj-g-blur, 0px)); -webkit-backdrop-filter: blur(var(--rj-g-blur, 0px)); }
-  .hero:focus-within { border-color: var(--rj-accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--rj-accent) 22%, transparent); }
-  .hero input { background: none; border: 0; box-shadow: none; padding: 0; height: 100%; font-size: 17px; }
-  .hero input:focus { border: 0; box-shadow: none; }
-  .hero .go { height: 44px; padding: 0 24px; }
   @media (max-width: 700px) {
     header { flex-wrap: wrap; row-gap: 8px; }
     header form { order: 5; flex: 1 1 100%; }
     header form input { height: 44px; }
     header form .go { height: 44px; }
     .navbtns { margin-left: auto; }
-    .hero { height: 52px; }
   }
-  @media (max-width: 520px) { .hero { padding-left: 14px; gap: 8px; } .hero .go { padding: 0 18px; } .hero input { font-size: 16px; } }
 
   /* one chrome: bar + tabs share a surface, the active tab is the page's own colour, one overflow menu replaces the row of icon buttons */
   header form.omni { position: relative; }
@@ -919,4 +1204,18 @@
     .tabbar { padding: 0 10px; }
     .findbar { top: 100px; }
   }
+
+  .shell { height: 100dvh; min-height: 0; }
+  .chrome { padding: 12px 12px 0; background: var(--rj-glass); border-bottom: 1px solid var(--rj-border); }
+  header { padding: 4px 4px 12px; max-width: 100%; } header>.back { display: none; }
+  header form.omni { border-radius: 16px; background: var(--rj-surface); padding: 5px; gap: 4px; }
+  header form.omni input { height: 42px; padding: 0 12px; } header form.omni .go { border-radius: 11px; height: 42px; }
+  .navbtns button,.menub { width: 40px; height: 40px; } .tabbar { padding: 4px 4px 0; } .tab { border-radius: 12px 12px 0 0; }
+  .home { width: min(740px,100%); margin: 0 auto; align-items: flex-start; gap: 16px; padding: 48px 32px; }
+  .home h1 { font-size: 38px; font-weight: 600; letter-spacing: -.045em; } .home>.dim { margin: 0 0 20px; font-size: 16px; line-height: 1.6; }
+  .home .chips { justify-content: flex-start; gap: 10px; } .chip { padding: 10px 16px; min-height: 40px; }
+  .menu { background: var(--rj-surface); box-shadow: var(--rj-shadow); border-radius: 16px; } .menu .mi { min-height: 44px; }
+  .bm-toast { bottom: 28px; } .techchip { left: 120px; }
+  @media(max-width:760px) { .shell { height: calc(100dvh - 90px - env(safe-area-inset-bottom)); } .chrome { padding: 10px 8px 0; } header { gap: 6px; } .home { padding: 36px 24px; } .home h1 { font-size: 32px; } .bm-toast { bottom: calc(100px + env(safe-area-inset-bottom)); } .techchip { left: 12px; bottom: calc(94px + env(safe-area-inset-bottom)); } }
+  .chrome { background: linear-gradient(to bottom, color-mix(in srgb, var(--rj-glass) 35%, transparent), transparent); border-bottom-color: color-mix(in srgb, var(--rj-border) 45%, transparent); }
 </style>

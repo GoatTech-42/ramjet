@@ -1,21 +1,23 @@
-import { cseGate, cseBudgetLeft } from './cse-gate.js';
+import { dataPath, DATA_ROOT } from './data.js';
 import { createServer, request as httpRequest } from 'node:http';
 import { request as httpsRequest } from 'node:https';
-import { readFileSync, existsSync, readdirSync, statSync } from 'node:fs';
+import { readFileSync, existsSync, readdirSync, statSync, openSync, fstatSync, closeSync } from 'node:fs';
 import { join, extname, resolve } from 'node:path';
 import { Auth } from './auth.js';
 import { Guard } from './guard.js';
 import { readJson as rjRead, writeJson as rjWrite } from './util.js';
 import { readBody, sendJson, redirect, parseCookies, clientIp } from './util.js';
+import { createHash } from 'node:crypto';
 import { server as wisp } from '@mercuryworkshop/wisp-js';
 import { readerPage } from './reader.js';
+import { notFoundPage } from './notfound.js';
+import { negotiateEncoding, compressed } from './staticzip.js';
 import { handleLite, setJetstream, setAuth } from './lite.js';
 import { handlePFetch, pwsUpgrade, safeLookup } from './pfetch.js';
 import { makeBlockingSocket, stats as adStats, listSize as adListSize } from './adblock.js';
 const { NodeTCPSocket } = await import(new URL('../node_modules/@mercuryworkshop/wisp-js/src/server/net.mjs', import.meta.url).href);
 wisp.options.dns_result_order = 'ipv4first'; // the box has no ipv6 route
 import { randomBytes } from 'node:crypto';
-import { startSearxng, stopSearxng } from "./searxng.js";
 import { brotliCompressSync, gzipSync, constants as zc } from 'node:zlib';
 
 // short-lived, user-bound tickets so the wisp websocket upgrade authenticates
@@ -27,7 +29,7 @@ const HOST = process.env.RJ_HOST || '127.0.0.1';
 const PORT = Number(process.env.RJ_PORT || 14224);
 let sysCache = null;
 const SYS_VERSION = (() => { try { return JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version; } catch { return '2'; } })();
-const DATA = process.env.RJ_DATA || new URL('../data', import.meta.url).pathname;
+const DATA = DATA_ROOT;
 const DIST = new URL('../web/dist', import.meta.url).pathname;
 const ADDONS = new URL('./addons', import.meta.url).pathname;
 
@@ -43,45 +45,160 @@ const MIME = {
 };
 
 function page(name) {
-  const p = join(DIST, 'pages', name, `${name}.html`);
-  return existsSync(p) ? readFileSync(p) : null;
+  return PAGES.get(name) || null;
 }
-function servePage(res, name, status = 200) {
+// build stamp for the engine/boot urls: pages reference them as
+// ?v=__RJ_ENGINE__ and the stamp is swapped in at serve time, so every
+// deploy serves them under urls no edge or browser cache has ever seen -
+// a stale front cache can never mix last deploy's page with this deploy's
+// engine (or this deploy's page with last deploy's engine).
+const STAMPED_PATHS = new Set(['/scramjet/scramjet.js', '/scramjet/scramjet.wasm', '/controller/controller.api.js', '/controller/controller.sw.js', '/controller/controller.inject.js', '/epoxy/index.mjs', '/libcurl/index.mjs', '/browse-sw.js', '/cloak/theme-boot.js', '/cloak/palette.js']);
+// stamped engine/boot files, every page, and the hashed bundles the pages
+// reference are captured into memory ONCE at boot; everything downstream
+// (the stamp, serving) uses these captured buffers and never re-reads the
+// same file from disk, so a rebuild mid-boot or post-boot can never pair
+// the boot stamp with later bytes. deploys must restart the process (docs
+// in README.md): the stamp, the pinned bytes and the pages move together.
+const PINNED = new Map();
+for (const p of STAMPED_PATHS) PINNED.set(p, readFileSync(join(DIST, '.' + p))); // throws on a missing file, like the stamp
+const PAGES = new Map();
+{
+  const pp = join(DIST, 'pages');
+  if (existsSync(pp)) for (const name of readdirSync(pp)) {
+    const f = join(pp, name, `${name}.html`);
+    if (existsSync(f)) PAGES.set(name, readFileSync(f));
+  }
+}
+// the pages are frozen at boot, so the content-hashed bundles they point
+// at are part of the same snapshot: pin them too and serve the whole boot
+// graph without a disk-existence gate
+for (const html of PAGES.values()) {
+  for (const m of html.toString('utf8').matchAll(/\/assets\/[A-Za-z0-9_.-]+\.(?:js|css)/g)) {
+    if (!PINNED.has(m[0])) PINNED.set(m[0], readFileSync(join(DIST, '.' + m[0])));
+  }
+}
+const ENGINE_STAMP = (() => {
+  // fail closed: a missing engine file or unreadable hash must stop the
+  // server from booting, never let it serve a degenerate '0' stamp that
+  // any cache could then pair with any revision
+  const h = createHash('sha256');
+  for (const p of STAMPED_PATHS) h.update(PINNED.get(p));
+  // the browse entry rides the stamp too: page-bundle/protocol changes
+  // must roll the stamp even when the vendor bytes are untouched
+  const browseHtml = PAGES.get('browse');
+  if (!browseHtml) throw new Error('browse page missing from build');
+  h.update(browseHtml);
+  const m = /\/assets\/(browse-[A-Za-z0-9_-]+\.js)/.exec(browseHtml.toString('utf8'));
+  if (!m) throw new Error('browse bundle reference not found in built html');
+  h.update(PINNED.get('/assets/' + m[1]));
+  return h.digest('hex').slice(0, 12);
+})();
+// the stamp swap used to re-decode and re-replace the whole page on every
+// request; pages are frozen at boot, so the stamped bytes (and their etag,
+// and later their compressed copies) are computed once and reused
+const STAMPED_PAGES = new Map();
+function stampedPage(name) {
+  let e = STAMPED_PAGES.get(name);
+  if (e) return e;
   const html = page(name);
-  if (!html) { res.writeHead(503, { 'content-type': 'text/plain' }); res.end('building... check back in a minute'); return; }
-  res.writeHead(status, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-cache' });
-  res.end(html);
+  if (!html) return null;
+  // swap only the quoted placeholder and the ?v= marker: a bare replaceAll
+  // would rewrite the `self.__RJ_ENGINE__` identifier into invalid js
+  const buf = Buffer.from(html.toString('utf8').replaceAll('v=__RJ_ENGINE__', 'v=' + ENGINE_STAMP).replaceAll("'__RJ_ENGINE__'", "'" + ENGINE_STAMP + "'"), 'utf8');
+  const hash = createHash('sha256').update(buf).digest('hex').slice(0, 20);
+  e = { raw: buf, br: null, gz: null, etag: 'W/"' + buf.length + '-' + hash + '"' };
+  STAMPED_PAGES.set(name, e);
+  return e;
 }
-// static files are compressed once (brotli, else gzip) and kept in memory:
+async function servePage(req, res, name, status = 200) {
+  const e = stampedPage(name);
+  if (!e) { res.writeHead(503, { 'content-type': 'text/plain' }); res.end('building... check back in a minute'); return; }
+  const headers = { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-cache', etag: e.etag, vary: 'Accept-Encoding' };
+  if (req.headers['if-none-match'] === e.etag) { res.writeHead(304, headers); res.end(); return; }
+  let body = e.raw;
+  const enc = e.raw.length > 1024 ? negotiateEncoding(req.headers['accept-encoding']) : '';
+  if (enc) {
+    try { body = await compressed(e, enc); headers['content-encoding'] = enc; }
+    catch { body = e.raw; } // compression trouble must never take a page down
+  }
+  headers['content-length'] = body.length;
+  res.writeHead(status, headers);
+  res.end(body);
+}
+// static files are read, compressed (brotli, else gzip) and kept in memory:
 // the engine wasm and js are several MB and every byte crosses the tunnel.
-const zCache = new Map();
+// entries revalidate on mtime+size (a same-length rebuild never serves stale
+// bytes) and carry etags, so a `no-cache` engine file revalidates with a
+// cheap 304 instead of a full re-download on every browse page open.
+const sCache = new Map();
 const COMPRESSIBLE = new Set(['.js', '.mjs', '.css', '.html', '.json', '.svg', '.wasm', '.map']);
-function serveStatic(res, urlPath) {
+// read a static file race-safe: one fd, fstat before and after the read, so
+// a concurrent rebuild can never pair old metadata with new bytes
+function readStatic(safe) {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    let fd = null;
+    try {
+      fd = openSync(safe, 'r');
+      const st1 = fstatSync(fd);
+      if (!st1.isFile()) return null;
+      const raw = readFileSync(fd);
+      const st2 = fstatSync(fd);
+      // the fd pins its own inode, so compare the PATH afterwards too: an
+      // atomic replacement mid-read shows up as a path/fd inode mismatch
+      let stPath;
+      try { stPath = statSync(safe); } catch { return null; }
+      if (st1.mtimeMs === st2.mtimeMs && st1.size === st2.size && st1.ctimeMs === st2.ctimeMs && st1.ino === st2.ino && stPath.ino === st2.ino && st2.size === raw.length) return { raw, st: st2 };
+    } catch { return null; }
+    finally { if (fd !== null) try { closeSync(fd); } catch {} }
+  }
+  return null; // raced a rebuild twice: decline rather than serve mixed bytes
+}
+async function serveStatic(req, res, urlPath) {
   const safe = resolve(DIST, '.' + urlPath);
-  if (!safe.startsWith(DIST) || !existsSync(safe) || !statSync(safe).isFile()) return false;
+  if (!safe.startsWith(DIST)) return false;
+  // pinned (stamped) entries are served from the boot snapshot with no
+  // disk-existence gate: a rebuild or cleanup that removes them from disk
+  // must not 404 the revision this process still serves. everything else
+  // revalidates on mtime+size+ctime so a same-length rebuild with a
+  // PRESERVED mtime still bumps ctime and its new bytes are re-read and
+  // re-hashed
+  const pinned = PINNED.get(urlPath);
+  // One metadata read per non-pinned request. readStatic still checks its
+  // fd and the path around cache misses, preserving rebuild-race safety.
+  let st = null;
+  if (!pinned) {
+    try { st = statSync(safe); } catch { return false; }
+    if (!st.isFile()) return false;
+  }
+  let e = sCache.get(safe);
+  if (pinned && !e) {
+    const hash = createHash('sha256').update(pinned).digest('hex').slice(0, 20);
+    e = { mtimeMs: 0, ctimeMs: 0, size: pinned.length, raw: pinned, br: null, gz: null, etag: 'W/"' + pinned.length + '-' + hash + '"' };
+    sCache.set(safe, e);
+  }
+  if (!pinned && (!e || e.mtimeMs !== st.mtimeMs || e.size !== st.size || e.ctimeMs !== st.ctimeMs)) {
+    const got = readStatic(safe);
+    if (!got) return false;
+    // etag is a content hash: size+rounded-mtime etags collide on a same-length
+    // rebuild inside one millisecond, which is exactly the stale-engine case
+    const hash = createHash('sha256').update(got.raw).digest('hex').slice(0, 20);
+    e = { mtimeMs: got.st.mtimeMs, ctimeMs: got.st.ctimeMs, size: got.st.size, raw: got.raw, br: null, gz: null, etag: 'W/"' + got.st.size + '-' + hash + '"' };
+    if (sCache.size >= 256) sCache.delete(sCache.keys().next().value);
+    sCache.set(safe, e);
+  }
+  const cc = urlPath.startsWith('/cloak/') || /^\/(browse-sw\.js|scramjet\/|controller\/|epoxy\/|libcurl\/)/.test(urlPath) ? 'no-cache' : 'public, max-age=31536000, immutable';
+  if (req.headers['if-none-match'] === e.etag) { res.writeHead(304, { etag: e.etag, 'cache-control': cc, vary: 'Accept-Encoding' }); res.end(); return true; }
   const ext = extname(safe);
-  const st = statSync(safe);
-  const etag = 'W/"' + st.size + '-' + Math.round(st.mtimeMs) + '"'; // lets the no-cache engine files revalidate for one round trip instead of re-downloading megabytes
-  if (res.req?.headers?.['if-none-match'] === etag) { res.writeHead(304, { etag }); res.end(); return true; }
-  const headers = { etag,
-    'content-type': MIME[ext] || 'application/octet-stream',
-    'cache-control': urlPath.startsWith('/cloak/') || /^\/(browse-sw\.js|scramjet\/|controller\/|epoxy\/|libcurl\/)/.test(urlPath) ? 'no-cache' : 'public, max-age=31536000, immutable',
-  };
-  let body = readFileSync(safe);
+  const headers = { 'content-type': MIME[ext] || 'application/octet-stream', 'cache-control': cc, etag: e.etag };
+  let body = e.raw;
   if (COMPRESSIBLE.has(ext) && body.length > 1024) {
     headers.vary = 'Accept-Encoding';
-    const ae = String(res.req?.headers?.['accept-encoding'] || '');
-    const enc = /\bbr\b/.test(ae) ? 'br' : /\bgzip\b/.test(ae) ? 'gzip' : '';
+    const enc = negotiateEncoding(req.headers['accept-encoding']);
     if (enc) {
-      const k = enc + ':' + safe + ':' + body.length;
-      let z = zCache.get(k);
-      if (!z) {
-        z = enc === 'br'
-          ? brotliCompressSync(body, { params: { [zc.BROTLI_PARAM_QUALITY]: 6, [zc.BROTLI_PARAM_SIZE_HINT]: body.length } })
-          : gzipSync(body, { level: 9 });
-        zCache.set(k, z);
-      }
-      body = z; headers['content-encoding'] = enc;
+      try {
+        body = await compressed(e, enc);
+        headers['content-encoding'] = enc;
+      } catch { body = e.raw; } // compression trouble must never 500 a static file
     }
   }
   headers['content-length'] = body.length;
@@ -104,470 +221,72 @@ if (existsSync(ADDONS)) {
 }
 
 
-// -- /searx
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
- document.addEventListener('error', function (e) { var t = e.target; if (!t || t.tagName !== 'IMG') return; var a = t.getAttribute('data-alt'); if (a) { t.removeAttribute('data-alt'); t.src = a; } else { var li = t.closest('li.tile'); if (li) li.style.display = 'none'; else t.style.visibility = 'hidden'; } }, true);
-  var K = 'rj-browse-searches', de = document.documentElement;
-  try { if (window.parent !== window) de.classList.add('framed'); } catch (e) { de.classList.add('framed'); }
-  function lite() { try { var ds = localStorage.getItem('rj-datasaver'); if (ds === 'on') return true; if (ds === 'off') return false; var c = navigator.connection; if (c) { if (c.saveData || c.type === 'cellular') return true; if (c.type === 'wifi' || c.type === 'ethernet') return false; return /^(slow-2g|2g|3g)$/.test(c.effectiveType || ''); } return /iPhone|Android.*Mobile/.test(navigator.userAgent); } catch (e) { return false; } }
-  if (!lite()) document.querySelectorAll('img[data-full]').forEach(function (im) { var f = im.getAttribute('data-full'); var t = new Image(); t.onload = function () { im.src = f; im.removeAttribute('data-alt'); }; t.referrerPolicy = 'no-referrer'; t.src = f; });
-
-  /* image preview: click a tile in the images tab to open it big, with next/prev, swipe, and a link to the page it came from */
-  (function () {
-    var tiles = [].slice.call(document.querySelectorAll('li.tile > a'));
-    if (!tiles.length) return;
-    var I = function (d) { return '<svg viewBox="0 0 24 24"><path d="' + d + '"/></svg>'; };
-    var lb = document.createElement('div'); lb.className = 'lb'; lb.setAttribute('role', 'dialog'); lb.setAttribute('aria-modal', 'true');
-    lb.innerHTML = '<div class="lb-top"><span class="lb-n"></span><span class="lb-t"></span><button class="lb-btn lb-x" type="button" aria-label="close">' + I('M6 6l12 12M18 6L6 18') + '</button></div>' +
-      '<div class="lb-stage"><button class="lb-btn lb-nav lb-prev" type="button" aria-label="previous">' + I('M15 5l-7 7 7 7') + '</button><img class="lb-img" alt="" referrerpolicy="no-referrer"><button class="lb-btn lb-nav lb-next" type="button" aria-label="next">' + I('M9 5l7 7-7 7') + '</button></div>' +
-      '<div class="lb-bot"><a class="lb-pill go lb-visit" href="#">visit page</a><a class="lb-pill lb-open" href="#" target="_blank" rel="noopener noreferrer">open image</a><button class="lb-pill lb-full" type="button" style="display:none">load full quality</button></div>';
-    document.documentElement.appendChild(lb); /* not inside body: the body's entrance animation leaves a transform that would pin fixed children to the page instead of the screen */
-    var q = function (c) { return lb.querySelector(c); };
-    var img = q('.lb-img'), cur = -1, startX = 0, startY = 0;
-    function info(i) { var a = tiles[i], im = a.querySelector('img'); return { thumb: im.getAttribute('src'), full: im.getAttribute('data-full') || im.getAttribute('data-alt') || im.getAttribute('src'), page: a.getAttribute('href'), title: a.getAttribute('title') || '' }; }
-    function show(i, forceFull) {
-      if (i < 0 || i >= tiles.length) return;
-      cur = i; var d = info(i), small = lite() && !forceFull && d.full !== d.thumb;
-      q('.lb-n').textContent = (i + 1) + ' / ' + tiles.length; q('.lb-t').textContent = d.title;
-      q('.lb-visit').setAttribute('href', d.page);
-      var raw = d.full; try { var m = new URL(d.full, location.href).searchParams.get('u'); if (m) raw = m; } catch (e) {}
-      q('.lb-open').setAttribute('href', raw);
-      var fb = q('.lb-full'); fb.style.display = small ? '' : 'none';
-      img.classList.add('ld'); img.src = d.thumb;
-      if (!small && d.full !== d.thumb) { var t = new Image(), at = i; t.referrerPolicy = 'no-referrer'; t.onload = function () { if (cur === at) { img.src = d.full; img.classList.remove('ld'); } }; t.onerror = function () { if (cur === at) img.classList.remove('ld'); }; t.src = d.full; } else img.classList.remove('ld');
-      img.onload = function () { if (small || d.full === d.thumb) img.classList.remove('ld'); };
-      [i - 1, i + 1].forEach(function (n) { if (tiles[n]) { var p = new Image(); p.src = info(n).thumb; } });
-    }
-    var sy = 0;
-    function lock() { sy = window.pageYOffset || 0; var b = document.body.style; b.position = 'fixed'; b.top = (-sy) + 'px'; b.left = '0'; b.right = '0'; b.width = '100%'; document.documentElement.style.overflow = 'hidden'; }
-    function unlock() { var b = document.body.style; b.position = ''; b.top = ''; b.left = ''; b.right = ''; b.width = ''; document.documentElement.style.overflow = ''; window.scrollTo(0, sy); }
-    function open(i) { lb.classList.add('on'); lock(); show(i); }
-    function close() { if (cur < 0 && !lb.classList.contains('on')) return; lb.classList.remove('on'); unlock(); cur = -1; img.removeAttribute('src'); }
-    tiles.forEach(function (a, i) { a.addEventListener('click', function (e) { e.preventDefault(); e.stopPropagation(); open(i); }, true); });
-    q('.lb-x').onclick = close; q('.lb-prev').onclick = function () { show(cur - 1); }; q('.lb-next').onclick = function () { show(cur + 1); };
-    q('.lb-full').onclick = function () { show(cur, true); };
-    q('.lb-stage').addEventListener('click', function (e) { if (e.target === q('.lb-stage')) close(); });
-    document.addEventListener('keydown', function (e) { if (cur < 0) return; if (e.key === 'Escape') close(); else if (e.key === 'ArrowLeft') show(cur - 1); else if (e.key === 'ArrowRight') show(cur + 1); });
-    lb.addEventListener('touchmove', function (e) { e.preventDefault(); }, { passive: false });
-    lb.addEventListener('wheel', function (e) { e.preventDefault(); }, { passive: false });
-    var st = q('.lb-stage');
-    st.addEventListener('touchstart', function (e) { var t = e.touches[0]; startX = t.clientX; startY = t.clientY; }, { passive: true });
-    st.addEventListener('touchend', function (e) { var t = e.changedTouches[0], dx = t.clientX - startX, dy = t.clientY - startY; if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.4) show(cur + (dx < 0 ? 1 : -1)); else if (dy > 90 && Math.abs(dy) > Math.abs(dx) * 1.4) close(); }, { passive: true });
-  })();
-  (function () { var el = document.getElementById('sxlite'); if (!el || !lite()) return; var ds = ''; try { ds = localStorage.getItem('rj-datasaver') || ''; } catch (e) {} if (ds === 'on') return; el.innerHTML = '<br>smaller thumbnails to save data. for full quality on wifi: settings, data saver, off.'; })();
-  function on() { try { return localStorage.getItem('rj-save-searches') === 'on'; } catch (e) { return false; } }
-  function read() { if (!on()) return []; try { var a = JSON.parse(localStorage.getItem(K) || '[]'); return Array.isArray(a) ? a.slice(0, 12) : []; } catch (e) { return []; } }
-  function add(q) { q = String(q || '').trim().slice(0, 120); if (!q || !on()) return; var n = [q].concat(read().filter(function (x) { return x.toLowerCase() !== q.toLowerCase(); })).slice(0, 12); try { localStorage.setItem(K, JSON.stringify(n)); } catch (e) {} }
-  var f = document.querySelector('form.box'); var i = f && f.querySelector('input[name=q]');
-  if (i && i.value) add(i.value);
-  if (f) f.addEventListener('submit', function () { if (i) add(i.value); });
-  var dl = document.getElementById('sxdl'); var list = read();
-  if (dl) dl.innerHTML = list.map(function (x) { return '<option value="' + x.replace(/"/g, '&quot;') + '">'; }).join('');
-  var r = document.getElementById('sxrecent');
-  if (r && list.length) {
-    r.innerHTML = list.slice(0, 8).map(function (x) { return '<a href="/searx/search?q=' + encodeURIComponent(x) + '"></a>'; }).join('') + '<button type="button" id="sxclr">clear</button>';
-    r.querySelectorAll('a').forEach(function (a, n) { a.textContent = list[n]; });
-    var c = document.getElementById('sxclr'); if (c) c.onclick = function () { try { localStorage.removeItem(K); localStorage.setItem(K, '[]'); } catch (e) {} r.innerHTML = ''; };
-  }
-  document.addEventListener('click', function (e) { var a = e.target && e.target.closest ? e.target.closest('a[href]') : null; if (!a) return; if (a.closest('li.tile')) return; var h = a.getAttribute('href') || ''; if (/^https?:\\/\\//i.test(h) && window.parent !== window) { e.preventDefault(); e.stopPropagation(); parent.postMessage({ rjBrowseGo: h }, '*'); } }, true);
-})();
-`;
-function sxHost(u) { try { return new URL(u).hostname; } catch { return ''; } }
-function sxPage(query, page, result, cat, safe, imgRes) {
-	cat = SX_CATS.some((c) => c[0] === cat) ? cat : 'general';
-	safe = [0, 1, 2].includes(safe) ? safe : 0;
-	const qs = (o) => { const m = Object.assign({ q: query, c: cat, s: safe }, o || {}); return '/searx/search?' + Object.entries(m).filter(([k, v]) => v !== '' && v != null && !(k === 'c' && v === 'general')).map(([k, v]) => k + '=' + encodeURIComponent(v)).join('&'); };
-	const down = !!(result && result.down);
-	const data = (result && result.data) || {};
-	const results = Array.isArray(data.results) ? data.results : [];
-	const answers = (Array.isArray(data.answers) ? data.answers : [])
-		.map((a) => (typeof a === 'string' ? a : (a && a.answer) || '')).filter(Boolean).slice(0, 2);
-	const corrections = (Array.isArray(data.corrections) ? data.corrections : []).filter(Boolean).slice(0, 1);
-	const total = Number(data.number_of_results) || 0;
-
-	let strip = '';
-	if (cat === 'general' && page === 1 && imgRes && imgRes.data && Array.isArray(imgRes.data.results)) {
-		const ims = imgRes.data.results.map((r) => ({ t: sxHref(r.thumbnail_src || r.thumbnail || '') || sxHref(r.img_src || ''), f: sxHref(r.img_src || ''), a: String(r.title || '') })).filter((x) => x.t).slice(0, 9);
-		if (ims.length >= 4) strip = '<li class="strip"><div class="strip-row">' + ims.map((x) => '<a href="' + sxEsc('/searx/search?q=' + encodeURIComponent(query) + '&c=images') + '"><img loading="lazy" referrerpolicy="no-referrer" alt="' + sxEsc(x.a.slice(0, 80)) + '" src="' + sxEsc(sxImg(x.t)) + '"' + (x.f && x.f !== x.t ? ' data-full="' + sxEsc(sxImg(x.f)) + '"' : '') + ' /></a>').join('') + '</div><a class="strip-more" href="' + sxEsc('/searx/search?q=' + encodeURIComponent(query) + '&c=images') + '">more images &rarr;</a></li>';
-	}
-	const cards = [];
-	for (const r of results) {
-		const href = sxHref(r.url);
-		if (!href) continue;
-		const engines = Array.isArray(r.engines) ? [...new Set(r.engines)].slice(0, 3).join(' · ') : (r.engine || '');
-		const date = r.publishedDate ? String(r.publishedDate).slice(0, 10) : '';
-		const meta = [engines, date].filter(Boolean).join(' · ');
-		const th = sxHref(r.thumbnail_src || r.thumbnail || '');
-		if (cat === 'images') {
-			const full = sxHref(r.img_src);
-			cards.push('<li class="tile"><a href="' + sxEsc(href) + '" title="' + sxEsc(r.title || '') + '"><img loading="lazy" referrerpolicy="no-referrer" alt="' + sxEsc(r.title || '') + '" src="' + sxEsc(sxImg(th || full)) + '"' + (th && full ? ' data-alt="' + sxEsc(sxImg(full)) + '"' : '') + (th && full ? ' data-full="' + sxEsc(sxImg(full)) + '"' : '') + ' /><span class="src-chip">' + sxEsc(sxSrc(r)) + '</span></a><div class="tile-cap">' + sxEsc(String(r.title || '').slice(0, 60)) + '</div></li>');
-			continue;
-		}
-		const thumbHtml = (th && (cat === 'videos' || cat === 'news')) ? '<img class="hit-th ' + cat + '" loading="lazy" referrerpolicy="no-referrer" alt="" src="' + sxEsc(sxImg(th)) + '" />' : '';
-		const extra = cat === 'map' && r.latitude ? ' &middot; ' + sxEsc(Number(r.latitude).toFixed(3) + ', ' + Number(r.longitude).toFixed(3)) : '';
-		const dur = cat === 'videos' && r.length ? ' &middot; ' + sxEsc(r.length) : '';
-		cards.push(
-			'<li class="hit' + (thumbHtml ? ' has-th' : '') + '">' + thumbHtml + '<div class="hit-body">' +
-				'<div class="hit-site"><span class="fav" aria-hidden="true">' + sxEsc(sxHost(href).replace(/^www\./, '').slice(0, 1) || '?') + '</span><div class="hit-crumb">' + sxCrumb(href) + '</div></div>' +
-				'<a class="hit-title" href="' + sxEsc(href) + '">' + sxEsc(r.title || href) + '</a>' +
-				(r.content ? '<p class="hit-snip">' + sxEsc(String(r.content).slice(0, 320)) + '</p>' : '') +
-				(meta ? '<div class="hit-meta">' + sxEsc(meta) + extra + dur + '</div>' : '') +
-			'</div></li>'
-		);
-	}
-
-	const qAttr = sxEsc(query);
-	const home = !query;
-	let body = '';
-	if (down) {
-		body += '<div class="notice">search is down right now - the backend on the box needs a kick. it will be back shortly.</div>';
-	} else if (query && !cards.length) {
-		body += '<div class="notice">no results for &ldquo;' + qAttr + '&rdquo;. try different words.</div>';
-	}
-	if (answers.length) {
-		body += answers.map((a) => '<div class="answer">' + sxEsc(a) + '</div>').join('');
-	}
-	if (corrections.length) {
-		body += '<div class="correction">did you mean <a href="/searx/search?q=' + encodeURIComponent(corrections[0]) + '">' + sxEsc(corrections[0]) + '</a>?</div>';
-	}
-	if (cards.length) {
-		body += '<div class="count">' + (total ? 'about ' + total.toLocaleString('en-US') + ' results' : cards.length + ' results') + '</div>';
-		if (strip) cards.splice(Math.min(2, cards.length), 0, strip);
-		body += '<ol class="' + (cat === 'images' ? 'grid' : 'hits') + '">' + cards.join('') + '</ol>';
-		body += '<div class="pager">';
-		if (page > 1) body += '<a class="pill" href="' + qs({ p: page - 1 }) + '">&larr; back</a>';
-		body += '<a class="pill" href="' + qs({ p: page + 1 }) + '">more &rarr;</a>';
-		body += '</div>';
-	}
-
-	const SVG_S = '<svg class="ic" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>';
-	const formHtml =
-		'<form class="box" action="/searx/search" method="get">' + SVG_S +
-			'<input type="text" name="q" value="' + qAttr + '" placeholder="search the web" autocomplete="off" enterkeyhint="search" list="sxdl"' + (home ? ' autofocus' : '') + ' />' +
-			'<datalist id="sxdl"></datalist>' +
-			'<input type="hidden" name="c" value="' + cat + '" /><input type="hidden" name="s" value="' + safe + '" />' +
-			'<button type="submit" aria-label="search"><svg viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button>' +
-		'</form>';
-	const tabsHtml = '<div class="tabsrow"><nav class="tabs"><span class="tabset">' + SX_CATS.map((c) => '<a class="tab' + (c[0] === cat ? ' on' : '') + '" href="' + qs({ c: c[0], p: '' }) + '">' + c[1] + '</a>').join('') + '</span>' +
-		'<span class="safe" role="group" aria-label="safe search">' + SX_SAFE.map((n, i) => '<a class="sf' + (i === safe ? ' on' : '') + '" href="' + qs({ s: i, p: '' }) + '">' + n + '</a>').join('') + '</span></nav></div>';
-	const BACK = '<a class="back" href="/" aria-label="back to ramjet"><svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg></a>';
-	const headBar = '<header class="bar"><div class="bar-in">' + BACK + '<a class="mark" href="/searx/search">ramjet<b>search</b></a>' + formHtml + '</div></header>';
-
-	return '<!doctype html>' +
-'<html lang="en"><head><meta charset="utf-8" />' +
-'<meta name="viewport" content="width=device-width, initial-scale=1" />' +
-'<title>' + (query ? qAttr + ' - ' : '') + 'ramjet search</title>' +
-'<meta name="theme-color" content="#000000" /><link rel="stylesheet" href="/cloak/walls.css?v=1" /><script src="/cloak/theme-boot.js?v=8"></script>' +
-'<style>' + SX_CSS + '</style></head>' +
-'<body>' +
-(home
-	? '<header class="bar"><div class="bar-in">' + BACK + '</div></header>' +
-	  '<main class="home-hero"><div class="mark">ramjet<b>search</b></div>' + formHtml + '<div class="recent" id="sxrecent"></div></main>'
-	: headBar + (query ? tabsHtml : '') + '<main class="wrap' + (cat === 'images' ? ' wide' : '') + '"><div class="col">' + body + '<div class="foot">served from your own box &middot; queries go straight from the box to the engines<span id="sxlite"></span></div></div></main>') +
-'<script>' + SX_JS + '<' + '/script>' +
-'</body></html>';
-}
-
-async function proxySearx(req, res, session, restUrl) {
-	if (!session) return redirect(res, '/login');
-	if (req.method !== 'GET' && req.method !== 'HEAD') { res.writeHead(405); return res.end(); }
-	const u = new URL(restUrl, 'http://x');
+// Reader rendering and image proxy remain independent of search.
+async function browseReader(req,res,session,restUrl){
+ if(!session)return redirect(res,'/login');
+ if(req.method!=='GET'&&req.method!=='HEAD'){res.writeHead(405);return res.end();}
+ const u=new URL(restUrl,'http://x');
 	if (u.pathname === '/img') {
 		let t; try { t = new URL(u.searchParams.get('u') || ''); } catch { res.writeHead(400); return res.end(); }
 		if (!/^https?:$/.test(t.protocol)) { res.writeHead(400); return res.end(); }
 		const imgGuard = await new Promise((ok) => safeLookup(t.hostname.replace(/^\[|\]$/g, ''), {}, (e) => ok(!e)));
 		if (!imgGuard) { res.writeHead(400); return res.end(); }
 		const mod = t.protocol === 'https:' ? httpsRequest : httpRequest;
-		const ur = mod(t, { headers: { accept: 'image
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
- }
+		const ur = mod(t, { headers: { accept: 'image/*', 'user-agent': 'Mozilla/5.0' }, lookup: safeLookup, timeout: 10000 }, (ir) => {
+			if (ir.statusCode >= 300 && ir.statusCode < 400 && ir.headers.location && (parseInt(u.searchParams.get('h') || '0', 10) < 3)) { ir.resume(); let nx; try { nx = new URL(ir.headers.location, t); } catch { res.writeHead(404); return res.end(); } res.writeHead(302, { location: '/browse-reader/img?h=' + (parseInt(u.searchParams.get('h') || '0', 10) + 1) + '&u=' + encodeURIComponent(nx.href) }); return res.end(); }
+			const ct = String(ir.headers['content-type'] || '');
+			if (ir.statusCode !== 200 || !/^image\/(jpeg|png|webp|gif|avif)/.test(ct)) { ir.resume(); res.writeHead(404); return res.end(); }
+			res.writeHead(200, { 'content-type': ct, 'cache-control': 'private, max-age=86400', 'x-content-type-options': 'nosniff' });
+			let n = 0; ir.on('data', (c) => { n += c.length; if (n > 3e6) { ir.destroy(); res.end(); } else res.write(c); });
+			ir.on('end', () => res.end()); ir.on('error', () => res.end());
+		});
+		ur.on('timeout', () => ur.destroy()); ur.on('error', () => { if (!res.headersSent) res.writeHead(502); res.end(); });
+		return ur.end();
+	}
+	if (u.pathname === '/reader') {
+		const tu = u.searchParams.get('u') || '';
+		res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'content-security-policy': "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'" });
+		return res.end(await readerPage(tu));
+	}
+ res.writeHead(404);res.end();
+}
+
+// accounts:
+// anyone can request an account on /login; with approval on (the default,
+// the earlier call: "approving should be optional but on by default") a new
+// account sits pending until the admin approves it in settings.
+const ADMIN = process.env.RJ_ADMIN || 'admin';
+const CONFIG_PATH = dataPath('config.json');
+const getConfig = () => ({ requireApproval: true, ...rjRead(CONFIG_PATH, {}) });
+const RESERVED = new Set(['admin', 'administrator', 'root', 'ramjet', 'support', 'system']);
+// names that carry authority or imply it. signup AND rename must enforce the
+// same boundary, or an ordinary account claims the name-based admin /
+// sync-admin authority (the sync addon gates on its own configured name).
+const PROTECTED_NAMES = new Set([...RESERVED, ADMIN, process.env.RJ_SYNC_ADMIN || 'admin']);
+const MAX_PENDING = 25;
+
+const server = createServer(async (req, res) => {
+  const url = new URL(req.url, 'http://x');
+  const path = url.pathname;
+  // the engine's virtual scramjet.wasm.js is normally answered by the page's service worker.
+  // workers and some nested frames (captcha / bot-check scripts on login pages) are not
+  // controlled by it, so their request fell through to a 404 and the engine died with
+  // "WASM not found in global scope". answer it here too, same payload the worker builds.
+  if (/^\/~\/sj\/[^/]+\/[^/]+\/scramjet\.wasm\.js$/.test(path) && (req.method === 'GET' || req.method === 'HEAD')) {
+    try {
+      if (!global.__rjWasmJs) {
+        const wp = resolve(DIST, './scramjet/scramjet.wasm');
+        const st = statSync(wp);
+        const js = Buffer.from("self.WASM = '" + readFileSync(wp).toString('base64') + "';");
+        global.__rjWasmJs = { js, gz: gzipSync(js, { level: 6 }), etag: 'W/"' + st.size + '-' + createHash('sha256').update(js).digest('hex').slice(0, 20) + '"' };
+      }
+      const w = global.__rjWasmJs;
+      if (req.headers['if-none-match'] === w.etag) { res.writeHead(304, { etag: w.etag, vary: 'Accept-Encoding' }); return res.end(); }
+      const gz = /\bgzip\b/.test(String(req.headers['accept-encoding'] || ''));
+      const body = gz ? w.gz : w.js;
+      res.writeHead(200, { 'content-type': 'text/javascript; charset=utf-8', 'cache-control': 'no-cache', etag: w.etag, vary: 'Accept-Encoding', 'content-length': body.length, ...(gz ? { 'content-encoding': 'gzip' } : {}) });
+      return res.end(req.method === 'HEAD' ? undefined : body);
+    } catch { /* fall through */ }
   }
   if (path.startsWith('/api/lite/')) {
     // bearer-token api for the phone shortcut: outside cookie login, own auth + limits (core/lite.js)
@@ -599,13 +318,13 @@ async function proxySearx(req, res, session, restUrl) {
         if (acct.status === 'pending') return sendJson(res, 403, { ok: false, error: 'your account is waiting for approval - try again later' });
         if (acct.status === 'banned') return sendJson(res, 403, { ok: false, error: 'this account is turned off' });
         const token = auth.createSession(name);
-        return sendJson(res, 200, { ok: true, user: name }, { 'set-cookie': auth.cookieHeader(token) });
+        return sendJson(res, 200, { ok: true, user: name }, { 'set-cookie': auth.cookieHeader(token, req) });
       }
       if (path === '/api/auth/signup' && req.method === 'POST') {
         if (!guard.allowLogin(`signup:${clientIp(req)}`, 40)) return sendJson(res, 429, { ok: false, error: 'too many tries - wait a few minutes' });
         const body = JSON.parse((await readBody(req)).toString() || '{}');
         const name = String(body.username || '').trim().toLowerCase();
-        if (RESERVED.has(name) || name === ADMIN) return sendJson(res, 400, { ok: false, error: 'that name is taken' });
+        if (PROTECTED_NAMES.has(name)) return sendJson(res, 400, { ok: false, error: 'that name is taken' });
         const cfg = getConfig();
         if (cfg.requireApproval && auth.listUsers().filter((u) => u.status === 'pending').length >= MAX_PENDING) {
           return sendJson(res, 429, { ok: false, error: 'too many requests waiting right now - try again later' });
@@ -614,11 +333,11 @@ async function proxySearx(req, res, session, restUrl) {
         catch (e) { return sendJson(res, 400, { ok: false, error: e.message }); }
         if (cfg.requireApproval) return sendJson(res, 200, { ok: true, pending: true });
         const token = auth.createSession(name);
-        return sendJson(res, 200, { ok: true, user: name }, { 'set-cookie': auth.cookieHeader(token) });
+        return sendJson(res, 200, { ok: true, user: name }, { 'set-cookie': auth.cookieHeader(token, req) });
       }
       if (path === '/api/auth/logout' && req.method === 'POST') {
         if (session) auth.destroySession(session.token);
-        return sendJson(res, 200, { ok: true }, { 'set-cookie': auth.clearCookieHeader() });
+        return sendJson(res, 200, { ok: true }, { 'set-cookie': auth.clearCookieHeader(req) });
       }
       if (!session) return sendJson(res, 401, { ok: false, error: 'not signed in' });
 
@@ -683,7 +402,9 @@ async function proxySearx(req, res, session, restUrl) {
       if (path === '/api/wisp-ticket' && req.method === 'GET') {
         const t = randomBytes(24).toString('hex');
         const adblock = !/[?&]ab=0\b/.test(req.url);
-        wispTickets.set(t, { user: session.user, exp: Date.now() + 90000, adblock });
+        // bind the ticket to the account's revocation generation: ban, logout,
+        // removal or a password change after minting must invalidate it
+        wispTickets.set(t, { user: session.user, exp: Date.now() + 90000, adblock, gen: auth.revGeneration(session.user) });
         if (wispTickets.size > 500) {
           const now = Date.now();
           for (const [k, v] of wispTickets) if (v.exp < now) wispTickets.delete(k);
@@ -705,10 +426,17 @@ async function proxySearx(req, res, session, restUrl) {
         if (!auth.verify(session.user, body.current)) return sendJson(res, 401, { ok: false, error: 'current password is wrong' });
         try { auth.setPassword(session.user, body.next); }
         catch (e) { return sendJson(res, 400, { ok: false, error: e.message }); }
-        return sendJson(res, 200, { ok: true });
+        // a password change revokes everything the old credential could have
+        // minted: all 30-day sessions (incl. a stolen one), live proxy pipes,
+        // outstanding tickets and the lite credential cache. the changing
+        // browser gets a fresh session so it is not logged out of itself.
+        auth.killSessions(session.user);
+        const token = auth.createSession(session.user);
+        return sendJson(res, 200, { ok: true }, { 'set-cookie': auth.cookieHeader(token, req) });
       }
       if (path === '/api/auth/claim-username' && req.method === 'POST') {
         const body = JSON.parse((await readBody(req)).toString() || '{}');
+        if (PROTECTED_NAMES.has(String(body.name || '').trim().toLowerCase())) return sendJson(res, 400, { ok: false, error: 'that name is taken' });
         try { var name = auth.renameUser(session.user, body.name); }
         catch (e) { return sendJson(res, 400, { ok: false, error: e.message }); }
         return sendJson(res, 200, { ok: true, user: name });
@@ -727,36 +455,49 @@ async function proxySearx(req, res, session, restUrl) {
 
     if (path === '/' || path === '/index.html') {
       if (!session) return redirect(res, '/login');
-      return servePage(res, 'index');
+      return servePage(req, res, 'index');
     }
     if (path === '/login' || path === '/login.html') {
       if (session) return redirect(res, '/');
-      return servePage(res, 'login');
+      return servePage(req, res, 'login');
+    }
+    if (path === '/signup') {
+      if (session) return redirect(res, '/');
+      return servePage(req, res, 'login');
     }
     if (path === '/password') {
       if (!session) return redirect(res, '/login');
-      return servePage(res, 'password');
+      return servePage(req, res, 'password');
     }
     if (path === '/claim') {
       if (!session) return redirect(res, '/login');
-      return servePage(res, 'claim');
+      return servePage(req, res, 'claim');
     }
     if (path === '/auth/ai-key') return sendJson(res, 200, { has: false });
+    if(path.startsWith('/browse-reader/'))return browseReader(req,res,session,path.slice(14)+(url.search||''));
     if (path.startsWith('/searx/')) {
-      return proxySearx(req, res, session, path.slice(6) + (url.search || ''));
+      if (!session) return redirect(res, '/login');
+      const query = url.searchParams.get('q') || '';
+      return redirect(res, '/browse?q=' + encodeURIComponent(query));
     }
+    // stamped engine urls are immutable content addresses: an old stamp
+    // must never serve the new bytes, or a stale page silently mixes
+    // revisions. unknown stamp -> 404 (loud, never mixed); no stamp ->
+    // current bytes for backward-compatible/unversioned callers.
+    const stampV = url.searchParams.get('v');
+    if (stampV && stampV !== ENGINE_STAMP && STAMPED_PATHS.has(path)) { res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' }); res.end('superseded build - reload'); return; }
     if (path.startsWith('/assets/') || /^\/(favicon\.svg|favicon-32\.png|icon-192\.png|apple-touch-icon\.png|logo-512\.png|manifest\.webmanifest)$/.test(path) || path.startsWith('/cloak/') || path.startsWith('/scramjet/') || path.startsWith('/controller/') || path.startsWith('/epoxy/') || path.startsWith('/libcurl/') || path === '/browse-sw.js') {
-      if (serveStatic(res, path)) return;
+      if (await serveStatic(req, res, path)) return;
     }
     if (!session && (/^\/(browse|jetstream|amp|sage|banter|settings)\/?$/.test(path))) return redirect(res, "/login");
     // shipped app pages; the rest land on the hub shell until they ship
     const appPages = { jetstream: 'jetstream', browse: 'browse', amp: 'amp', sage: 'sage', banter: 'banter', settings: 'settings' };
-    if (session && appPages[path.slice(1)]) return servePage(res, appPages[path.slice(1)]);
+    if (session && appPages[path.slice(1)]) return servePage(req, res, appPages[path.slice(1)]);
     if (session && /^\/(browse|amp|sage|settings)\/?$/.test(path)) {
-      return servePage(res, 'index');
+      return servePage(req, res, 'index');
     }
-    res.writeHead(404, { 'content-type': 'text/plain' });
-    res.end('nothing here');
+    res.writeHead(404, { 'content-type': 'text/html; charset=utf-8' });
+    res.end(notFoundPage());
   } catch (e) {
     console.error(e);
     if (!res.headersSent) sendJson(res, 500, { ok: false, error: 'something broke on our side' });
@@ -764,17 +505,54 @@ async function proxySearx(req, res, session, restUrl) {
   }
 });
 
+// live proxy pipes per user, so revocation (ban, admin logout, removal,
+// password change, self logout) can cut the connections that authority
+// already opened - killing sessions alone leaves them running
+const liveProxy = new Map();
+const trackProxy = (user, socket) => {
+  let set = liveProxy.get(user);
+  if (!set) liveProxy.set(user, (set = new Set()));
+  set.add(socket);
+  socket.on('close', () => { set.delete(socket); if (!set.size) liveProxy.delete(user); });
+};
+auth.onRevoked = (user) => { const set = liveProxy.get(user); if (set) for (const sock of [...set]) { try { sock.destroy(); } catch {} } };
+auth.onRenamed = (oldName, newName) => { const set = liveProxy.get(oldName); if (set) { liveProxy.delete(oldName); liveProxy.set(newName, set); } };
+// a ticket is valid only while the account behind it is: live, active, and
+// on the same revocation generation it was minted under
+const ticketOk = (tk) => {
+  if (!tk || tk.exp < Date.now()) return false;
+  const acct = auth.users[tk.user];
+  if (!acct || (acct.status && acct.status !== 'active')) return false;
+  return auth.revGeneration(tk.user) === tk.gen;
+};
+
 server.on('upgrade', (req, socket, head) => {
   if (!req.url) { socket.destroy(); return; }
+  // cross-site websocket hijack guard: when a browser sends Origin it must
+  // be this very host. non-browser clients send no Origin (deliberate
+  // exception; they authenticate with a ticket or cookie like always).
+  const origin = req.headers.origin;
+  if (origin) {
+    let ohost = null;
+    try { ohost = new URL(origin).host; } catch {}
+    if (!ohost || ohost !== req.headers.host) { socket.destroy(); return; }
+  }
   // ticket rides in the path (/wisp-t/<ticket>/) because the browser
   // WebSocket API cannot set headers, and a query string breaks wisp's
   // request parsing. the url is rewritten to /wisp/ before wisp sees it.
   const pm = req.url.match(/^\/pws-t\/([a-f0-9]{48})/);
   if (pm) {
     const tk = wispTickets.get(pm[1]);
-    let puser = (tk && tk.exp >= Date.now()) ? tk.user : null;
+    // tickets are single-use: a valid one is consumed here so a leaked
+    // ticket (they ride in the url path and can land in logs) cannot be
+    // replayed within its 90s life. same-session reconnects fetch a fresh
+    // ticket; the cookie fallback below still covers anything else.
+    const tok = ticketOk(tk);
+    if (tok) wispTickets.delete(pm[1]);
+    let puser = tok ? tk.user : null;
     if (!puser) { const ps = auth.sessionFromCookies(parseCookies(req)); if (ps) puser = ps.user; }
     if (!puser) { socket.destroy(); return; }
+    trackProxy(puser, socket);
     return pwsUpgrade(req, socket, head, puser, (n) => { try { guard.trackBytes(puser, n); } catch {} });
   }
   const tm = req.url.match(/^\/wisp-t\/([a-f0-9]{48})/);
@@ -785,11 +563,12 @@ server.on('upgrade', (req, socket, head) => {
   let adOn = true;
   if (tm) {
     const tk = wispTickets.get(tm[1]);
-    if (tk && tk.exp > Date.now()) { if (!session) { session = { user: tk.user }; gate = 'ticket-ok'; } adOn = tk.adblock !== false; }
+    if (ticketOk(tk)) { wispTickets.delete(tm[1]); if (!session) { session = { user: tk.user }; gate = 'ticket-ok'; } adOn = tk.adblock !== false; }
   }
   if (tm) req.url = '/wisp/';
   console.log(`[wisp] upgrade ${gate || 'REJECTED'} ua="${ua}"`);
   if (!session) { socket.destroy(); return; }
+  trackProxy(session.user, socket);
   // browse was the last unmetered pipe. count both directions against the
   // same hourly byte budget the media endpoints enforce; over budget, the
   // socket dies (this is the sanity guardrail, not a user-facing message).
@@ -810,7 +589,24 @@ server.on('upgrade', (req, socket, head) => {
   wisp.routeRequest(req, socket, head, adOn ? { TCPSocket: makeBlockingSocket(NodeTCPSocket, meterUser) } : {});
 });
 
-server.listen(PORT, HOST, () => console.log(`ramjet2 on ${HOST}:${PORT}, data ${DATA}, addons: ${[...addons.keys()].join(', ') || 'none'}`));
-process.on("SIGTERM", () => { stopSearxng(); guard.flush(); process.exit(0); });
-process.on("SIGINT", () => { stopSearxng(); guard.flush(); process.exit(0); });
-startSearxng();
+server.listen(PORT, HOST, () => {
+  console.log(`ramjet2 on ${HOST}:${PORT}, data ${DATA}, addons: ${[...addons.keys()].join(', ') || 'none'}`);
+  // warm the compression cache in the background so even the first request
+  // after a deploy never pays a cold multi-MB compress: pinned engine files
+  // plus every page, both encodings, all on zlib worker threads
+  for (const [urlPath, raw] of PINNED) {
+    const hash = createHash('sha256').update(raw).digest('hex').slice(0, 20);
+    const e = { mtimeMs: 0, ctimeMs: 0, size: raw.length, raw, br: null, gz: null, etag: 'W/"' + raw.length + '-' + hash + '"' };
+    sCache.set(resolve(DIST, '.' + urlPath), e);
+    compressed(e, 'br').catch(() => {});
+    compressed(e, 'gzip').catch(() => {});
+  }
+  for (const name of PAGES.keys()) {
+    const e = stampedPage(name);
+    if (!e) continue;
+    compressed(e, 'br').catch(() => {});
+    compressed(e, 'gzip').catch(() => {});
+  }
+});
+process.on("SIGTERM", () => { guard.flush(); process.exit(0); });
+process.on("SIGINT", () => { guard.flush(); process.exit(0); });

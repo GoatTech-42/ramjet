@@ -19,6 +19,8 @@
   var GLASS_PROPS = ['--rj-g-blur', '--rj-border', '--rj-text', '--rj-text-dim', '--rj-text-faint'];
   function apply(c) {
     var root = document.documentElement, s = root.style;
+    if (c && (c.accent || c.base || c.skin || c.font || c.round)) root.setAttribute('data-custom-theme', ''); else root.removeAttribute('data-custom-theme');
+    if (c && (c.mode === 'light' || c.mode === 'dark')) root.setAttribute('data-mode', c.mode); else root.removeAttribute('data-mode');
     var glass = !!(c && c.skin === 'glass');
     if (glass) {
       root.setAttribute('data-skin', 'glass');

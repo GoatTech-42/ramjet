@@ -1,8 +1,22 @@
-importScripts("/controller/controller.sw.js");
+// the page registers this worker with the build stamp as its query
+// (?v=<stamp>); import the controller at the same stamp so a stale cache
+// can never pair a new worker with the old controller or vice versa.
+importScripts("/controller/controller.sw.js" + self.location.search);
 
 // update in place: a new build activates immediately instead of queueing
 // behind whatever version the browser ran last visit.
 addEventListener("install", () => { try { skipWaiting(); } catch {} });
+
+// version handshake: the page proves the active worker answers at its own
+// build stamp before wiring the engine. the stamp rides this worker's own
+// script url (?v=<stamp>), so the reply is always this revision's truth.
+addEventListener("message", (e) => {
+  if (!e.data || !e.data.$rjVersionCheck) return;
+  let v = "";
+  try { v = new URL(self.location).searchParams.get("v") || ""; } catch {}
+  try { if (e.source && e.source.postMessage) e.source.postMessage({ $rjVersion: v }); } catch {}
+  try { if (e.ports && e.ports[0]) e.ports[0].postMessage({ $rjVersion: v }); } catch {}
+});
 addEventListener("activate", (e) => { e.waitUntil(clients.claim()); });
 
 // scramjet resolves its own failures as a status-500 text page full of

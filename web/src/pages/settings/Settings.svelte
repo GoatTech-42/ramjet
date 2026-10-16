@@ -10,6 +10,16 @@
   function onKey(e) { if (e.key === 'Escape' && sub) sub = ''; }
   const fromHash = () => { const h = location.hash.slice(1); if (SECS.some((x) => x[0] === h)) { sec = h; sub = ''; } };
   onMount(() => { fromHash(); window.addEventListener('hashchange', fromHash); });
+  // mobile tab row: only show the "more to the right" fade when the tabs
+  // actually overflow - fading a row that fits would cut the last tab
+  let snavEl = $state(null);
+  let snavMore = $state(false);
+  const checkSnav = () => { if (snavEl) snavMore = snavEl.scrollWidth > snavEl.clientWidth + 4; };
+  onMount(() => {
+    checkSnav();
+    window.addEventListener('resize', checkSnav);
+    return () => window.removeEventListener('resize', checkSnav);
+  });
   const setSaver = (v) => { saver = v; try { if (v === 'auto') localStorage.removeItem('rj-datasaver'); else localStorage.setItem('rj-datasaver', v); } catch {} };
   const setAc = (on) => { ac.on = on; saveAc(); };
   const flipTech = () => { tech = !tech; saveTech(); };
@@ -43,7 +53,7 @@
     if (v.skin === 'glass') { if (!wasGlass) { try { localStorage.setItem('rj-layout-pre', layout); } catch {} } setLayout('dock'); }
     else if (wasGlass) { let pre = 'list'; try { pre = localStorage.getItem('rj-layout-pre') || 'list'; } catch {} setLayout(pre); }
   }
-  let look = $state({ accent: '#d9f24b', base: 'black', round: 'soft', font: 'system' });
+  let look = $state({ mode: 'system' });
   try { const t = JSON.parse(localStorage.getItem('rj-theme') || 'null'); if (t) look = { ...look, ...t }; } catch {}
   function setLook(k, v) {
     look = { ...look, [k]: v };
@@ -51,9 +61,10 @@
     window.__rjTheme?.(look);
   }
   function resetLook() {
-    look = { accent: '#d9f24b', base: 'black', round: 'soft', font: 'system' };
+    look = { mode: 'system' };
     try { localStorage.removeItem('rj-theme'); } catch {}
     window.__rjTheme?.(null);
+    setWall('none');
   }
   import { techOn, setTech } from '../../lib/tech.js';
   let tech = $state(techOn());
@@ -64,6 +75,7 @@
   function saveAc() { writeCfg(ac); }
   import { setCloak } from '../../lib/cloak.js';
   import '../../tokens.css';
+  import AppFrame from '../../lib/AppFrame.svelte';
   import { onMount } from 'svelte';
   import { api } from '../../lib/api.js';
 
@@ -169,8 +181,8 @@
   }
 
 
-
-
+  // per-app privacy, all in one place: jetstream watch history
+  // pause + clear, amp playlists, browse bookmarks. sage is above.
   let jsPaused = $state(false);
   let jsCount = $state(0);
   let jsMsg = $state('');
@@ -223,15 +235,12 @@
 <svelte:head><title>settings - ramjet</title></svelte:head>
 <svelte:window onkeydown={onKey} />
 
+<AppFrame active="/settings">
 <div class="page">
-  <header class="top">
-    <a class="back" href="/" aria-label="back to ramjet"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg></a>
-    <span class="brand">settings</span>
-    <span class="tagline">{user}</span>
-  </header>
+  <header class="top"><div><h1>Settings</h1><p>Make Ramjet feel like yours.</p></div></header>
 
   <div class="shell">
-    <nav class="snav" aria-label="settings sections">
+    <nav class="snav" class:more={snavMore} bind:this={snavEl} aria-label="settings sections">
       {#each SECS as [k, n]}<button class:on={sec === k} onclick={() => pick(k)}>{n}</button>{/each}
     </nav>
 
@@ -239,9 +248,9 @@
     {#if sec === 'look' && sub === 'theme'}
       <div class="subtop"><button class="back2" onclick={() => (sub = '')}><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>appearance</button><h2>advanced theming</h2><button class="x" onclick={() => (sub = '')} aria-label="close advanced theming">done</button></div>
       <div class="cols">
-      <section class="card"><h3>more styles</h3>
-        <div class="seg wrapseg">{#each PRESETS.filter((p) => !MODE_NAMES.includes(p[0])) as [n, v]}<button class:on={isPreset(v)} onclick={() => setPreset(v)}>{n}</button>{/each}</div></section>
-      <section class="card"><h3>wallpaper</h3><p class="hint">behind every page</p>
+      <section class="card"><h3>Saved-style presets</h3>
+        <div class="seg wrapseg">{#each PRESETS as [n, v]}<button class:on={isPreset(v)} onclick={() => setPreset(v)}>{n}</button>{/each}</div></section>
+      <section class="card wallpaper-card"><h3>wallpaper</h3><p class="hint">behind every page</p>
         <div class="walls">{#each WALLS as [k, n]}<button class="wp2" class:on={wall === k} onclick={() => setWall(k)}><i class="wc wall-{k}"></i><span>{n}</span></button>{/each}</div></section>
       <section class="card"><h3>surface</h3>
         <div class="seg"><button class:on={look.skin !== 'glass'} onclick={() => setLook('skin', '')}>flat</button><button class:on={look.skin === 'glass'} onclick={() => setLook('skin', 'glass')}>liquid glass</button></div>
@@ -255,14 +264,8 @@
 
     {:else if sec === 'look'}
       <h2 class="ph">appearance</h2>
-      <section class="card"><h3>mode</h3>
-        <div class="tiles">{#each PRESETS.filter((p) => MODE_NAMES.includes(p[0])) as [n, v]}
-          <button class="tl" class:on={isPreset(v)} onclick={() => setPreset(v)} aria-pressed={isPreset(v)}>
-            <span class="pv" style="--pb:{pvBg(v)};--pa:{v.accent};--pr:{PVR[v.round]}px;font-family:{PVF[v.font]}"><i class="pva"></i><i class="pvl"></i><i class="pvl s"></i><b>Aa</b></span>
-            <span class="pn">{n}</span>
-          </button>{/each}</div></section>
-      <section class="card"><h3>home screen</h3>
-        <div class="lays">{#each LAYOUTS as [k, n]}<button class="lay" class:on={layout === k} onclick={() => setLayout(k)}><span class="lp lp-{k}"><i></i><i></i><i></i><i></i></span><span>{n}</span></button>{/each}</div></section>
+      <section class="card"><h3>Color mode</h3><p class="hint">Follow your device, or choose a look.</p><div class="seg">{#each [['system','System'],['light','Light'],['dark','Dark']] as [k,n]}<button class:on={(look.mode || 'system') === k} aria-pressed={(look.mode || 'system') === k} onclick={() => setLook('mode', k)}>{n}</button>{/each}</div></section>
+      <section class="card"><h3>Home layout</h3><div class="seg">{#each LAYOUTS as [k,n]}<button class:on={layout === k} onclick={() => setLayout(k)}>{k === 'dock' ? 'Widgets' : k === 'grid' ? 'Compact' : 'Simple'}</button>{/each}</div></section>
       <section class="card list">
         <button class="nav" onclick={() => (sub = 'theme')}><span class="rt"><b>advanced theming</b><small>wallpaper, glass, font, accent, corners</small></span><span class="chv">&rsaquo;</span></button>
         <button class="nav" onclick={resetLook}><span class="rt"><b>reset appearance</b><small>back to the default ramjet look</small></span></button>
@@ -273,9 +276,9 @@
       <section class="card prof"><span class="avatar">{user.slice(0, 1)}</span><div><p class="name">{user}</p><p class="hint">ramjet account</p></div><button class="ghost" onclick={logout}>log out</button></section>
       <form class="card" onsubmit={save}>
         <h3>change password</h3>
-        <input bind:value={current} type="password" placeholder="current password" autocomplete="current-password" required />
-        <input bind:value={next} type="password" placeholder="new password (6+ characters)" autocomplete="new-password" required minlength="6" />
-        <input bind:value={confirm} type="password" placeholder="new password again" autocomplete="new-password" required minlength="6" />
+        <label class="field">Current password<input bind:value={current} type="password" placeholder="current password" autocomplete="current-password" required /></label>
+        <label class="field">New password<input bind:value={next} type="password" placeholder="new password (6+ characters)" autocomplete="new-password" required minlength="6" /></label>
+        <label class="field">Confirm new password<input bind:value={confirm} type="password" placeholder="new password again" autocomplete="new-password" required minlength="6" /></label>
         {#if msg}<p class="msg" class:ok role="alert">{msg}</p>{/if}
         <button class="primary" type="submit" disabled={busy}>{busy ? 'saving...' : 'save password'}</button>
       </form>
@@ -367,21 +370,19 @@
   </div>
 </div>
 
+</AppFrame>
+
 <style>
-  .page { min-height: 100dvh; }
-  .top { display: flex; align-items: center; gap: 12px; padding: 14px 18px; max-width: 1360px; margin: 0 auto; }
-  .back { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; background: var(--rj-surface-2); border: 1px solid var(--rj-border); color: var(--rj-text); }
-  .back svg { width: 18px; height: 18px; }
-  .brand { font-size: 20px; font-weight: 700; letter-spacing: -.01em; }
-  .tagline { color: var(--rj-text-faint); font-size: 13px; }
-  .shell { max-width: 1360px; margin: 0 auto; padding: 4px 18px 60px; display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 32px; align-items: start; }
+  .page { min-height: 100dvh; max-width: 1260px; margin: 0 auto; padding: 32px 40px 64px; }
+  .top { margin-bottom: 32px; } h1 { margin: 0 0 8px; font-size: 34px; font-weight: 600; letter-spacing: -.04em; } .top p { margin: 0; color: var(--rj-text-dim); font-size: 15px; }
+  .shell { display: grid; grid-template-columns: 190px minmax(0,1fr); gap: 32px; align-items: start; }
   .snav { position: sticky; top: 16px; display: grid; gap: 2px; }
   .snav button { text-align: left; padding: 11px 14px; border-radius: 10px; border: 0; background: none; color: var(--rj-text-dim); font-size: 15px; }
   .snav button:hover { background: var(--rj-surface); color: var(--rj-text); }
   .snav button.on { background: var(--rj-surface-2); color: var(--rj-text); font-weight: 600; box-shadow: inset 2px 0 0 var(--rj-accent); }
   .pane { min-width: 0; display: grid; gap: 14px; align-content: start; }
   .ph { margin: 2px 2px 2px; font-size: 26px; letter-spacing: -.02em; }
-  h3 { margin: 0 0 10px; font-size: 12px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--rj-text-faint); }
+  h3 { margin: 0 0 10px; font-size: 16px; font-weight: 600; letter-spacing: -.02em; color: var(--rj-text-faint); }
   .card { background: var(--rj-surface); border: 1px solid var(--rj-border); border-radius: var(--rj-radius); padding: 16px 18px; display: grid; gap: 10px; align-content: start; }
   .card.list { padding: 4px 18px; gap: 0; }
   .cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 14px; align-items: start; }
@@ -409,6 +410,7 @@
   .seg.sm button { padding: 6px 11px; font-size: 13px; }
   .bd { width: 12px; height: 12px; border-radius: 50%; background: var(--c); box-shadow: 0 0 0 1px var(--rj-border); }
   select { background: var(--rj-surface-2); color: var(--rj-text); border: 1px solid var(--rj-border); border-radius: 9px; padding: 8px 10px; font: inherit; font-size: 14px; }
+  .field { display: grid; gap: 7px; font-size: 13px; color: var(--rj-text-dim); }
   input[type=password] { background: var(--rj-surface-2); border: 1px solid var(--rj-border); color: var(--rj-text); border-radius: 10px; padding: 12px 14px; font-size: 15px; }
   input:focus-visible, button:focus-visible, select:focus-visible, a:focus-visible { outline: 2px solid var(--rj-accent); outline-offset: 2px; }
   .primary { background: var(--rj-accent); color: var(--rj-accent-ink); border: 0; border-radius: 10px; padding: 11px 18px; font-weight: 600; font-size: 15px; justify-self: start; }
@@ -422,19 +424,14 @@
   .tl { background: none; border: 2px solid transparent; border-radius: 14px; padding: 6px; color: var(--rj-text-dim); display: grid; gap: 8px; }
   .tl.on { border-color: var(--rj-accent); color: var(--rj-text); }
   .pv { position: relative; display: block; aspect-ratio: 4 / 3; border-radius: calc(var(--pr) + 4px); background: var(--pb); overflow: hidden; box-shadow: inset 0 0 0 1px rgba(255,255,255,.1); }
-  .pv .pva { position: absolute; left: 10%; top: 14%; width: 26%; height: 14%; border-radius: var(--pr); background: var(--pa); }
-  .pv .pvl { position: absolute; left: 10%; top: 40%; width: 80%; height: 11%; border-radius: var(--pr); background: rgba(255,255,255,.14); }
-  .pv .pvl.s { top: 58%; width: 55%; }
-  .pv b { position: absolute; right: 10%; bottom: 10%; font-size: 15px; color: #fff; }
   .pn { font-size: 13.5px; text-align: center; }
   .lays { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
   .lay { background: none; border: 2px solid transparent; border-radius: 14px; padding: 8px; color: var(--rj-text-dim); display: grid; gap: 8px; justify-items: center; font-size: 13.5px; }
   .lay.on { border-color: var(--rj-accent); color: var(--rj-text); }
   .lp { width: 100%; max-width: 220px; aspect-ratio: 4 / 3; border-radius: 10px; background: var(--rj-surface-2); display: grid; gap: 5px; padding: 9px; box-shadow: inset 0 0 0 1px var(--rj-border); }
-  .lp i { background: var(--rj-text-faint); opacity: .55; border-radius: 4px; }
   .lp-list { grid-template-rows: repeat(4, 1fr); }
-  .lp-grid { grid-template-columns: repeat(3, 1fr); grid-template-rows: repeat(2, 1fr); } .lp-grid i { border-radius: 30%; } .lp-grid i:nth-child(4) { display: none; }
-  .lp-dock { grid-template-columns: repeat(2, 1fr); grid-template-rows: 1fr 1fr 10px; } .lp-dock i:nth-child(3) { grid-column: span 2; grid-row: 3; border-radius: 6px; background: var(--rj-accent); opacity: .8; } .lp-dock i:nth-child(4) { display: none; }
+  .lp-grid { grid-template-columns: repeat(3, 1fr); grid-template-rows: repeat(2, 1fr); }
+  .lp-dock { grid-template-columns: repeat(2, 1fr); grid-template-rows: 1fr 1fr 10px; }
   .subtop { display: flex; align-items: center; gap: 12px; padding: 8px 0; }
   .subtop h2 { margin: 0; font-size: 20px; flex: 1; }
   .back2 { display: inline-flex; align-items: center; gap: 4px; background: var(--rj-surface-2); border: 1px solid var(--rj-border); color: var(--rj-text); border-radius: 99px; padding: 7px 14px 7px 8px; font-size: 14px; }
@@ -466,4 +463,8 @@
     .ph { font-size: 22px; }
     .subtop { top: 50px; }
   }
+
+  .card { padding: 22px; border-radius: 20px; } .cols { min-width: 0; grid-template-columns: repeat(2,minmax(0,1fr)); } .card { min-width: 0; } .wallpaper-card { grid-column: 1 / -1; } .walls { grid-template-columns: repeat(auto-fill,minmax(110px,1fr)); } .ph { font-size: 25px; font-weight: 600; margin-bottom: 6px; }
+  .snav button { min-height: 44px; } .seg button { min-height: 40px; }
+  @media(max-width:760px) { .cols { grid-template-columns: minmax(0,1fr); } .subtop { display: grid; grid-template-columns: minmax(0,1fr) auto; } .subtop h2 { grid-column: 1 / -1; grid-row: 2; font-size: 24px; } .back2 { justify-self: start; } .page { min-height: calc(100dvh - 90px - env(safe-area-inset-bottom)); padding: 28px 20px 40px; } .shell { grid-template-columns: minmax(0,1fr); gap: 20px; padding: 0; } .snav { position: static; display: flex; overflow-x: auto; gap: 5px; padding-bottom: 8px; scrollbar-width: none; } .snav::-webkit-scrollbar { display: none; } .snav.more { -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 36px), rgba(0,0,0,.35)); mask-image: linear-gradient(90deg, #000 calc(100% - 36px), rgba(0,0,0,.35)); } .snav button { flex: none; padding: 10px 12px; font-size: 13px; } .card { padding: 20px; } h1 { font-size: 30px; } }
 </style>

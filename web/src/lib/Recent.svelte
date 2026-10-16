@@ -2,14 +2,15 @@
   // themed "recent searches" list shown under a search box (replaces the browser's own datalist,
   // which iOS draws its own way). only shows when the user has chosen to save searches.
   let { items = [], query = '', focused = false, onpick, onclear } = $props();
+  let held = $state(false);
   const shown = $derived(items.filter((r) => !query || r.toLowerCase().includes(query.toLowerCase())).filter((r) => r.toLowerCase() !== query.trim().toLowerCase()).slice(0, 6));
 </script>
 
-{#if focused && shown.length}
-  <div class="rdrop" role="listbox">
-    <p class="rh">recent searches <button type="button" onmousedown={(e) => { e.preventDefault(); onclear && onclear(); }} ontouchstart={(e) => { e.preventDefault(); onclear && onclear(); }}>clear</button></p>
+{#if (focused || held) && shown.length}
+  <div class="rdrop" role="group" aria-label="Recent searches" onfocusin={() => (held = true)} onfocusout={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) held = false; }}>
+    <p class="rh">recent searches <button type="button" onmousedown={(e) => e.preventDefault()} onclick={() => { held = false; onclear && onclear(); }}>clear</button></p>
     {#each shown as r (r)}
-      <button type="button" class="ri" onmousedown={(e) => { e.preventDefault(); onpick(r); }} ontouchstart={(e) => { e.preventDefault(); onpick(r); }}><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7" /><path d="M20 20l-3.5-3.5" /></svg><span>{r}</span></button>
+      <button type="button" class="ri" onmousedown={(e) => e.preventDefault()} onclick={() => { held = false; onpick(r); }}><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7" /><path d="M20 20l-3.5-3.5" /></svg><span>{r}</span></button>
     {/each}
   </div>
 {/if}

@@ -1,6 +1,6 @@
+import { dataPath } from '../../data.js';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { fileURLToPath } from 'node:url';
 import { randomBytes } from 'node:crypto';
 import { readJson, writeJson, readBody } from '../../util.js';
 // amp: one clean music player across three sources - youtube music,
@@ -22,7 +22,7 @@ const CAP = 1 << 20;
 // playlists: per-user, server-side, so they follow the account across
 // devices. one small json file, written atomically; a playlist is just
 // an ordered list of the same track objects search returns.
-const PL_FILE = fileURLToPath(new URL('../../../data/amp-playlists.json', import.meta.url));
+const PL_FILE = dataPath('amp-playlists.json');
 const MAX_PLAYLISTS = 20;
 const MAX_TRACKS = 100;
 
@@ -93,8 +93,27 @@ async function pipeMedia(up, req, res, opts = {}) {
   try {
     r = await fetch(up, { headers, redirect: 'follow', signal: AbortSignal.timeout(30000) });
   } catch { if (opts.writeErrors !== false) { res.writeHead(502); res.end(); } return { status: 502, bytes: 0 }; }
-  res.once('close', () => { try { r.body?.cancel()?.catch(() => {}); } catch {} });
+  // one listener set for the whole relay - per-chunk once() calls would
+  // accumulate over a long stream (MaxListenersExceeded) and leak the losers
+  let clientGone = false;
+  let wake = null; // the single outstanding backpressure wait, if any
+  let resolveGone;
+  const goneP = new Promise((d) => { resolveGone = d; });
+  const GONE = Symbol('client-gone');
+  const onDrain = () => { const w = wake; wake = null; if (w) w(false); };
+  const onGone = () => {
+    clientGone = true;
+    try { r.body?.cancel()?.catch(() => {}); } catch {}
+    resolveGone(GONE);
+    const w = wake; wake = null; if (w) w(true);
+  };
+  const unlisten = () => {
+    res.removeListener('drain', onDrain);
+    res.removeListener('close', onGone);
+    res.removeListener('error', onGone);
+  };
   if (r.status !== 200 && r.status !== 206) {
+    unlisten();
     try { r.body?.cancel()?.catch(() => {}); } catch {}
     if (opts.writeErrors !== false) { res.writeHead(r.status); res.end(); }
     return { status: r.status, bytes: 0 };
@@ -106,11 +125,34 @@ async function pipeMedia(up, req, res, opts = {}) {
   }
   res.writeHead(r.status, h);
   if (!r.body) { res.end(); return { status: r.status, bytes: 0 }; }
+  res.on('drain', onDrain);
+  res.once('close', onGone);
+  res.once('error', onGone);
   let bytes = 0;
-  for await (const chunk of r.body) {
-    bytes += chunk.length;
-    if (!res.write(chunk)) await new Promise((d) => res.once('drain', d));
+  try {
+    // manual iterator so every pending read races the one shared gone
+    // promise - cancel() alone can't interrupt a locked for-await
+    const it = r.body[Symbol.asyncIterator]();
+    for (;;) {
+      const step = await Promise.race([it.next(), goneP]);
+      if (step === GONE || step.done) break;
+      const chunk = step.value;
+      bytes += chunk.length;
+      if (clientGone || res.destroyed) break;
+      if (!res.write(chunk)) {
+        // a gone client never drains - the shared listeners settle the wait
+        const gone = await new Promise((d) => { wake = d; });
+        if (gone) { unlisten(); return { status: r.status, bytes }; }
+      }
+    }
+  } catch {
+    // upstream body died mid-relay with the response already committed -
+    // destroy so the element gets an error, never a hang
+    unlisten();
+    res.destroy();
+    return { status: r.status, bytes };
   }
+  unlisten();
   res.end();
   return { status: r.status, bytes };
 }
@@ -122,12 +164,12 @@ const YTDLP = process.env.YTDLP || new URL("../../../bin/yt-dlp", import.meta.ur
 const ytAudio = new Map(); // videoId -> { url, expires }
 const ytInflight = new Map(); // videoId -> Promise<url>
 
-
-
-
-
-
-
+// Tue 7:40 AM: youtube audio resolves through the local
+// yt-dlp binary, same fix as jetstream HD - InnerTube client URLs are
+// head-capped by googlevideo (~2MB absolute) without the n-parameter
+// transform, which yt-dlp applies. One resolver plus one forced re-resolve
+// replaces the old client ladder; if yt-dlp flakes for a track the block
+// cache below still fails honestly.
 const YT_LADDER = ['YTDLP'];
 
 async function ytAudioResolve(id) {
@@ -182,7 +224,7 @@ async function ytTrack(id) {
   return t;
 }
 
-async function ytBlock(id, idx) {
+async function ytBlock(id, idx, resolve = ytAudioUrl) {
   const t = await ytTrack(id);
   const hit = t.blocks.get(idx);
   if (hit) return hit;
@@ -200,12 +242,23 @@ async function ytBlock(id, idx) {
     for (const client of YT_LADDER) {
       for (let attempt = 0; attempt < 2 && !buf; attempt++) {
         let u;
-        try { u = await ytAudioUrl(id, client, attempt > 0); } catch { break; }
+        try { u = await resolve(id, client, attempt > 0); } catch { break; }
         const end = t.total ? Math.min(start + YT_BLOCK, t.total) - 1 : start + YT_BLOCK - 1;
         const r = await fetch(u, { headers: { 'user-agent': YT_UA, range: 'bytes=' + start + '-' + end }, signal: AbortSignal.timeout(30000) }).catch(() => null);
-        const parts = [];
-        for await (const c of r.body) parts.push(c); // full read, never aborted
-        buf = Buffer.concat(parts);
+        // anything but a clean 206 is a failed attempt: a null fetch is a
+        // transient, and a 403/404 error page must never be cached as audio
+        // (it decodes as garbage and kills playback at the block boundary)
+        if (!r || r.status !== 206) { try { r?.body?.cancel()?.catch(() => {}); } catch {} continue; }
+        let parts = null;
+        try {
+          parts = [];
+          for await (const c of r.body) parts.push(c); // full read, never aborted
+        } catch { parts = null; } // body died mid-read - try again
+        if (!parts) continue;
+        const got = Buffer.concat(parts);
+        const want = Number(r.headers.get('content-length') || 0);
+        if (want && got.length !== want) continue; // silently truncated
+        buf = got;
         const cr = /\/(\d+)$/.exec(r.headers.get('content-range') || '');
         if (cr) t.total = Number(cr[1]);
       }
@@ -225,17 +278,126 @@ async function ytBlock(id, idx) {
 // artist, album and duration; the default search's rows don't
 const YM_SONGS_PARAMS = 'EgWKAQIIAWoKEAoQAxADEAQQAQ==';
 
+// one YM track row (search + artist page share the shape). artistId is the
+// channel browse id when the row links the artist - the client falls back to
+// a name lookup when it is missing.
+function ymRow(it) {
+  let videoId = '';
+  try { videoId = it.playlistItemData.videoId || ''; } catch {}
+  if (!videoId) {
+    try { videoId = it.overlay.musicItemThumbnailOverlayRenderer.content.musicPlayButtonRenderer.playNavigationEndpoint.watchEndpoint.videoId || ''; } catch {}
+  }
+  if (!/^[a-zA-Z0-9_-]{11}$/.test(videoId)) return null;
+  const cols = (it.flexColumns || []).map((c) => c.musicResponsiveListItemFlexColumnRenderer?.text?.runs || []);
+  const title = cols[0]?.[0]?.text || '';
+  // col 2 is runs joined by bullets, but artists can be several runs
+  // themselves ("A & B") - split on bullet-only runs into real segments
+  const segs = [[]];
+  let artistId = '';
+  for (const r2 of cols[1] || []) {
+    const t = r2.text || '';
+    if (/^[\u2022\s]+$/.test(t)) segs.push([]);
+    else {
+      segs[segs.length - 1].push(t);
+      if (!artistId) {
+        const b = r2.navigationEndpoint?.browseEndpoint?.browseId || '';
+        if (/^UC[A-Za-z0-9_-]{10,30}$/.test(b)) artistId = b;
+      }
+    }
+  }
+  const segText = segs.map((s) => s.join('').trim()).filter(Boolean);
+  const durText = segText.find((t) => /^(\d+:)?\d+:\d+$/.test(t)) || '';
+  const metaNoDur = segText.filter((t) => t !== durText);
+  const artist = metaNoDur[0] || '';
+  const album = metaNoDur[1] || '';
+  const durSec = durText ? durText.split(':').reduce((a, x) => a * 60 + parseInt(x, 10), 0) : 0;
+  const plays = cols[2]?.[0]?.text || '';
+  if (!title) return null;
+  return {
+    key: 'yt:' + videoId, src: 'yt', id: videoId, title, artist, album, plays, artistId,
+    dur: durText, durSec,
+    art: '/api/apps/amp/art?src=yt&id=' + videoId,
+    stream: '/api/apps/amp/stream?src=yt&id=' + videoId,
+  };
+}
+
+const ymPost = (endpoint, body) => fetch('https://music.youtube.com/youtubei/v1/' + endpoint + '?prettyPrint=false', {
+  method: 'POST',
+  headers: { 'content-type': 'application/json', 'user-agent': WEB_UA },
+  body: JSON.stringify({ context: { client: { clientName: 'WEB_REMIX', clientVersion: '1.20240925.01.00', hl: 'en' } }, ...body }),
+  signal: AbortSignal.timeout(12000),
+});
+
+// artist page by channel id: header (visual or immersive) + top songs.
+async function ymArtistById(browseId, card = {}) {
+  const br = await ymPost('browse', { browseId });
+  if (!br.ok) throw new Error('ym browse ' + br.status);
+  const bd = await br.json();
+  const tracks = [];
+  const seen = new Set();
+  const walk = (node) => {
+    if (!node || typeof node !== 'object') return;
+    const it = node.musicResponsiveListItemRenderer;
+    if (it) {
+      const row = ymRow(it);
+      if (row && !seen.has(row.id)) { seen.add(row.id); tracks.push(row); }
+      return;
+    }
+    Object.values(node).forEach(walk);
+  };
+  walk(bd);
+  let name = card.cardName || '', art = card.cardArt || '', sub = card.cardSub || '';
+  try {
+    const vh = bd.header.musicVisualHeaderRenderer || bd.header.musicImmersiveHeaderRenderer;
+    if (vh) {
+      name = (vh.title?.runs || []).map((r) => r.text).join('') || name;
+      const th = vh.thumbnail?.musicThumbnailRenderer?.thumbnail?.thumbnails || [];
+      if (th.length) {
+        // smallest thumb at or above 512px - the page shows a 96px circle,
+        // the 2880px original is a megabyte of waste
+        const sized = th.filter((t) => t.width >= 512).sort((a, b) => a.width - b.width)[0];
+        art = (sized || th[th.length - 1]).url;
+      }
+      sub = (vh.subtitle?.runs || []).map((r) => r.text).join('')
+        || (vh.monthlyListenerCount?.runs || []).map((r) => r.text).join('')
+        || sub;
+    }
+  } catch {}
+  return { name, art, sub, tracks: tracks.slice(0, 20) };
+}
+
+// artist page: resolve the name to a channel through the search top-result
+// card, then browse the channel for its header and top songs.
+async function ymArtist(name) {
+  const sr = await ymPost('search', { query: name });
+  if (!sr.ok) throw new Error('ym ' + sr.status);
+  const sd = await sr.json();
+  let browseId = '', cardName = '', cardArt = '', cardSub = '';
+  const findCard = (node) => {
+    if (browseId || !node || typeof node !== 'object') return;
+    const card = node.musicCardShelfRenderer;
+    if (card) {
+      const b = card.title?.runs?.[0]?.navigationEndpoint?.browseEndpoint?.browseId || '';
+      if (/^UC[A-Za-z0-9_-]{10,30}$/.test(b)) {
+        browseId = b;
+        cardName = card.title.runs[0].text || '';
+        const th = card.thumbnail?.musicThumbnailRenderer?.thumbnail?.thumbnails || [];
+        cardArt = th.length ? th[th.length - 1].url : '';
+        cardSub = (card.subtitle?.runs || []).map((r) => r.text).join('');
+      }
+      return;
+    }
+    Object.values(node).forEach(findCard);
+  };
+  findCard(sd);
+  if (!browseId) throw new Error('no artist page');
+  const out = await ymArtistById(browseId, { cardName, cardArt, cardSub });
+  if (!out.name) out.name = name;
+  return out;
+}
+
 async function ymSearch(q) {
-  const r = await fetch('https://music.youtube.com/youtubei/v1/search?prettyPrint=false', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', 'user-agent': WEB_UA },
-    body: JSON.stringify({
-      context: { client: { clientName: 'WEB_REMIX', clientVersion: '1.20240925.01.00', hl: 'en' } },
-      query: q,
-      params: YM_SONGS_PARAMS,
-    }),
-    signal: AbortSignal.timeout(12000),
-  });
+  const r = await ymPost('search', { query: q, params: YM_SONGS_PARAMS });
   if (!r.ok) throw new Error('ym ' + r.status);
   const data = await r.json();
   const items = [];
@@ -244,43 +406,13 @@ async function ymSearch(q) {
     if (!node || typeof node !== 'object') return;
     const it = node.musicResponsiveListItemRenderer;
     if (!it) {
-      for (const val of Object.values(node)) {
-        if (Array.isArray(val)) val.forEach(walk);
-        else if (val && typeof val === 'object') walk(val);
-      }
+      Object.values(node).forEach(walk);
       return;
     }
-    let videoId = '';
-    try { videoId = it.playlistItemData.videoId || ''; } catch {}
-    if (!videoId) {
-      try { videoId = it.overlay.musicItemThumbnailOverlayRenderer.content.musicPlayButtonRenderer.playNavigationEndpoint.watchEndpoint.videoId || ''; } catch {}
-    }
-    if (!/^[a-zA-Z0-9_-]{11}$/.test(videoId) || seen.has(videoId)) return;
-    seen.add(videoId);
-    const cols = (it.flexColumns || []).map((c) => c.musicResponsiveListItemFlexColumnRenderer?.text?.runs || []);
-    const title = cols[0]?.[0]?.text || '';
-    // col 2 is runs joined by bullets, but artists can be several runs
-    // themselves ("A & B") - split on bullet-only runs into real segments
-    const segs = [[]];
-    for (const r2 of cols[1] || []) {
-      const t = r2.text || '';
-      if (/^[\u2022\s]+$/.test(t)) segs.push([]);
-      else segs[segs.length - 1].push(t);
-    }
-    const segText = segs.map((s) => s.join('').trim()).filter(Boolean);
-    const durText = segText.find((t) => /^(\d+:)?\d+:\d+$/.test(t)) || '';
-    const metaNoDur = segText.filter((t) => t !== durText);
-    const artist = metaNoDur[0] || '';
-    const album = metaNoDur[1] || '';
-    const durSec = durText ? durText.split(':').reduce((a, x) => a * 60 + parseInt(x, 10), 0) : 0;
-    const plays = cols[2]?.[0]?.text || '';
-    if (!title) return;
-    items.push({
-      key: 'yt:' + videoId, src: 'yt', id: videoId, title, artist, album, plays,
-      dur: durText, durSec,
-      art: '/api/apps/amp/art?src=yt&id=' + videoId,
-      stream: '/api/apps/amp/stream?src=yt&id=' + videoId,
-    });
+    const row = ymRow(it);
+    if (!row || seen.has(row.id)) return;
+    seen.add(row.id);
+    items.push(row);
   };
   walk(data);
   return items.slice(0, 12);
@@ -317,62 +449,284 @@ async function scFetchJson(up) {
   return r.json();
 }
 
+const scTrackOk = (t) => {
+  if (!t || !t.id || t.streamable === false) return false;
+  const tcs = t.media?.transcodings || [];
+  // progressive mp3 (gone upstream these days) or hls aac - the hls mpegurl
+  // variant 404s at resolve time, and encrypted hls cannot play in a plain
+  // element, so only the aac fmp4 ladder counts
+  return tcs.length === 0 || tcs.some((x) => {
+    const p = x.format?.protocol, m = x.format?.mime_type || '';
+    return p === 'progressive' || (p === 'hls' && /mp4/.test(m));
+  });
+};
+const scMap = (t) => ({
+  key: 'sc:' + t.id, src: 'sc', id: String(t.id),
+  title: t.title || '', artist: t.user?.username || '', artistId: t.user?.id ? String(t.user.id) : '',
+  dur: fmtDur((t.duration || 0) / 1000), durSec: Math.round((t.duration || 0) / 1000),
+  art: t.artwork_url ? '/api/apps/amp/art?src=sc&u=' + b64(t.artwork_url.replace('-large', '-t500x500')) : '',
+  stream: '/api/apps/amp/stream?src=sc&id=' + t.id,
+});
+
 async function scSearch(q) {
   const d = await scFetchJson('https://api-v2.soundcloud.com/search/tracks?q=' + encodeURIComponent(q) + '&limit=24');
-  return (d.collection || []).filter((t) => {
-    if (!t || !t.id || t.streamable === false) return false;
-    const tcs = t.media?.transcodings || [];
-    // only progressive (plain-mp3) transcodings can stream through us -
-    // encrypted-hls-only tracks cannot play in a browser element
-    return tcs.length === 0 || tcs.some((x) => x.format?.protocol === 'progressive');
-  }).slice(0, 12).map((t) => ({
-    key: 'sc:' + t.id, src: 'sc', id: String(t.id),
-    title: t.title || '', artist: t.user?.username || '',
-    dur: fmtDur((t.duration || 0) / 1000), durSec: Math.round((t.duration || 0) / 1000),
-    art: t.artwork_url ? '/api/apps/amp/art?src=sc&u=' + b64(t.artwork_url.replace('-large', '-t500x500')) : '',
-    stream: '/api/apps/amp/stream?src=sc&id=' + t.id,
-  }));
+  return (d.collection || []).filter(scTrackOk).slice(0, 12).map(scMap);
+}
+
+// artist page: profile + their public tracks, same row shape as search
+async function scArtist(uid) {
+  const [u, d] = await Promise.all([
+    scFetchJson('https://api-v2.soundcloud.com/users/' + encodeURIComponent(uid)),
+    scFetchJson('https://api-v2.soundcloud.com/users/' + encodeURIComponent(uid) + '/tracks?limit=24'),
+  ]);
+  const tracks = (d.collection || []).filter(scTrackOk).slice(0, 20).map(scMap);
+  const art = u.avatar_url ? '/api/apps/amp/art?src=sc&u=' + b64(u.avatar_url.replace('-large', '-t500x500')) : '';
+  const sub = u.followers_count ? Math.round(u.followers_count).toLocaleString('en-US') + ' followers' : '';
+  return { name: u.username || '', art, sub, tracks };
 }
 
 const scMedia = new Map(); // trackId -> { url, expires }
-async function scStreamUrl(id, force = false) {
+// parse an m3u8 into { init, segs } absolute urls. one level of master
+// playlist unwrapped; relative urls resolve against the playlist url.
+function parseM3U8(text, base) {
+  const lines = String(text || '').split('\n').map((l) => l.trim()).filter(Boolean);
+  const variant = lines.find((l) => !l.startsWith('#') && /\.m3u8/.test(l));
+  if (lines.some((l) => l.startsWith('#EXT-X-STREAM-INF')) && variant) return { variant: new URL(variant, base).href };
+  let init = '';
+  const segs = [];
+  for (const l of lines) {
+    if (l.startsWith('#EXT-X-MAP')) {
+      const m = /URI="([^"]+)"/.exec(l);
+      if (m) init = new URL(m[1], base).href;
+    } else if (!l.startsWith('#')) {
+      segs.push(new URL(l, base).href);
+    }
+  }
+  if (!segs.length) throw new Error('empty playlist');
+  return { init, segs };
+}
+
+// byte size of one signed url - HEAD when the cdn allows it, a 1-byte
+// range GET otherwise (cloudfront answers content-range either way)
+async function scSize(u) {
+  let r = await fetch(u, { method: 'HEAD', headers: { 'user-agent': WEB_UA }, signal: AbortSignal.timeout(10000) });
+  if (r.ok && +r.headers.get('content-length') > 0) return +r.headers.get('content-length');
+  r = await fetch(u, { headers: { 'user-agent': WEB_UA, range: 'bytes=0-0' }, signal: AbortSignal.timeout(10000) });
+  if (r.status === 206) {
+    const m = /\/(\d+)$/.exec(r.headers.get('content-range') || '');
+    if (m) return +m[1];
+  }
+  throw new Error('size ' + r.status);
+}
+
+// sc fmp4 init segments declare duration 0 (it's a live-style ladder) -
+// a browser element then GUESSES the timeline from byte size and seeks
+// land wrong. write the track's real duration into mvhd/tkhd/mdhd and add
+// a mehd to mvex so the element reads the true length. v0 boxes only.
+function patchInitDuration(init, durMs) {
+  const ms = Math.max(0, Math.round(durMs) || 0);
+  if (!ms || init.length < 16) return init;
+  const boxes = (b, off, end) => {
+    const out = [];
+    while (off + 8 <= end) {
+      const size = b.readUInt32BE(off);
+      if (size < 8 || off + size > end) break;
+      out.push({ type: b.toString('latin1', off + 4, off + 8), off, size });
+      off += size;
+    }
+    return out;
+  };
+  const buf = Buffer.from(init); // copy - never mutate a cached buffer
+  try {
+    for (const top of boxes(buf, 0, buf.length)) {
+      if (top.type !== 'moov') continue;
+      let mediaScale = 0, movieScale = 0;
+      for (const c of boxes(buf, top.off + 8, top.off + top.size)) {
+        if (c.type === 'mvhd' && buf[c.off + 8] === 0) {
+          movieScale = buf.readUInt32BE(c.off + 20);
+          buf.writeUInt32BE(Math.round(ms * movieScale / 1000), c.off + 24);
+        }
+        if (c.type === 'tkhd' && buf[c.off + 8] === 0 && movieScale) {
+          buf.writeUInt32BE(Math.round(ms * movieScale / 1000), c.off + 28);
+        }
+        if (c.type === 'trak') {
+          for (const mdia of boxes(buf, c.off + 8, c.off + c.size)) {
+            if (mdia.type !== 'mdia') continue;
+            for (const h of boxes(buf, mdia.off + 8, mdia.off + mdia.size)) {
+              if (h.type === 'mdhd' && buf[h.off + 8] === 0) {
+                mediaScale = buf.readUInt32BE(h.off + 20);
+                buf.writeUInt32BE(Math.round(ms * mediaScale / 1000), h.off + 24);
+              }
+            }
+          }
+        }
+        if (c.type === 'mvex' && movieScale) {
+          const mehd = Buffer.alloc(16);
+          mehd.writeUInt32BE(16, 0);
+          mehd.write('mehd', 4, 'latin1');
+          mehd.writeUInt32BE(Math.round(ms * movieScale / 1000), 12);
+          const at = c.off + c.size;
+          const grown = Buffer.concat([buf.subarray(0, at), mehd, buf.subarray(at)]);
+          grown.writeUInt32BE(top.size + 16, top.off);
+          grown.writeUInt32BE(c.size + 16, c.off);
+          return grown;
+        }
+      }
+    }
+  } catch {}
+  return buf;
+}
+
+// resolve a track to a stream plan: legacy progressive url, or the aac hls
+// ladder as an ordered part list with a byte-offset table for range serving.
+// signed urls expire in ~20 minutes - plans cache for 10.
+async function scStreamPlan(id, force = false) {
   const hit = scMedia.get(id);
-  if (!force && hit && hit.expires > Date.now()) return hit.url;
+  if (!force && hit && hit.expires > Date.now()) return hit.plan;
   const t = await scFetchJson('https://api-v2.soundcloud.com/tracks/' + id);
   const tcs = t.media?.transcodings || [];
-  const tc = tcs.find((x) => x.format?.protocol === 'progressive' && /mp3/.test(x.format?.mime_type || ''))
+  const prog = tcs.find((x) => x.format?.protocol === 'progressive' && /mp3/.test(x.format?.mime_type || ''))
     || tcs.find((x) => x.format?.protocol === 'progressive');
-  if (!tc) throw new Error('no progressive stream');
-  const j = await scFetchJson(tc.url);
-  if (!j || !j.url) throw new Error('no url');
-  // signed progressive urls expire in minutes - cache the resolve briefly
-  scMedia.set(id, { url: j.url, expires: Date.now() + 45 * 1000 });
+  let plan;
+  if (prog) {
+    const j = await scFetchJson(prog.url);
+    if (!j || !j.url) throw new Error('no url');
+    plan = { kind: 'url', url: j.url };
+  } else {
+    const tc = tcs.find((x) => x.format?.protocol === 'hls' && /mp4/.test(x.format?.mime_type || ''));
+    if (!tc) throw new Error('no playable stream');
+    const j = await scFetchJson(tc.url);
+    if (!j || !j.url) throw new Error('no url');
+    let pl = parseM3U8(await (await fetch(j.url, { headers: { 'user-agent': WEB_UA }, signal: AbortSignal.timeout(12000) })).text(), j.url);
+    if (pl.variant) pl = parseM3U8(await (await fetch(pl.variant, { headers: { 'user-agent': WEB_UA }, signal: AbortSignal.timeout(12000) })).text(), pl.variant);
+    let initBuf = null;
+    if (pl.init) {
+      const r = await fetch(pl.init, { headers: { 'user-agent': WEB_UA }, signal: AbortSignal.timeout(12000) });
+      if (!r.ok) throw new Error('init ' + r.status);
+      initBuf = patchInitDuration(Buffer.from(await r.arrayBuffer()), t.duration);
+    }
+    const parts = (initBuf ? [initBuf] : []).concat(pl.segs);
+    // offset table: one parallel pass of size probes, then cumulative sums
+    const sizes = new Array(parts.length);
+    if (initBuf) sizes[0] = initBuf.length;
+    let i = initBuf ? 1 : 0;
+    await Promise.all(Array.from({ length: Math.min(6, parts.length) }, async () => {
+      while (i < parts.length) { const k = i++; sizes[k] = await scSize(parts[k]); }
+    }));
+    const offs = new Array(parts.length);
+    let acc = 0;
+    for (let k = 0; k < parts.length; k++) { offs[k] = acc; acc += sizes[k]; }
+    plan = { kind: 'hls', parts, sizes, offs, total: acc };
+  }
+  scMedia.set(id, { plan, expires: Date.now() + 10 * 60 * 1000 });
   if (scMedia.size > 300) scMedia.delete(scMedia.keys().next().value);
-  return j.url;
+  return plan;
+}
+
+// serve [start,end] of the concatenated fmp4 (init + segments) as one
+// audio/mp4 stream - chromium's demuxer reads the moof sequence fine, and
+// the offset table makes seeks plain range requests again
+async function pipeScHls(plan, start, end, req, res, track) {
+  end = Math.min(end, plan.total - 1);
+  if (start > end || start < 0) { res.writeHead(416, { 'content-range': 'bytes */' + plan.total }); res.end(); return { bytes: 0, status: 416 }; }
+  let sent = 0, dead = false;
+  // res close = the client went away (a GET req 'close' fires the moment the
+  // empty request stream ends, far too early - that one hangs the stream)
+  res.on('close', () => { if (!res.writableEnded) dead = true; });
+  res.on('error', () => { dead = true; });
+  for (let k = 0; k < plan.parts.length && !dead; k++) {
+    const p0 = plan.offs[k], p1 = p0 + plan.sizes[k] - 1;
+    if (p1 < start || p0 > end) continue;
+    let buf;
+    if (Buffer.isBuffer(plan.parts[k])) {
+      buf = plan.parts[k];
+    } else {
+      const r = await fetch(plan.parts[k], { headers: { 'user-agent': WEB_UA }, signal: AbortSignal.timeout(15000) }).catch(() => null);
+      // a 200 whose body dies mid-read (reset, truncation, timeout) rejects
+      // the read, not the fetch - fold it into the same failure handling
+      const body = r && r.ok ? await r.arrayBuffer().then((b2) => Buffer.from(b2)).catch(() => null) : null;
+      // headers go out only after a part is proven good, so a first-part
+      // failure (expired signature: 403/410) reaches the caller clean and
+      // its re-resolve branch can actually run
+      if (!body) {
+        if (!sent && !res.headersSent) return { bytes: 0, status: r && !r.ok ? r.status : 502 };
+        res.destroy(); // midstream: abort, never hang a half-sent body
+        return { bytes: sent, status: 206 };
+      }
+      buf = body;
+    }
+    if (!res.headersSent) {
+      res.writeHead(206, {
+        'content-type': 'audio/mp4',
+        'content-length': end - start + 1,
+        'content-range': 'bytes ' + start + '-' + end + '/' + plan.total,
+        'accept-ranges': 'bytes',
+        'cache-control': 'private, no-store',
+      });
+    }
+    const lo = Math.max(start - p0, 0), hi = Math.min(end - p0, plan.sizes[k] - 1);
+    buf = buf.subarray(lo, hi + 1);
+    if (!res.write(buf)) {
+      // backpressure: settle on drain, but a closed/errored socket must not
+      // park this request forever
+      await new Promise((ok2) => {
+        const fin = () => { res.off('drain', onDrain); res.off('close', fin); res.off('error', fin); ok2(); };
+        const onDrain = () => { res.off('close', fin); res.off('error', fin); ok2(); };
+        res.once('drain', onDrain);
+        res.once('close', fin);
+        res.once('error', fin);
+      });
+      if (dead) break;
+    }
+    sent += buf.length;
+    track(buf.length);
+  }
+  if (!res.writableEnded && !res.destroyed) res.end();
+  return { bytes: sent, status: res.headersSent ? 206 : 502 };
 }
 
 // ---------- audius ----------
 
-async function auSearch(q) {
-  const r = await fetch(AU_HOST + '/v1/tracks/search?query=' + encodeURIComponent(q) + '&app_name=' + AU_APP, {
+const auGet = async (path) => {
+  const r = await fetch(AU_HOST + path + (path.includes('?') ? '&' : '?') + 'app_name=' + AU_APP, {
     headers: { 'user-agent': WEB_UA, accept: 'application/json' },
     signal: AbortSignal.timeout(12000),
   });
   if (!r.ok) throw new Error('audius ' + r.status);
-  const j = await r.json();
-  return (j.data || []).slice(0, 12).map((t) => {
-    const artUrl = t.artwork?.['480x480'] || t.artwork?.['150x150'] || '';
-    return {
-      key: 'au:' + t.id, src: 'au', id: String(t.id),
-      title: t.title || '', artist: t.user?.name || '',
-      dur: fmtDur(t.duration), durSec: Math.round(Number(t.duration) || 0),
-      art: artUrl ? '/api/apps/amp/art?src=au&u=' + b64(artUrl) : '',
-      stream: '/api/apps/amp/stream?src=au&id=' + encodeURIComponent(t.id),
-    };
-  });
+  return r.json();
+};
+const auMap = (t) => {
+  const artUrl = t.artwork?.['480x480'] || t.artwork?.['150x150'] || '';
+  return {
+    key: 'au:' + t.id, src: 'au', id: String(t.id),
+    title: t.title || '', artist: t.user?.name || '', artistId: t.user?.id ? String(t.user.id) : '',
+    dur: fmtDur(t.duration), durSec: Math.round(Number(t.duration) || 0),
+    art: artUrl ? '/api/apps/amp/art?src=au&u=' + b64(artUrl) : '',
+    stream: '/api/apps/amp/stream?src=au&id=' + encodeURIComponent(t.id),
+  };
+};
+
+async function auSearch(q) {
+  const j = await auGet('/v1/tracks/search?query=' + encodeURIComponent(q));
+  return (j.data || []).slice(0, 12).map(auMap);
+}
+
+// artist page: profile + their tracks, same row shape as search
+async function auArtist(uid) {
+  const [u, d] = await Promise.all([
+    auGet('/v1/users/' + encodeURIComponent(uid)),
+    auGet('/v1/users/' + encodeURIComponent(uid) + '/tracks'),
+  ]);
+  const tracks = (d.data || []).slice(0, 20).map(auMap);
+  const pic = u.data?.profile_picture?.['480x480'] || u.data?.profile_picture?.['150x150'] || '';
+  const sub = u.data?.follower_count ? Math.round(u.data.follower_count).toLocaleString('en-US') + ' followers' : '';
+  return { name: u.data?.name || '', art: pic ? '/api/apps/amp/art?src=au&u=' + b64(pic) : '', sub, tracks };
 }
 
 // ---------- routes ----------
+
+// pure row mapping exposed for the unit tests
+export const ampInternals = { ymRow, scTrackOk, scMap, auMap, parseM3U8, patchInitDuration, pipeScHls, pipeMedia, ytBlock };
 
 export async function register(req, res, ctx) {
   const { url, sendJson, guard, session } = ctx;
@@ -392,6 +746,32 @@ export async function register(req, res, ctx) {
     const failed = [yt, sc, au].filter((x) => x.status === 'rejected').length;
     if (failed === 3) return sendJson(res, 502, { ok: false, error: 'every source timed out - try again' });
     return sendJson(res, 200, { ok: true, q, results });
+  }
+
+  if (sub === '/artist' && req.method === 'GET') {
+    const src = url.searchParams.get('src') || '';
+    try {
+      let out = null;
+      if (src === 'yt') {
+        const name = (url.searchParams.get('name') || '').trim();
+        const id = (url.searchParams.get('id') || '').trim();
+        if (id && /^UC[A-Za-z0-9_-]{10,30}$/.test(id)) out = await ymArtistById(id).catch(() => null);
+        if (!out && name && name.length <= 120) out = await ymArtist(name).catch((e) => { if (e && e.message === 'no artist page') return null; throw e; });
+      } else if (src === 'sc') {
+        const id = (url.searchParams.get('id') || '').trim();
+        if (/^\d{3,12}$/.test(id)) out = await scArtist(id);
+      } else if (src === 'au') {
+        const id = (url.searchParams.get('id') || '').trim();
+        if (/^[A-Za-z0-9]{4,20}$/.test(id)) out = await auArtist(id);
+      }
+      guard.trackBytes(session.user, 8192);
+      if (!out || !out.name) return sendJson(res, 404, { ok: false, error: 'no artist page found' });
+      if (!out.tracks.length) return sendJson(res, 404, { ok: false, error: 'nothing to play from them yet' });
+      if (out.art && /^https:/.test(out.art)) out.art = '/api/apps/amp/art?src=ytu&u=' + b64(out.art);
+      return sendJson(res, 200, { ok: true, src, ...out });
+    } catch {
+      return sendJson(res, 502, { ok: false, error: 'artist lookup broke - try again' });
+    }
   }
 
   if (sub === '/stream' && req.method === 'GET') {
@@ -431,14 +811,27 @@ export async function register(req, res, ctx) {
       }
       if (src === 'sc') {
         if (!/^\d{5,15}$/.test(id)) return sendJson(res, 400, { ok: false, error: 'bad id' });
-        let u = await scStreamUrl(id);
-        let r = await pipeMedia(u, req, res, { writeErrors: false });
-        if (r.status === 403 || r.status === 410) {
-          u = await scStreamUrl(id, true);
-          r = await pipeMedia(u, req, res, { writeErrors: false });
+        let plan = await scStreamPlan(id);
+        if (plan.kind === 'url') {
+          let r = await pipeMedia(plan.url, req, res, { writeErrors: false });
+          if (r.status === 403 || r.status === 410) {
+            plan = await scStreamPlan(id, true);
+            if (plan.kind === 'url') r = await pipeMedia(plan.url, req, res, { writeErrors: false });
+          }
+          if (!res.headersSent && r.bytes === 0) { res.writeHead(r.status); res.end(); }
+          if (r.bytes) guard.trackBytes(session.user, r.bytes);
+          return;
+        }
+        const rm = /^bytes=(\d+)-(\d*)$/.exec(req.headers.range || '');
+        const startByte = rm ? parseInt(rm[1], 10) : 0;
+        const endByte = rm && rm[2] ? parseInt(rm[2], 10) : plan.total - 1;
+        const track = (n) => guard.trackBytes(session.user, n);
+        let r = await pipeScHls(plan, startByte, endByte, req, res, track);
+        if ((r.status === 403 || r.status === 410) && !res.headersSent) {
+          plan = await scStreamPlan(id, true);
+          if (plan.kind === 'hls') r = await pipeScHls(plan, startByte, endByte, req, res, track);
         }
         if (!res.headersSent && r.bytes === 0) { res.writeHead(r.status); res.end(); }
-        if (r.bytes) guard.trackBytes(session.user, r.bytes);
         return;
       }
       if (src === 'au') {
@@ -464,6 +857,11 @@ export async function register(req, res, ctx) {
       const id = (url.searchParams.get('id') || '').trim();
       if (!/^[A-Za-z0-9_-]{11}$/.test(id)) return sendJson(res, 400, { ok: false, error: 'bad id' });
       up = 'https://i.ytimg.com/vi/' + id + '/mqdefault.jpg';
+    } else if (src === 'ytu') {
+      // artist avatars live on YouTube's content hosts, not i.ytimg.com
+      const u = unb64(url.searchParams.get('u'));
+      try { const p = new URL(u); if (p.protocol === 'https:' && /(^|\.)(ggpht\.com|googleusercontent\.com)$/.test(p.hostname) && !p.username && !p.password) up = u; } catch {}
+      if (!up) return sendJson(res, 400, { ok: false, error: 'bad url' });
     } else if (src === 'sc') {
       const u = unb64(url.searchParams.get('u'));
       try { const p = new URL(u); if (p.protocol === 'https:' && /(^|\.)sndcdn\.com$/.test(p.hostname) && !p.username && !p.password) up = u; } catch {}
@@ -481,13 +879,19 @@ export async function register(req, res, ctx) {
       return sendJson(res, 400, { ok: false, error: 'bad source' });
     }
     try {
-      const r = await fetch(up, { headers: { 'user-agent': WEB_UA }, redirect: 'follow', signal: AbortSignal.timeout(12000) });
-      if (!r.ok) { res.writeHead(204); return res.end(); }
+      let r = await fetch(up, { headers: { 'user-agent': WEB_UA }, redirect: 'follow', signal: AbortSignal.timeout(12000) }).catch(() => null);
+      if (!r || !r.ok) r = await fetch(up, { headers: { 'user-agent': WEB_UA }, redirect: 'follow', signal: AbortSignal.timeout(12000) }).catch(() => null);
+      if (!r || !r.ok) {
+        // 204 keeps the page quiet, but the log has to say why art is blank
+        console.log('[amp art] upstream failed:', r ? r.status : 'no response', new URL(up).hostname);
+        res.writeHead(204); return res.end();
+      }
       const buf = Buffer.from(await r.arrayBuffer());
       guard.trackBytes(session.user, buf.length);
       res.writeHead(200, { 'content-type': r.headers.get('content-type') || 'image/jpeg', 'cache-control': 'public, max-age=86400' });
       return res.end(buf);
-    } catch {
+    } catch (e) {
+      console.log('[amp art] upstream threw:', e && e.message, new URL(up).hostname);
       res.writeHead(204); return res.end();
     }
   }
