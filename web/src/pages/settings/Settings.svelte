@@ -10,6 +10,16 @@
   function onKey(e) { if (e.key === 'Escape' && sub) sub = ''; }
   const fromHash = () => { const h = location.hash.slice(1); if (SECS.some((x) => x[0] === h)) { sec = h; sub = ''; } };
   onMount(() => { fromHash(); window.addEventListener('hashchange', fromHash); });
+  // mobile tab row: only show the "more to the right" fade when the tabs
+  // actually overflow - fading a row that fits would cut the last tab
+  let snavEl = $state(null);
+  let snavMore = $state(false);
+  const checkSnav = () => { if (snavEl) snavMore = snavEl.scrollWidth > snavEl.clientWidth + 4; };
+  onMount(() => {
+    checkSnav();
+    window.addEventListener('resize', checkSnav);
+    return () => window.removeEventListener('resize', checkSnav);
+  });
   const setSaver = (v) => { saver = v; try { if (v === 'auto') localStorage.removeItem('rj-datasaver'); else localStorage.setItem('rj-datasaver', v); } catch {} };
   const setAc = (on) => { ac.on = on; saveAc(); };
   const flipTech = () => { tech = !tech; saveTech(); };
@@ -230,7 +240,7 @@
   <header class="top"><div><h1>Settings</h1><p>Make Ramjet feel like yours.</p></div></header>
 
   <div class="shell">
-    <nav class="snav" aria-label="settings sections">
+    <nav class="snav" class:more={snavMore} bind:this={snavEl} aria-label="settings sections">
       {#each SECS as [k, n]}<button class:on={sec === k} onclick={() => pick(k)}>{n}</button>{/each}
     </nav>
 
@@ -456,5 +466,5 @@
 
   .card { padding: 22px; border-radius: 20px; } .cols { min-width: 0; grid-template-columns: repeat(2,minmax(0,1fr)); } .card { min-width: 0; } .wallpaper-card { grid-column: 1 / -1; } .walls { grid-template-columns: repeat(auto-fill,minmax(110px,1fr)); } .ph { font-size: 25px; font-weight: 600; margin-bottom: 6px; }
   .snav button { min-height: 44px; } .seg button { min-height: 40px; }
-  @media(max-width:760px) { .cols { grid-template-columns: minmax(0,1fr); } .subtop { display: grid; grid-template-columns: minmax(0,1fr) auto; } .subtop h2 { grid-column: 1 / -1; grid-row: 2; font-size: 24px; } .back2 { justify-self: start; } .page { min-height: calc(100dvh - 90px - env(safe-area-inset-bottom)); padding: 28px 20px 40px; } .shell { grid-template-columns: minmax(0,1fr); gap: 20px; padding: 0; } .snav { position: static; display: flex; overflow-x: auto; gap: 5px; padding-bottom: 8px; } .snav button { flex: none; padding: 10px 12px; font-size: 13px; } .card { padding: 20px; } h1 { font-size: 30px; } }
+  @media(max-width:760px) { .cols { grid-template-columns: minmax(0,1fr); } .subtop { display: grid; grid-template-columns: minmax(0,1fr) auto; } .subtop h2 { grid-column: 1 / -1; grid-row: 2; font-size: 24px; } .back2 { justify-self: start; } .page { min-height: calc(100dvh - 90px - env(safe-area-inset-bottom)); padding: 28px 20px 40px; } .shell { grid-template-columns: minmax(0,1fr); gap: 20px; padding: 0; } .snav { position: static; display: flex; overflow-x: auto; gap: 5px; padding-bottom: 8px; scrollbar-width: none; } .snav::-webkit-scrollbar { display: none; } .snav.more { -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 36px), rgba(0,0,0,.35)); mask-image: linear-gradient(90deg, #000 calc(100% - 36px), rgba(0,0,0,.35)); } .snav button { flex: none; padding: 10px 12px; font-size: 13px; } .card { padding: 20px; } h1 { font-size: 30px; } }
 </style>
