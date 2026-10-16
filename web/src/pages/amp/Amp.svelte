@@ -5,6 +5,7 @@
   let qf = $state(false);
   import '../../tokens.css';
   import AppFrame from '../../lib/AppFrame.svelte';
+  import { hashForArtist, parseArtistHash } from '../../lib/artist-route.js';
   import { onMount } from 'svelte';
   import { api } from '../../lib/api.js';
 
@@ -32,6 +33,12 @@
   let artistView = $state(null);
   let artistBusy = $state(false);
   let artistBack = null;
+  let artistErr = $state('');
+  let artistImgFailed = $state(false);
+  let shown = $state(5);
+  let sheetErr = $state('');
+  let lastArtistIt = null;
+  let artistReq = 0;
   let plId = $state('');
   let plName = $state('');
   let newPlName = $state('');
@@ -54,7 +61,16 @@
       else if (e.key === 'ArrowLeft' && el) { el.currentTime = Math.max(0, el.currentTime - 5); }
     };
     window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    // artist pages live in the hash so refresh, direct links and browser
+    // back all work without a reload - the audio element is never recreated
+    const applyHash = () => {
+      const t = parseArtistHash(location.hash);
+      if (t) openArtist(t.id ? { src: t.src, artistId: t.id } : { src: t.src, artist: t.name }, null, { fromHash: true });
+      else if (artistView || artistBusy) backFromArtist();
+    };
+    window.addEventListener('popstate', applyHash);
+    applyHash();
+    return () => { window.removeEventListener('keydown', onKey); window.removeEventListener('popstate', applyHash); };
   });
 
   function note(msg) {
@@ -137,10 +153,13 @@
 
   async function saveTo(p) {
     const t = saveTarget;
-    saveTarget = null;
     if (!t) return;
+    sheetErr = '';
     const r = await api('/api/apps/amp/playlists/add', { method: 'POST', body: { id: p.id, track: t } });
-    if (!r.ok) { note(r.data?.error || 'could not save it'); return; }
+    // a failed save stays failed, sheet open, tap again to retry - no
+    // success toast before the server confirms
+    if (!r.ok) { sheetErr = r.data?.error || 'could not save it - tap again to retry'; return; }
+    saveTarget = null;
     note(r.data.already ? 'already in ' + p.name : 'saved to ' + p.name);
     loadPlaylists();
   }
@@ -168,6 +187,9 @@
     return out;
   });
   const SRC_LABEL = { yt: 'youtube music', sc: 'soundcloud', au: 'audius' };
+  // artist pages preview five songs then grow in batches of ten; the queue
+  // always uses the full loaded list, never just the preview
+  const visibleSections = $derived(view === 'artist' ? sections.slice(0, shown) : sections);
 
   let el = null; // the one audio element
 
@@ -260,41 +282,56 @@
   function chip(c) { q = c; search(); }
 
   // artist page: straight to the channel/user page when the row carries its
-  // id, a name lookup for youtube without one, and a plain search as the
-  // last resort so the tap always lands somewhere useful
-  async function openArtist(it) {
-    if (!it || artistBusy) return;
-    const name = String(it.artist || '').split(/,|&| feat\.? /i)[0].trim();
+  // id, a name lookup for youtube without one. when a row has no identity at
+  // all, say so and run a labeled search instead of faking a profile.
+  async function openArtist(it, ev, opts = {}) {
+    if (!it) return;
+    const src = it.src;
+    const id = it.artistId || it.id || '';
+    const name = String(it.artist || it.name || '').split(/,|&| feat\.? /i)[0].trim();
     let url = '';
-    if (it.src === 'yt') url = it.artistId
-      ? `/api/apps/amp/artist?src=yt&id=${encodeURIComponent(it.artistId)}`
+    if (src === 'yt') url = id
+      ? `/api/apps/amp/artist?src=yt&id=${encodeURIComponent(id)}`
       : (name ? `/api/apps/amp/artist?src=yt&name=${encodeURIComponent(name)}` : '');
-    else if ((it.src === 'sc' || it.src === 'au') && it.artistId) url = `/api/apps/amp/artist?src=${it.src}&id=${encodeURIComponent(it.artistId)}`;
-    if (!url) { if (name) chip(name); return; }
-    artistBusy = true; error = '';
+    else if ((src === 'sc' || src === 'au') && id) url = `/api/apps/amp/artist?src=${src}&id=${encodeURIComponent(id)}`;
+    if (!url) {
+      if (name) { note('no artist page for ' + name + ' - ran a search instead'); chip(name); }
+      return;
+    }
+    lastArtistIt = it;
     // already on an artist page (e.g. tapping the player header again):
     // keep the original back target instead of snapshotting this view
-    if (!artistBack) artistBack = { view, sections, searched, plId, plName };
-    view = 'artist'; artistView = null; sections = []; searched = true;
+    if (!artistBack && !opts.fromHash) artistBack = { view, sections, searched, plId, plName, scrollY: window.scrollY, focusEl: ev?.currentTarget || null };
+    const my = ++artistReq;
+    artistBusy = true; artistErr = ''; artistImgFailed = false; error = '';
+    view = 'artist'; artistView = null; sections = []; searched = true; shown = 5;
     window.scrollTo({ top: 0 });
+    if (!opts.fromHash) history.pushState({ ampArtist: true }, '', hashForArtist(src, id || 'name~' + name));
     const r = await api(url);
+    if (my !== artistReq) return; // a newer artist request superseded this one
     artistBusy = false;
     if (!r.ok) {
-      const b = artistBack; artistBack = null;
-      if (b) { view = b.view; sections = b.sections; searched = b.searched; plId = b.plId; plName = b.plName; }
-      if (name) chip(name);
-      else error = r.data?.error || 'no artist page found';
+      artistView = null; sections = [];
+      artistErr = r.data?.error || 'could not load the artist - check your connection';
       return;
     }
     showQ = false;
     artistView = r.data;
     sections = r.data.tracks || [];
   }
+  function retryArtist() { if (lastArtistIt) openArtist(lastArtistIt, null, { fromHash: true }); }
   function backFromArtist() {
     const b = artistBack;
-    artistView = null; artistBack = null;
-    if (b) { view = b.view; sections = b.sections; searched = b.searched; plId = b.plId; plName = b.plName; }
-    else { view = ''; sections = []; searched = false; }
+    artistReq++; // drop any in-flight artist response
+    artistView = null; artistBack = null; artistBusy = false; artistErr = '';
+    history.pushState(null, '', location.pathname);
+    if (b) {
+      view = b.view; sections = b.sections; searched = b.searched; plId = b.plId; plName = b.plName;
+      requestAnimationFrame(() => {
+        window.scrollTo(0, b.scrollY || 0);
+        if (b.focusEl && b.focusEl.isConnected) b.focusEl.focus();
+      });
+    } else { view = 'search'; sections = []; searched = false; }
   }
 
   function playAt(i) {
@@ -460,14 +497,22 @@
         <p class="home-h">recently played <button class="rc-clear" onclick={clearRecents}>clear</button></p>
         <div class="list">
           {#each recents as it, i (it.key)}
-            <button class="row" class:active={now && now.key === it.key} onclick={() => playRecent(i)}>
-              {#if it.art}<img src={it.art} alt="" loading="lazy" onerror={(e) => { e.currentTarget.style.visibility = 'hidden'; }} />{:else}<div class="noart"></div>{/if}
-              <span class="meta">
-                <span class="title">{it.title}</span>
-                <span class="sub">{it.artist || SRC_LABEL[it.src]}</span>
-              </span>
-              <span class="dur">{it.dur}</span>
-            </button>
+            <div class="row" class:active={now && now.key === it.key}>
+              <button class="track-main" onclick={() => playRecent(i)} aria-label={'Play ' + it.title}>
+                {#if now && now.key === it.key}<svg class="np" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg><span class="vh">now playing:</span>{/if}
+                {#if it.art}<img src={it.art} alt="" loading="lazy" onerror={(e) => { e.currentTarget.style.visibility = 'hidden'; }} />{:else}<div class="noart"></div>{/if}
+                <span class="meta">
+                  <span class="title">{it.title}</span>
+                  <span class="sub">{it.artist || SRC_LABEL[it.src]}</span>
+                </span>
+                <span class="dur">{it.dur}</span>
+              </button>
+              {#if it.artist}
+                <button type="button" class="rowact" aria-label={'open ' + it.artist + ' artist page'} onclick={(e) => { e.stopPropagation(); openArtist(it, e); }}>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 20c1.5-3.5 4.5-5 8-5s6.5 1.5 8 5"/></svg>
+                </button>
+              {/if}
+            </div>
           {/each}
         </div>
       {/if}
@@ -528,35 +573,60 @@
     {/if}
 
     {#if view === 'artist'}
-      <div class="plhead">
-        <button class="plback" onclick={backFromArtist}>
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
-          back
-        </button>
-      </div>
-      {#if artistBusy}
-        <p class="plempty">finding the artist...</p>
-      {:else if artistView}
-        <div class="arhead">
-          {#if artistView.art}<img class="arimg" src={artistView.art} alt="" loading="lazy" onerror={(e) => { e.currentTarget.style.visibility = 'hidden'; }} />{:else}<div class="noart arimg"></div>{/if}
-          <div class="armeta">
-            <span class="arname">{artistView.name}</span>
-            {#if artistView.sub}<span class="arsub">{artistView.sub}</span>{/if}
-            <span class="arsrc">{SRC_LABEL[artistView.src]}</span>
-          </div>
+      <section aria-label="Artist">
+        <div class="plhead">
+          <button class="plback" onclick={backFromArtist}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+            back
+          </button>
         </div>
-        {#if sections.length}
-          <div class="plplay">
-            <button onclick={() => playAt(0)}>play all</button>
-            <button onclick={() => { shuffleOn = true; playAt(Math.floor(Math.random() * sections.length)); }}>shuffle</button>
+        {#if artistBusy}
+          <div class="arhead" aria-hidden="true">
+            <div class="arimg skel"></div>
+            <div class="armeta"><div class="skel skel-name"></div><div class="skel skel-sub2"></div></div>
           </div>
+          <div class="list" aria-hidden="true">
+            {#each [0, 1, 2, 3, 4] as n}<div class="row skelrow"><div class="noart skel"></div><div class="meta"><div class="skel skel-title"></div><div class="skel skel-sub2"></div></div></div>{/each}
+          </div>
+          <p class="vh" role="status">finding the artist...</p>
+        {:else if artistErr}
+          <div class="arfail">
+            <p>{artistErr}</p>
+            <div class="plplay">
+              <button onclick={retryArtist}>retry</button>
+              <button onclick={backFromArtist}>back</button>
+            </div>
+          </div>
+        {:else if artistView}
+          <div class="arhead">
+            {#if artistView.art && !artistImgFailed}
+              <img class="arimg" src={artistView.art} alt="" loading="lazy" onerror={() => (artistImgFailed = true)} />
+            {:else}
+              <div class="arimg armono" aria-hidden="true">{(artistView.name || '?').trim().charAt(0).toUpperCase()}</div>
+            {/if}
+            <div class="armeta">
+              <h2 class="arname">{artistView.name}</h2>
+              {#if artistView.sub}<span class="arsub">{artistView.sub}</span>{/if}
+              <span class="arsrc">{SRC_LABEL[artistView.src]}</span>
+            </div>
+          </div>
+          {#if sections.some((x) => x.stream)}
+            <div class="plplay">
+              <button onclick={() => playAt(0)}>play</button>
+              <button onclick={() => { shuffleOn = true; playAt(Math.floor(Math.random() * sections.length)); }}>shuffle</button>
+            </div>
+          {/if}
+          {#if !sections.length}
+            <p class="plempty">No songs available for this artist.</p>
+          {/if}
         {/if}
-      {/if}
+      </section>
     {/if}
 
     <div class="list">
-      {#each sections as it, i (it.key)}
+      {#each visibleSections as it, i (it.key)}
         <div class="row" class:active={now && now.key === it.key}><button class="track-main" onclick={() => playAt(i)} aria-label={'Play ' + it.title}>
+          {#if now && now.key === it.key}<svg class="np" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg><span class="vh">now playing:</span>{/if}
           {#if it.art}<img src={it.art} alt="" loading="lazy" onerror={(e) => { e.currentTarget.style.visibility = 'hidden'; }} />{:else}<div class="noart"></div>{/if}
           <span class="meta">
             <span class="title">{it.title}</span>
@@ -565,6 +635,11 @@
           </span>
           <span class="dur">{it.dur}</span></button>
           {#if view === 'playlist'}
+            {#if it.artist}
+              <button type="button" class="rowact" aria-label={'open ' + it.artist + ' artist page'} onclick={(e) => { e.stopPropagation(); openArtist(it, e); }}>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 20c1.5-3.5 4.5-5 8-5s6.5 1.5 8 5"/></svg>
+              </button>
+            {/if}
             {#if i > 0}<button type="button" class="rowact" aria-label="move up" onclick={(e) => { e.stopPropagation(); movePl(i, -1); }}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 15l6-6 6 6"/></svg></button>{/if}
             {#if i < sections.length - 1}<button type="button" class="rowact" aria-label="move down" onclick={(e) => { e.stopPropagation(); movePl(i, 1); }}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></button>{/if}
             <button type="button" class="rowact" aria-label="remove from playlist" onclick={(e) => { e.stopPropagation(); removeFromPlaylist(i); }}>
@@ -572,25 +647,29 @@
             </button>
           {:else}
             {#if it.artist && view !== 'artist'}
-              <button type="button" class="rowact" aria-label={'open ' + it.artist + ' artist page'} onclick={(e) => { e.stopPropagation(); openArtist(it); }}>
+              <button type="button" class="rowact" aria-label={'open ' + it.artist + ' artist page'} onclick={(e) => { e.stopPropagation(); openArtist(it, e); }}>
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 20c1.5-3.5 4.5-5 8-5s6.5 1.5 8 5"/></svg>
               </button>
             {/if}
-            <button type="button" class="rowact" aria-label="save to playlist" onclick={(e) => { e.stopPropagation(); saveTarget = it; }}>
+            <button type="button" class="rowact" aria-label="save to playlist" onclick={(e) => { e.stopPropagation(); saveTarget = it; sheetErr = ''; }}>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
             </button>
           {/if}
         </div>
       {/each}
     </div>
+    {#if view === 'artist' && shown < sections.length}
+      <button class="showmore" onclick={() => (shown += 10)}>show more ({sections.length - shown} left)</button>
+    {/if}
   </main>
 
   {#if saveTarget}
-    <div class="overlay" role="presentation" onclick={() => { saveTarget = null; }}>
+    <div class="overlay" role="presentation" onclick={() => { saveTarget = null; sheetErr = ''; }}>
       <div class="sheet" role="dialog" aria-modal="true" aria-label="Save to a playlist" tabindex="-1" use:modal={() => { saveTarget = null; }} onkeydown={(e) => e.stopPropagation()} onclick={(e) => e.stopPropagation()}>
         <button class="sheet-close" type="button" aria-label="Close save to a playlist" onclick={() => { saveTarget = null; }}>Close</button>
         <p class="sheet-h">save to a playlist</p>
         <p class="sheet-sub">{saveTarget.title}</p>
+        {#if sheetErr}<p class="error" role="alert">{sheetErr}</p>{/if}
         {#each playlists as p (p.id)}
           <button class="sheetrow" onclick={() => saveTo(p)}>
             <span class="plname">{p.name}</span>
@@ -618,7 +697,7 @@
       <div class="p-meta">
         <span class="p-title">{now.title}</span>
         {#if now.artist}
-          <button class="p-sub p-link" onclick={() => { showQ = false; openArtist(now); }} aria-label={'open ' + now.artist + ' artist page'}>{now.artist}</button>
+          <button class="p-sub p-link" onclick={(e) => { showQ = false; openArtist(now, e); }} aria-label={'open ' + now.artist + ' artist page'}>{now.artist}</button>
         {:else}
           <span class="p-sub">{SRC_LABEL[now.src]}</span>
         {/if}
@@ -726,9 +805,15 @@
   .plback:hover { color: var(--rj-text); }
   .pltitle { flex: 1; min-width: 0; font-size: 17px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .arhead { display: flex; align-items: center; gap: 14px; margin: 8px 0 10px; }
-  .arimg { width: 96px; height: 96px; border-radius: 50%; object-fit: cover; flex-shrink: 0; background: var(--rj-surface); }
+  .arimg { width: 88px; height: 88px; border-radius: 18px; object-fit: cover; flex-shrink: 0; background: var(--rj-surface); }
+  .armono { display: grid; place-items: center; background: var(--rj-surface-2); color: var(--rj-text-dim); font-size: 34px; font-weight: 800; }
   .armeta { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
-  .arname { font-size: 20px; font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .arname { margin: 0; font-size: 28px; font-weight: 800; letter-spacing: -.03em; line-height: 1.15; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+  @media (min-width: 768px) {
+    .arimg { width: 176px; height: 176px; border-radius: 26px; }
+    .armono { font-size: 64px; }
+    .arname { font-size: 40px; }
+  }
   .arsub { font-size: 13px; color: var(--rj-text-dim); }
   .arsrc { font-size: 12px; color: var(--rj-text-dim); opacity: 0.75; }
   .pldel { background: none; border: 1px solid var(--rj-border); color: var(--rj-text-dim); border-radius: 999px; padding: 6px 12px; font-size: 12.5px; }
@@ -738,7 +823,7 @@
   .plrename button { background: var(--rj-accent); color: var(--rj-accent-ink); border: 0; border-radius: 10px; padding: 0 14px; font-size: 13px; font-weight: 700; }
   .rc-clear { background: none; border: 0; color: var(--rj-text-dim); font-size: 12px; text-decoration: underline; padding: 4px 6px; margin-left: 6px; font-weight: 400; }
   .plempty { padding: 24px 4px; font-size: 14px; color: var(--rj-text-dim); }
-  .rowact { width: 36px; height: 36px; flex: none; border-radius: 50%; background: none; color: var(--rj-text-dim); display: grid; place-items: center; cursor: pointer; }
+  .rowact { width: 44px; height: 44px; flex: none; border-radius: 50%; background: none; color: var(--rj-text-dim); display: grid; place-items: center; cursor: pointer; }
   .rowact:hover { color: var(--rj-accent); background: var(--rj-surface-2); }
   .rowact svg { width: 18px; height: 18px; }
   .overlay { position: fixed; inset: 0; z-index: 100; background: rgba(0,0,0,0.6); display: flex; align-items: flex-end; justify-content: center; }
@@ -754,7 +839,7 @@
   .p-meta { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
   .p-title { font-size: 15px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .plplay { display: flex; gap: 8px; margin: 4px 0 10px; }
-  .plplay button { background: var(--rj-accent); color: var(--rj-accent-ink); border: 0; border-radius: 999px; padding: 0 20px; min-height: 40px; font-weight: 700; font-size: 14px; }
+  .plplay button { background: var(--rj-accent); color: var(--rj-accent-ink); border: 0; border-radius: 999px; padding: 0 20px; min-height: 44px; font-weight: 700; font-size: 14px; }
   .plplay button:last-child { background: var(--rj-surface); color: var(--rj-text); }
   .p-link { background: none; border: 0; padding: 0; text-align: left; font-family: inherit; cursor: pointer; }
   .p-sub { font-size: 12px; color: var(--rj-text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -796,4 +881,17 @@
   }
   .sheet-close { align-self: flex-end; min-height: 40px; padding: 8px 14px; background: var(--rj-surface-2); color: var(--rj-text); border: 1px solid var(--rj-border); border-radius: 12px; }
   .plrename-open:hover { border-color: var(--rj-accent); color: var(--rj-accent); }
+  .vh { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+  .np { width: 16px; height: 16px; color: var(--rj-accent); flex: none; }
+  .showmore { margin-top: 14px; background: none; border: 1px dashed var(--rj-border); color: var(--rj-text-dim); border-radius: 14px; padding: 12px 16px; font-size: 14px; width: 100%; min-height: 44px; }
+  .showmore:hover { color: var(--rj-text); border-color: var(--rj-accent); }
+  .arfail { padding: 32px 4px; }
+  .arfail p { margin: 0 0 12px; font-size: 15px; color: var(--rj-text-dim); }
+  .skel { background: var(--rj-surface-2); border-radius: 8px; animation: amp-pulse 1.4s ease-in-out infinite; }
+  .skelrow { pointer-events: none; }
+  .skel-name { width: 220px; max-width: 60vw; height: 28px; }
+  .skel-title { width: 60%; height: 15px; }
+  .skel-sub2 { width: 40%; height: 13px; }
+  @keyframes amp-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
+  @media (prefers-reduced-motion: reduce) { .skel { animation: none; } }
 </style>
