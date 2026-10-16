@@ -292,6 +292,22 @@
     });
   }
 
+  // Activation and clients.claim() are separate lifecycle steps. A returning
+  // page can see the new reg.active while its controller is still the old
+  // worker. Never build a transport until the exact worker owns this page.
+  async function waitForController(worker, timeoutMs = 12000) {
+    const service = navigator.serviceWorker;
+    if (service.controller === worker) return;
+    await new Promise((resolve, reject) => {
+      let timer;
+      const cleanup = () => { clearTimeout(timer); service.removeEventListener('controllerchange', check); };
+      const check = () => { if (service.controller === worker) { cleanup(); resolve(); } };
+      timer = setTimeout(() => { cleanup(); reject(new Error('proxy worker takeover timed out')); }, timeoutMs);
+      service.addEventListener('controllerchange', check);
+      check(); // closes the check/listener race
+    });
+  }
+
   // a new worker taking over mid-session means a deploy landed: this tab's
   // page code is now paired with a worker it never handshook with. the first
   // controllerchange is just the initial claim at boot - only a takeover
@@ -562,6 +578,7 @@
         const swP = (async () => {
           const w0 = await waitForWorker('/browse-sw.js?v=' + ((globalThis.__RJ_ENGINE__) || '0'));
           await navigator.serviceWorker.ready;
+          await waitForController(w0);
           return w0;
         })();
         const [sw, tk, kk] = await Promise.all([swP, tkP, kkP]);
@@ -640,7 +657,12 @@
         // bind the commit to the handshook controller: a swap that slipped
         // past the event guard (or raced it) must restart the boot, never
         // publish ready against a dead page/worker pairing
-        if (!sameWorker(navigator.serviceWorker.controller, sw)) throw new Error('the proxy worker changed during startup');
+        if (!sameWorker(navigator.serviceWorker.controller, sw)) {
+          // An event can race controller.wait(). Re-enter the lifecycle wait
+          // with a new cycle instead of retrying the stale worker/transport.
+          bootCycle += 1;
+          return;
+        }
         ctrl = controller;
         startSync(controller);
         newTab();

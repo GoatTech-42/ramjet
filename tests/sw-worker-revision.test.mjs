@@ -124,3 +124,29 @@ test('sameWorker binds the commit to the handshook controller by identity', () =
   assert.equal(sameWorker(a, null), false, 'no handshook worker does not bind');
   assert.equal(sameWorker(null, null), false);
 });
+
+const controllerWait = (service) => {
+  const fn = SRC.slice(SRC.indexOf('  async function waitForController('), SRC.indexOf('  // a new worker taking over'));
+  const c = vm.createContext({ navigator: { serviceWorker: service }, Promise, Error, setTimeout, clearTimeout });
+  vm.runInContext(fn + ';this.waitForController=waitForController;', c);
+  return c.waitForController;
+};
+test('active new worker waits for delayed control takeover from old worker', async () => {
+  const old = {}, next = {}, listeners = new Set();
+  const service = { controller: old, addEventListener: (_, f) => listeners.add(f), removeEventListener: (_, f) => listeners.delete(f) };
+  let done = false;
+  const p = controllerWait(service)(next, 1000).then(() => done = true);
+  await new Promise(r => setImmediate(r));
+  assert.equal(done, false);
+  service.controller = next;
+  for (const f of [...listeners]) f();
+  await p;
+  assert.equal(done, true);
+  assert.equal(listeners.size, 0);
+});
+test('controller takeover timeout cleans its listener and refuses mixed pairing', async () => {
+  const listeners = new Set();
+  const service = { controller: {}, addEventListener: (_, f) => listeners.add(f), removeEventListener: (_, f) => listeners.delete(f) };
+  await assert.rejects(controllerWait(service)({}, 10), /takeover timed out/);
+  assert.equal(listeners.size, 0);
+});
