@@ -6,12 +6,16 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
+import { bounceToLoginOn401 } from '../web/src/lib/api.js';
 
 const SRC = readFileSync(new URL('../web/src/pages/browse/Browse.svelte', import.meta.url), 'utf8');
+// Include the real fetch wrapper used by the extracted region.
+const BF = SRC.slice(SRC.indexOf('  const bfetch ='), SRC.indexOf('\n', SRC.indexOf('  const bfetch =')));
 const load = (state) => {
   const fn = SRC.slice(SRC.indexOf('  async function makeTransport('), SRC.indexOf('\n  $effect(', SRC.indexOf('  async function makeTransport(')));
   assert.ok(fn.length > 500, 'makeTransport slice found');
   const c = vm.createContext({
+    bounceToLoginOn401,
     Date: { now: () => state.now },
     WebSocket: state.WS,
     localStorage: { getItem: () => null },
@@ -19,7 +23,7 @@ const load = (state) => {
     Map, Promise, TextDecoder, DataView, Uint8Array, setTimeout, clearTimeout,
     $state: (x) => x, // the sliced region declares state the transport code never reads
   });
-  vm.runInContext(fn + ';this.make=makeTransport;', c);
+  vm.runInContext(BF + '\n' + fn + ';this.make=makeTransport;', c);
   return c.make;
 };
 const rig = (opts = {}) => {
@@ -166,12 +170,15 @@ test('dispose closes the live socket', async () => {
 
 test('server transport: dispose during lazy init never opens a late connection', async () => {
   const SRC = readFileSync(new URL('../web/src/pages/browse/Browse.svelte', import.meta.url), 'utf8');
+// Include the real fetch wrapper used by the extracted region.
+const BF = SRC.slice(SRC.indexOf('  const bfetch ='), SRC.indexOf('\n', SRC.indexOf('  const bfetch =')));
   const a = SRC.indexOf("    if (localStorage.getItem('rj-transport') === 'server')");
   const b = SRC.indexOf('    const inst = new (await loadEpoxy())', a);
   assert.ok(a > 0 && b > a, 'server transport slice found');
   let resolve, opens = 0, closes = 0, frees = 0;
   const gate = new Promise((r) => resolve = r);
   const c = vm.createContext({
+    bounceToLoginOn401,
     localStorage: { getItem: () => 'server' },
     TypeError, Set,
     loadEpoxy: async () => { await gate; return class { async init() {} free() { frees++; } connect() { opens++; return [() => {}, () => closes++]; } }; },
@@ -189,10 +196,13 @@ test('server transport: dispose during lazy init never opens a late connection',
 
 test('server transport: dispose closes a connection that already opened', async () => {
   const SRC = readFileSync(new URL('../web/src/pages/browse/Browse.svelte', import.meta.url), 'utf8');
+// Include the real fetch wrapper used by the extracted region.
+const BF = SRC.slice(SRC.indexOf('  const bfetch ='), SRC.indexOf('\n', SRC.indexOf('  const bfetch =')));
   const a = SRC.indexOf("    if (localStorage.getItem('rj-transport') === 'server')");
   const b = SRC.indexOf('    const inst = new (await loadEpoxy())', a);
   let opens = 0, closes = 0;
   const c = vm.createContext({
+    bounceToLoginOn401,
     localStorage: { getItem: () => 'server' },
     TypeError, Set,
     loadEpoxy: async () => class { async init() {} free() {} connect() { opens++; return [() => {}, () => closes++]; } },

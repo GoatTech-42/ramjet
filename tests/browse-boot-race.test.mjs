@@ -9,8 +9,11 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
+import { bounceToLoginOn401 } from '../web/src/lib/api.js';
 
 const SRC = readFileSync(new URL('../web/src/pages/browse/Browse.svelte', import.meta.url), 'utf8');
+// Include the real fetch wrapper used by the extracted region.
+const BF = SRC.slice(SRC.indexOf('  const bfetch ='), SRC.indexOf('\n', SRC.indexOf('  const bfetch =')));
 
 test('old boot cannot commit or dispose the new transport after a restart', async () => {
   const fn = SRC.slice(SRC.indexOf('  // every boot cycle owns its generation:'), SRC.indexOf('  // recent sites:'));
@@ -19,6 +22,7 @@ test('old boot cannot commit or dispose the new transport after a restart', asyn
   const waits = [], ts = [], sw = { scriptURL: 'https://fixture/browse-sw.js?v=same' };
   let commits = 0;
   const c = vm.createContext({
+    bounceToLoginOn401,
     $state: (x) => x, $effect: (f) => effect = f, stageEl: {}, failed: '', boot: '', ready: false, ctrl: null,
     window: {}, navigator: { serviceWorker: { ready: Promise.resolve(), controller: sw } },
     globalThis: { $scramjetController: { Controller: class { wait() { return Promise.resolve(); } } }, __RJ_ENGINE__: 'same' },
@@ -30,7 +34,7 @@ test('old boot cannot commit or dispose the new transport after a restart', asyn
     makeTransport: async () => { let resolve; const p = new Promise((r) => resolve = r); const t = { warm: () => p, dispose() { this.dead = true; }, dead: false }; ts.push(t); waits.push(resolve); return t; },
     Date, setTimeout, clearTimeout, Promise, URLSearchParams, startSync: () => {}, newTab: () => commits++,
   });
-  vm.runInContext(fn, c);
+  vm.runInContext(BF + '\n' + fn, c);
   const tick = () => new Promise((r) => setImmediate(r));
   const cleanup = effect();
   await tick();
@@ -56,6 +60,7 @@ const drive = (overrides) => {
   let effect;
   const state = { commits: 0, ts: [] };
   const c = vm.createContext({
+    bounceToLoginOn401,
     $state: (x) => x, $effect: (f) => effect = f, stageEl: {}, failed: '', boot: '', ready: false, ctrl: null,
     window: {}, navigator: { serviceWorker: { ready: Promise.resolve(), controller: overrides.sw } },
     globalThis: { $scramjetController: { Controller: overrides.Controller }, __RJ_ENGINE__: 'same' },
@@ -67,7 +72,7 @@ const drive = (overrides) => {
     makeTransport: overrides.makeTransport,
     Date, setTimeout, clearTimeout, Promise, URLSearchParams, startSync: () => {}, newTab: () => state.commits++,
   });
-  vm.runInContext(fn, c);
+  vm.runInContext(BF + '\n' + fn, c);
   return { effect, state };
 };
 const tick = () => new Promise((r) => setImmediate(r));
