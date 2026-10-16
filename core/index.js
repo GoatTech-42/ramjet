@@ -10,6 +10,7 @@ import { readBody, sendJson, redirect, parseCookies, clientIp } from './util.js'
 import { createHash } from 'node:crypto';
 import { server as wisp } from '@mercuryworkshop/wisp-js';
 import { readerPage } from './reader.js';
+import { notFoundPage } from './notfound.js';
 import { handleLite, setJetstream, setAuth } from './lite.js';
 import { handlePFetch, pwsUpgrade, safeLookup } from './pfetch.js';
 import { makeBlockingSocket, stats as adStats, listSize as adListSize } from './adblock.js';
@@ -438,6 +439,10 @@ const server = createServer(async (req, res) => {
       if (session) return redirect(res, '/');
       return servePage(res, 'login');
     }
+    if (path === '/signup') {
+      if (session) return redirect(res, '/');
+      return servePage(res, 'login');
+    }
     if (path === '/password') {
       if (!session) return redirect(res, '/login');
       return servePage(res, 'password');
@@ -469,8 +474,8 @@ const server = createServer(async (req, res) => {
     if (session && /^\/(browse|amp|sage|settings)\/?$/.test(path)) {
       return servePage(res, 'index');
     }
-    res.writeHead(404, { 'content-type': 'text/plain' });
-    res.end('nothing here');
+    res.writeHead(404, { 'content-type': 'text/html; charset=utf-8' });
+    res.end(notFoundPage());
   } catch (e) {
     console.error(e);
     if (!res.headersSent) sendJson(res, 500, { ok: false, error: 'something broke on our side' });

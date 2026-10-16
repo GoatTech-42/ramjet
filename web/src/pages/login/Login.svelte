@@ -7,9 +7,15 @@
   let showPw = $state(false);
   let error = $state('');
   let busy = $state(false);
-  let mode = $state('login');
+  // /signup is a real path (shareable, refresh-safe) - it just opens the
+  // same card with the signup side up
+  let mode = $state(location.pathname === '/signup' ? 'signup' : 'login');
   let note = $state('');
-  function flip() { mode = mode === 'login' ? 'signup' : 'login'; error = ''; note = ''; }
+  function flip() {
+    mode = mode === 'login' ? 'signup' : 'login';
+    error = ''; note = '';
+    history.replaceState(null, '', mode === 'login' ? '/login' : '/signup');
+  }
 
   async function submit(e) {
     e.preventDefault();
