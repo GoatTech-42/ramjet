@@ -137,14 +137,19 @@ function serveStatic(req, res, urlPath) {
   // PRESERVED mtime still bumps ctime and its new bytes are re-read and
   // re-hashed
   const pinned = PINNED.get(urlPath);
-  if (!pinned && (!existsSync(safe) || !statSync(safe).isFile())) return false;
+  // One metadata read per non-pinned request. readStatic still checks its
+  // fd and the path around cache misses, preserving rebuild-race safety.
+  let st = null;
+  if (!pinned) {
+    try { st = statSync(safe); } catch { return false; }
+    if (!st.isFile()) return false;
+  }
   let e = sCache.get(safe);
   if (pinned && !e) {
     const hash = createHash('sha256').update(pinned).digest('hex').slice(0, 20);
     e = { mtimeMs: 0, ctimeMs: 0, size: pinned.length, raw: pinned, br: null, gz: null, etag: 'W/"' + pinned.length + '-' + hash + '"' };
     sCache.set(safe, e);
   }
-  const st = pinned ? null : statSync(safe);
   if (!pinned && (!e || e.mtimeMs !== st.mtimeMs || e.size !== st.size || e.ctimeMs !== st.ctimeMs)) {
     const got = readStatic(safe);
     if (!got) return false;

@@ -83,3 +83,21 @@ test('static cache: a same-length rebuild with a PRESERVED mtime still yields fr
     } finally { rmSync(PROBE, { force: true }); }
   });
 });
+
+test('static cache: deleted warm entries and missing files remain 404s', async () => {
+  await withTempServer(async ({ base }) => {
+    try {
+      writeFileSync(PROBE, 'warm-then-delete');
+      const warm = await fetch(base + '/assets/rj-cache-probe.txt');
+      assert.equal(warm.status, 200);
+      assert.equal(await warm.text(), 'warm-then-delete');
+      rmSync(PROBE);
+      const gone = await fetch(base + '/assets/rj-cache-probe.txt');
+      assert.equal(gone.status, 404);
+      await gone.arrayBuffer();
+      const missing = await fetch(base + '/assets/rj-speed-no-such-file.txt');
+      assert.equal(missing.status, 404);
+      await missing.arrayBuffer();
+    } finally { rmSync(PROBE, { force: true }); }
+  });
+});

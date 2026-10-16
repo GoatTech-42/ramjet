@@ -16,6 +16,13 @@ import { isAdHost, stats as adStats } from './adblock.js';
 const agentOpts = { keepAlive: true, keepAliveMsecs: 30000, maxSockets: 24, maxFreeSockets: 8, timeout: 30000 };
 const agents = { 'http:': new http.Agent(agentOpts), 'https:': new https.Agent(agentOpts) };
 
+// Non-text bodies skip tunnel deflate; larger upstream decode chunks cut
+// callbacks and frame-assembly work on that path. Text keeps zlib's default:
+// larger chunks did not improve it in end-to-end fixtures. Drips still emit
+// immediately. Extra output-buffer allocation is 48KB per binary decoder,
+// at most 12MB if all 256 global streams are compressed binary responses.
+const BINARY_DECODE_OPTIONS = { chunkSize: 64 * 1024 };
+
 const TEST_HOOKS = process.env.RJ_TEST_HOOKS === '1'; // loopback fixture upstreams in tests, never in production
 // the upstream trust boundary is the shared net-safe classifier (the same one
 // safeGet and the lite downloader use): every dns answer AND every literal ip,
@@ -547,14 +554,15 @@ export function pwsUpgrade(req, socket, head, user, track) {
             // the tunnel carries plain bytes: an encoding we cannot decode is
             // refused outright, never forwarded silently stripped
             if (enc && enc !== 'gzip' && enc !== 'br' && enc !== 'deflate' && enc !== 'identity') { destroyEntry(id, entry, 'encoding'); return; }
+            const keep = raw.filter(([k]) => !HOP.has(k.toLowerCase()));
+            entry.nocmp = !tunnelCompressible(keep);
+            const decodeOptions = entry.nocmp ? BINARY_DECODE_OPTIONS : undefined;
             let src = ur;
             if (enc === 'gzip' || enc === 'br' || enc === 'deflate') {
-              src = ur.pipe(enc === 'br' ? zlib.createBrotliDecompress() : enc === 'gzip' ? zlib.createGunzip() : zlib.createInflate());
+              src = ur.pipe(enc === 'br' ? zlib.createBrotliDecompress(decodeOptions) : enc === 'gzip' ? zlib.createGunzip(decodeOptions) : zlib.createInflate(decodeOptions));
               ur.on('error', () => src.destroy());
             }
             entry.src = src;
-            const keep = raw.filter(([k]) => !HOP.has(k.toLowerCase()));
-            entry.nocmp = !tunnelCompressible(keep);
             if (!out(id, 0, Buffer.from(JSON.stringify({ status: ur.statusCode, text: ur.statusMessage || '', headers: keep })), entry)) return; // shed at the head: never wire up listeners on a destroyed entry
             const fresh = cacheKey ? acFresh(ur.statusCode, keep) : null;
             // freshness starts at headers time: the download's own duration
