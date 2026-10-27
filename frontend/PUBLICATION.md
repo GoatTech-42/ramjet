@@ -70,10 +70,11 @@ license facts a reader should not have to re-derive:
   keep their own licenses (curl permission notice, brotli/cJSON/nghttp2 MIT,
   mbedtls Apache-2.0 OR GPL-2.0-or-later, zlib). see NOTICE and each packet's
   licenses/ directory.
-- the only established MIT-origin mapping in this project is backend-side
-  (sx.js, from the legacy core index); it is noticed with the backend source.
-  no MIT-origin mapping exists for the frontend code; THIRD-PARTY-NOTICES.txt
-  is dependency attribution only.
+- backend-side heritage, noticed with the backend source: sx.js derives
+  from the legacy core index and is noticed as legacy AGPL; the Rust
+  workspace is the MIT-origin part, noticed separately. no MIT-origin
+  mapping exists for the frontend code; THIRD-PARTY-NOTICES.txt is
+  dependency attribution only.
 - the vendor preparation packet carries an hls.js Apache-2.0 license text,
   but no hls.js usage was found in the shipped frontend. it is included with
   the packet for completeness, not as a shipped-component claim.
