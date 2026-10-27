@@ -37,4 +37,4 @@ A Dockerfile and docker-compose.yml are included for container runs; the image b
 ## Notes
 
 - Thumbnails: settings > data saver (auto / on / off). On or auto-on-cellular sends smaller thumbnails and video.
-- main is the current branch. rebuild-v2 is an older line and is now behind main.
+- main is the current branch. rebuild-v2 is an older, separate line.
