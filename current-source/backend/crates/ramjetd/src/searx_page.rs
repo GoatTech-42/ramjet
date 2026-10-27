@@ -241,7 +241,7 @@ pub fn sx_page_state(query: &str, page: i64, failure: Option<Failure>, data: Opt
     let mut body = String::new();
     if let Some(failure) = failure {
         let copy = match failure {
-            Failure::RateLimited => "slow down a bit.", Failure::Forbidden => "this device can't do that",
+            Failure::RateLimited => "slow down a bit.", Failure::Forbidden => "this site blocked the request.",
             Failure::Unavailable => "search isn't available right now.", Failure::Retryable | Failure::Unknown => "search couldn't load.",
         };
         body.push_str(&format!("<div class=\"notice\">{}</div>", copy));
@@ -298,13 +298,15 @@ mod style_tests {
     #[test] fn skins_failures_and_external_case() {
         assert_eq!(skin(Some("a=1; rj_skin=paper")), "paper");
         assert_eq!(skin(Some("rj_skin=evil")), "dark");
-        for (f, text) in [(Failure::RateLimited,"slow down a bit."),(Failure::Forbidden,"this device can't do that"),(Failure::Unavailable,"search isn't available right now."),(Failure::Unknown,"search couldn't load.")] {
+        for (f, text) in [(Failure::RateLimited,"slow down a bit."),(Failure::Forbidden,"this site blocked the request."),(Failure::Unavailable,"search isn't available right now."),(Failure::Unknown,"search couldn't load.")] {
             let page = sx_page_state("Mixed CASE", 2, Some(f), None, "images", 2, None, "paper");
             assert!(page.contains(&format!("<div class=\"notice\">{text}</div>")));
             assert!(!page.contains(">try again<")); assert!(page.contains("data-skin=\"paper\""));
             assert!(page.contains("Mixed CASE") && page.contains("aria-current=\"page\""));
             assert!(!page.contains("theme-boot.js") && !page.contains("walls.css"));
         }
+        let forbidden = sx_page_state("q", 1, Some(Failure::Forbidden), None, "general", 0, None, "dark");
+        assert!(forbidden.contains("this site blocked the request.") && !forbidden.contains("this device"), "403 copy blames the origin, not the device");
         let stale = serde_json::json!({"results":[{"url":"https://example.com","title":"STALE SENTINEL"}],"answers":["STALE ANSWER"],"corrections":["STALE CORRECTION"]});
         let page = sx_page_state("q",1,Some(Failure::Unavailable),Some(&stale),"general",0,None,"dark");
         assert!(!page.contains("STALE SENTINEL") && !page.contains("STALE ANSWER") && !page.contains("STALE CORRECTION"));
