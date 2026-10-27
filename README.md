@@ -1,4 +1,4 @@
-# ramjet (rebuild)
+# ramjet
 
 Self-hosted web hub: one login, a themed home, and the apps behind it.
 
@@ -14,14 +14,27 @@ Press Ctrl/Cmd-K for the command palette.
 
 ## Run
 
-    npm install
-    npm run build        # web/ -> dist
-    node core/index.js   # RJ_PORT (default 14224), RJ_HOST (default 127.0.0.1), RJ_DATA
+Node 20+ (the Dockerfile pins node:20-bookworm-slim).
 
-Per-account state lives in data/ (not in git). Static proxy files under /cloak, /scramjet, /controller, /epoxy and /libcurl are served no-cache.
+    npm install
+    npm run build        # syncs proxy vendor files into web/, then vite builds web/ -> web/dist
+    node core/index.js   # or: npm start
+
+Environment: RJ_PORT (default 14224), RJ_HOST (default 127.0.0.1), RJ_DATA (default ./data).
+
+Per-account state lives in data/ (not in git). Static proxy files under /cloak, /scramjet, /controller, /epoxy and /libcurl are served no-cache with ETag revalidation.
+
+A Dockerfile and docker-compose.yml are included for container runs; the image build expects a local models/ directory (gitignored).
+
+## Repository layout
+
+- **core/** - Node server: auth, proxy/browse, SearXNG search, amp, jetstream, sage
+- **web/** - Svelte front end, built to web/dist by `npm run build`
+- **scripts/, bin/, searxng/, qa/** - build helper, bundled yt-dlp, local SearXNG setup, internal QA scripts
+- **current-source/** - preservation snapshot of the current accepted Rust backend source (AGPL + MIT-origin notices; build notes in current-source/README.md). Published for preservation/license compliance; it is not built or run by the commands above.
+- **frontend/** - AGPL corresponding-source publication of the deployed frontend (hub shell + r32 app pages). Notes in frontend/PUBLICATION.md, build recipe in frontend/RECIPE.md.
 
 ## Notes
 
 - Thumbnails: settings > data saver (auto / on / off). On or auto-on-cellular sends smaller thumbnails and video.
-- Docs: docs/features.md, docs/cutover-runbook.md, docs/domain-transfer-prep.md. Build log: PROGRESS.md.
-- Branch rebuild-v2 is the live rebuild; main still holds the older v1.
+- main is the current branch. rebuild-v2 is an older line and is now behind main.
