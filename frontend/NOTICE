@@ -1,0 +1,52 @@
+ramjet frontend - license notice
+================================
+
+the ramjet frontend (hub/ and r32/ source trees in this directory) is
+copyright luke evanson / goattech and licensed under the GNU Affero
+General Public License v3 (AGPL-3.0); see LICENSE.
+
+third-party components shipped in the frontend and their actual licenses:
+
+* scramjet engine (r32/src/public/scramjet, controller): scramjet
+  v2.0.67-alpha.2 (MercuryWorkshop/scramjet), AGPL-3.0-only, with two
+  reconstructed patches (history null-argument, controller path aliases).
+  preferred source, patches and AGPL text: vendor/vendor-source-preparation/.
+
+* epoxy transport (r32/src/public/epoxy): @mercuryworkshop/epoxy-transport
+  3.0.1, AGPL-3.0-only, with an output packaging alias (epoxy.wasm ->
+  net.wasm). npm package source: vendor/vendor-source-preparation/.
+
+* libcurl transport (r32/src/public/libcurl, served as assets/net2):
+  @mercuryworkshop/libcurl-transport 2.0.5, AGPL-3.0-only. preferred
+  TypeScript source and build route: vendor/curl-wrapper-relink/.
+
+* libcurl.js 0.7.4 (bundled inside the libcurl transport):
+  LGPL-3.0-or-later. preferred source, native inputs and build scripts:
+  vendor/libcurl-nested-source/. its native source inputs keep their own
+  licenses: curl fork (curl permission notice), brotli (MIT), cJSON (MIT),
+  mbedtls (Apache-2.0 OR GPL-2.0-or-later), nghttp2 (MIT), zlib (zlib),
+  wisp-client (see vendor/libcurl-nested-source/licenses/).
+
+* wisp-js 0.5.0: LGPL-3.0-or-later (license text in
+  vendor/vendor-source-preparation/licenses/).
+
+* IBM Plex Sans and IBM Plex Mono webfonts (hub/src/assets/fonts):
+  Copyright (c) 2017 IBM Corp., Reserved Font Name "Plex", SIL Open Font
+  License Version 1.1. full license and per-font copyright lines:
+  licenses/OFL-IBM-Plex-LICENSE.txt.
+
+* build/runtime libraries compiled into the bundles - svelte, bits-ui,
+  tailwindcss, @tailwindcss/vite - are MIT licensed; their copyright and
+  permission texts, copied from the actual installed package files, are in
+  THIRD-PARTY-NOTICES.txt. this is dependency attribution only: no
+  MIT-origin mapping for the ramjet frontend code itself is established,
+  and none is claimed here.
+
+* hls.js: the vendor preparation packet carries an hls.js 1.7.3 Apache-2.0
+  license text, but no hls.js usage was found in the shipped frontend
+  (checked amp/jetstream source and bundles 2026-10-27). included with the
+  packet for completeness; not a shipped-component claim.
+
+corresponding source: AGPL section 13 source offers are made from the
+running app's settings page (advanced > source code), which links to the
+published commit containing this exact source.

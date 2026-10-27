@@ -1,0 +1,11 @@
+--- a/dist/index.mjs
++++ b/dist/index.mjs
+@@ -1507,7 +1507,7 @@
+     }
+   }
+   if (typeof module_or_path === "undefined") {
+-    module_or_path = new URL("epoxy.wasm", import.meta.url);
++    module_or_path = new URL("net.wasm", import.meta.url);
+   }
+   const imports = __wbg_get_imports();
+   if (typeof module_or_path === "string" || typeof Request === "function" && module_or_path instanceof Request || typeof URL === "function" && module_or_path instanceof URL) {

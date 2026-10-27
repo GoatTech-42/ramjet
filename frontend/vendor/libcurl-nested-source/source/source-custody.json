@@ -1,0 +1,56 @@
+[
+  {
+    "name": "curl",
+    "commit": "a15072369578a37ce314ea4d8b06f30c2762ebcc",
+    "archive": "curl-a1507236-source.tar.gz",
+    "license_files": [
+      "COPYING"
+    ]
+  },
+  {
+    "name": "brotli",
+    "commit": "028fb5a23661f123017c060daa546b55cf4bde29",
+    "archive": "brotli-028fb5a2-source.tar.gz",
+    "license_files": [
+      "LICENSE"
+    ]
+  },
+  {
+    "name": "cJSON",
+    "commit": "c859b25da02955fef659d658b8f324b5cde87be3",
+    "archive": "cJSON-c859b25d-source.tar.gz",
+    "license_files": [
+      "LICENSE"
+    ]
+  },
+  {
+    "name": "mbedtls",
+    "commit": "e185d7fd85499c8ce5ca2a54f5cf8fe7dbe3f8df",
+    "archive": "mbedtls-e185d7fd-source.tar.gz",
+    "license_files": [
+      "LICENSE"
+    ]
+  },
+  {
+    "name": "nghttp2",
+    "commit": "534b74b72524e962c18c7146470914632ca7eb2d",
+    "archive": "nghttp2-534b74b7-source.tar.gz",
+    "license_files": [
+      "LICENSE",
+      "COPYING"
+    ]
+  },
+  {
+    "name": "zlib",
+    "commit": "51b7f2abdade71cd9bb0e7a373ef2610ec6f9daf",
+    "archive": "zlib-51b7f2ab-source.tar.gz",
+    "license_files": [
+      "LICENSE"
+    ]
+  },
+  {
+    "name": "mbedtls-framework",
+    "commit": "457996474728cb8e968ed21953b72f74d2f536b2",
+    "archive": "mbedtls-framework-45799647.tar.gz"
+  }
+]

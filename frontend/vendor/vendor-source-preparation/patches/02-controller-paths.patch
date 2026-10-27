@@ -1,0 +1,28 @@
+--- a/packages/controller/src/index.ts
++++ b/packages/controller/src/index.ts
+@@ -46,11 +46,11 @@
+ };
+ 
+ export const config: Config = {
+-	prefix: "/~/sj/",
+-	scramjetPath: "/scramjet/scramjet.js",
+-	injectPath: "/controller/controller.inject.js",
+-	wasmPath: "/scramjet/scramjet.wasm",
+-	virtualWasmPath: "scramjet.wasm.js",
++	prefix: "/a/r/",
++	scramjetPath: "/assets/codec/codec.js",
++	injectPath: "/assets/player/inject.js",
++	wasmPath: "/assets/codec/codec.wasm",
++	virtualWasmPath: "codec.wasm.js",
+ 	codec: {
+ 		encode: (url: string) => {
+ 			if (!url) return url;
+@@ -70,7 +70,7 @@
+ 		...scramjetDefaultConfig.flags,
+ 		allowFailedIntercepts: true,
+ 	},
+-	maskedfiles: ["inject.js", "scramjet.wasm.js"],
++	maskedfiles: ["inject.js", "codec.wasm.js"],
+ };
+ 
+ type PersistedCookieState = {

@@ -1,0 +1,89 @@
+ /* wallpapers (home screen) - .wall is the fixed layer, .wall-* the paint, so settings can reuse the paint on small chips */
+.wall { position: fixed; inset: 0; z-index: -1; pointer-events: none; }
+.wall-aurora { background: radial-gradient(60% 50% at 12% 0%, color-mix(in srgb, var(--rj-accent) 24%, transparent), transparent 70%), radial-gradient(50% 45% at 92% 8%, rgba(70,100,230,.22), transparent 70%), radial-gradient(60% 50% at 70% 105%, rgba(160,60,190,.2), transparent 70%); }
+.wall-dusk { background: linear-gradient(180deg, rgba(40,22,80,.55) 0%, rgba(110,40,100,.4) 55%, rgba(210,100,60,.32) 100%); }
+.wall-ember { background: radial-gradient(70% 55% at 50% 110%, rgba(255,120,40,.3), transparent 70%), radial-gradient(40% 30% at 85% 0%, rgba(255,70,40,.14), transparent 70%); }
+.wall-ocean { background: linear-gradient(180deg, rgba(10,60,110,.4) 0%, rgba(8,30,70,.35) 60%, rgba(0,0,0,0) 100%); }
+.wall-forest { background: radial-gradient(70% 50% at 20% 100%, rgba(40,150,80,.26), transparent 70%), radial-gradient(50% 40% at 90% 0%, rgba(120,170,40,.16), transparent 70%); }
+.wall-golden { background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1600 900' preserveAspectRatio='xMidYMax slice'%3E%3Cpath fill='%2314121f' d='M0 640 L160 575 L300 610 L440 548 L590 615 L720 600 L1000 650 L1180 575 L1240 420 L1252 575 L1330 580 L1600 610 L1600 900 L0 900Z'/%3E%3Cpath fill='%230b0a14' d='M0 800 Q200 725 420 790 T820 800 T1250 782 T1600 765 L1600 900 L0 900Z'/%3E%3C/svg%3E") center bottom / cover no-repeat, linear-gradient(180deg, rgba(0,0,0,.18), rgba(0,0,0,.18)), linear-gradient(180deg, #0f1836 0%, #34305f 30%, #7d4a69 54%, #cf8450 67%, #232c48 68%, #0c1226 100%); }
+.wall-silk { background: #0d0c1c url(/skin/silk-dark.jpg) center / cover no-repeat; }
+@media (max-width: 700px) { .wall-silk { background-image: url(/skin/silk-dark-s.jpg); } }
+.wall-silk-light { background: linear-gradient(rgba(0,0,0,.28), rgba(0,0,0,.28)), url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1600 900' preserveAspectRatio='xMidYMid slice'%3E%3Cdefs%3E%3ClinearGradient id='bg' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%236b5440'/%3E%3Cstop offset='1' stop-color='%23a68a68'/%3E%3C/linearGradient%3E%3ClinearGradient id='f1' x1='1' y1='0' x2='0' y2='1'%3E%3Cstop offset='0' stop-color='%23e9d3ae'/%3E%3Cstop offset='.55' stop-color='%239a8068'/%3E%3Cstop offset='1' stop-color='%235b4636'/%3E%3C/linearGradient%3E%3ClinearGradient id='f2' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%23d9bf94'/%3E%3Cstop offset='1' stop-color='%236e5742'/%3E%3C/linearGradient%3E%3ClinearGradient id='f3' x1='1' y1='1' x2='0' y2='0'%3E%3Cstop offset='0' stop-color='%23c9b9c9'/%3E%3Cstop offset='1' stop-color='%236d5a64'/%3E%3C/linearGradient%3E%3ClinearGradient id='rim' x1='0' y1='1' x2='1' y2='0'%3E%3Cstop offset='0' stop-color='%23fff2d6' stop-opacity='.1'/%3E%3Cstop offset='.5' stop-color='%23fff6e4' stop-opacity='.9'/%3E%3Cstop offset='1' stop-color='%23f1e0ff' stop-opacity='.4'/%3E%3C/linearGradient%3E%3Cfilter id='gl'%3E%3CfeGaussianBlur stdDeviation='3'/%3E%3C/filter%3E%3C/defs%3E%3Crect width='1600' height='900' fill='url(%23bg)'/%3E%3Cpath d='M1600 0V900H520C700 640 1000 520 1250 360C1420 250 1500 120 1560 0Z' fill='url(%23f1)'/%3E%3Cpath d='M1000 0C1010 140 880 300 640 470C420 620 180 740 0 800V0Z' fill='url(%23f2)'/%3E%3Cpath d='M1600 900H1150C1250 700 1450 560 1600 470Z' fill='url(%23f3)'/%3E%3Cg fill='none' stroke='url(%23rim)' stroke-linecap='round'%3E%3Cpath d='M520 900C700 640 1000 520 1250 360C1420 250 1500 120 1560 0' stroke-width='6' filter='url(%23gl)' opacity='.6'/%3E%3Cpath d='M520 900C700 640 1000 520 1250 360C1420 250 1500 120 1560 0' stroke-width='2'/%3E%3Cpath d='M1000 0C1010 140 880 300 640 470C420 620 180 740 0 800' stroke-width='6' filter='url(%23gl)' opacity='.6'/%3E%3Cpath d='M1000 0C1010 140 880 300 640 470C420 620 180 740 0 800' stroke-width='2'/%3E%3Cpath d='M1150 900C1250 700 1450 560 1600 470' stroke-width='2' opacity='.8'/%3E%3C/g%3E%3C/svg%3E") center / cover no-repeat; }
+.wall-grid { background-image: linear-gradient(rgba(255,255,255,.045) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.045) 1px, transparent 1px); background-size: 36px 36px; }
+.wall-dots { background-image: radial-gradient(rgba(255,255,255,.12) 1px, transparent 1.2px); background-size: 22px 22px; }
+:root {
+  /* house theme: goattech achromatic dark (style v1). one source for every page; pages must not re-declare these. */
+  --rj-bg: #0a0a0a;
+  --rj-surface: #141414;
+  --rj-surface-2: #1f1f1f;
+  --rj-hover: #1f1f1f;
+  --rj-border: rgba(255, 255, 255, .08);
+  --rj-hairline: rgba(255, 255, 255, .08);
+  --rj-line: rgba(255, 255, 255, .08);
+  --rj-strong: #434343;
+  --rj-hairline-strong: #333333;
+  --rj-text: #f2f2f2;
+  --rj-text-dim: #8f8f8f;
+  --rj-text-faint: #8f8f8f;
+  --rj-accent: #ffffff;
+  --rj-accent-ink: #0a0a0a;
+  --rj-danger: #ffffff;
+  --rj-focus: #ffffff;
+  --rj-radius: 12px;
+  --rj-pill: 999px;
+  --rj-font: "PS", system-ui, "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif;
+  --rj-mono: "PM", ui-monospace, monospace;
+}
+:root[data-skin='paper'] {
+  --rj-bg: #f2f2f2;
+  --rj-surface: #e8e8e8;
+  --rj-surface-2: #d4d4d4;
+  --rj-hover: #e9e9e9;
+  --rj-border: rgba(32, 28, 23, .1);
+  --rj-hairline: rgba(32, 28, 23, .1);
+  --rj-line: rgba(32, 28, 23, .1);
+  --rj-strong: #a9a9a9;
+  --rj-hairline-strong: #cdcdcd;
+  --rj-text: #0a0a0a;
+  --rj-text-dim: #626262;
+  --rj-text-faint: #626262;
+  --rj-accent: #0a0a0a;
+  --rj-accent-ink: #f2f2f2;
+  --rj-danger: #0a0a0a;
+  --rj-focus: #0a0a0a;
+}
+@font-face { font-family: 'PS'; src: url('/assets/IBMPlexSans-var-GRPhyGEp.woff2') format('woff2'); font-weight: 100 700; font-display: swap; }
+@font-face { font-family: 'PM'; src: url('/assets/IBMPlexMono-400-normal-C-SBB-bw.woff2') format('woff2'); font-weight: 400; font-display: swap; }
+@font-face { font-family: 'PM'; src: url('/assets/IBMPlexMono-500-normal-B772pXP5.woff2') format('woff2'); font-weight: 500; font-display: swap; }
+* { box-sizing: border-box; }
+html body :focus-visible { outline: 2px solid var(--rj-focus); outline-offset: 3px; }
+html, body { margin: 0; padding: 0; }
+body {
+  background: var(--rj-bg);
+  color: var(--rj-text);
+  font-family: var(--rj-font);
+  -webkit-font-smoothing: antialiased;
+  min-height: 100dvh;
+}
+a { color: var(--rj-text); text-decoration: none; }
+button { font-family: inherit; cursor: pointer; }
+::selection { background: rgba(255, 255, 255, 0.2); }
+
+/* desktop scrollbars: scroll stays, chrome goes (Luke, Tue 5:58 PM) */
+@media (pointer: fine) {
+  * { scrollbar-width: none; }
+  *::-webkit-scrollbar { display: none; }
+}
+
+input, textarea, select { -webkit-text-size-adjust: 100%; }
+
+/* ios safari zooms the page when a focused field computes under 16px. keep every field at 16px+ on touch/narrow screens;
+   never fix this with maximum-scale / user-scalable=no (that breaks pinch zoom). */
+@media (max-width: 900px), (pointer: coarse) {
+  input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=color]):not([type=file]):not([type=button]):not([type=submit]),
+  textarea, select { font-size: max(16px, 1em) !important; }
+}
+
+/* reduce motion: the OS setting or the stored rj-reduce-motion flag (theme-boot sets html[data-reduce-motion]) */
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; scroll-behavior: auto !important; } }
+html[data-reduce-motion="1"] *, html[data-reduce-motion="1"] *::before, html[data-reduce-motion="1"] *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; scroll-behavior: auto !important; }

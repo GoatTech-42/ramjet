@@ -1,0 +1,68 @@
+[
+  {
+    "index": 2396,
+    "live": [
+      "string",
+      "/a/r/"
+    ],
+    "upstream": [
+      "string",
+      "/~/sj/"
+    ]
+  },
+  {
+    "index": 2400,
+    "live": [
+      "string",
+      "/assets/codec/codec.js"
+    ],
+    "upstream": [
+      "string",
+      "/scramjet/scramjet.js"
+    ]
+  },
+  {
+    "index": 2404,
+    "live": [
+      "string",
+      "/assets/player/inject.js"
+    ],
+    "upstream": [
+      "string",
+      "/controller/controller.inject.js"
+    ]
+  },
+  {
+    "index": 2408,
+    "live": [
+      "string",
+      "/assets/codec/codec.wasm"
+    ],
+    "upstream": [
+      "string",
+      "/scramjet/scramjet.wasm"
+    ]
+  },
+  {
+    "index": 2412,
+    "live": [
+      "string",
+      "codec.wasm.js"
+    ],
+    "upstream": [
+      "string",
+      "scramjet.wasm.js"
+    ]
+  },
+  {
+    "index": 2469,
+    "live": [
+      "string",
+      "codec.wasm.js"
+    ],
+    "upstream": [
+      "string",
+      "scramjet.wasm.js"
+    ]
+  }
+]

@@ -1,0 +1,18 @@
+--- a/packages/core/src/client/dom/history.ts
++++ b/packages/core/src/client/dom/history.ts
+@@ -8,6 +8,15 @@
+ 		{
+ 			apply(ctx) {
+ 				const relevantclient = client.box.histories.get(ctx.this);
++				if (ctx.args[2] == null) {
++					ctx.call();
++					Tap.dispatch(
++						relevantclient.hooks.lifecycle.navigate,
++						{ type: "history" },
++						{ url: relevantclient.url.href }
++					);
++					return;
++				}
+ 				const url = String(ctx.args[2]);
+ 
+ 				if (_URL.canParse(url)) {

@@ -1,0 +1,25 @@
+/* ramjet motion spec pass v1 (2026-10-18):
+   transform/opacity-only - single ease token - 120ms knobs, 160ms chrome -
+   skin picker state change is instant - focus ring instant - no keyframes */
+:root{
+  --d1:120ms; --d2:160ms;
+  --ease:cubic-bezier(.2,0,0,1);
+}
+a,button,.row,.verb,.nxrow,.tab{transition:color var(--d1) var(--ease),opacity var(--d1) var(--ease),transform var(--d1) var(--ease),background-color var(--d1) var(--ease)}
+.pressable:active{transform:scale(.98)}
+:focus-visible{outline:2px solid var(--acc);outline-offset:2px;transition:none}
+/* browse control pill hide-on-scroll (.away hook) */
+.ctrl{transition:transform var(--d2) var(--ease),opacity var(--d2) var(--ease)}
+.ctrl.away{transform:translateY(12px);opacity:0;pointer-events:none}
+/* toggle knob: transform only, 120ms */
+.tg .knob{transition:transform var(--d1) var(--ease),background-color var(--d1) var(--ease)}
+/* skin picker: instant state change, no background/color transition */
+.skinpick button{transition:none}
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{transition-property:opacity !important;transition-duration:var(--d1) !important}
+  .ctrl.away{transform:none}
+  .homecol{animation:none}
+}
+html[data-rm="1"] *,html[data-rm="1"] *:before,html[data-rm="1"] *:after{transition-property:opacity !important;transition-duration:var(--d1) !important}
+html[data-rm="1"] .ctrl.away{transform:none}
+html[data-rm="1"] .homecol{animation:none}

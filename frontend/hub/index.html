@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en" data-skin="dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ramjet</title>
+    <script>
+      // cloak bootstrap: runs synchronously before first paint and before the module bundle.
+      // Captures the true uncloaked baseline, then cloaks pre-paint when rj-cloak is on, so an
+      // ON browser never flashes "ramjet" and an OFF browser never flashes "Google Docs".
+      // Storage failure reads as ON, matching src/lib/cloak.js isOn().
+      (function () {
+        var base = { title: document.title, icons: [].map.call(document.querySelectorAll("link[rel~='icon']"), function (l) { return l.getAttribute('href'); }) };
+        try { window.__rjCloakBase = base; } catch (e) {}
+        var on = true;
+        try { on = localStorage.getItem('rj-cloak') !== '0'; } catch (e) { on = true; }
+        if (!on) return;
+        document.title = 'Google Docs';
+        [['image/png', '/skin/docs2026-32.png', '32x32'], ['image/x-icon', '/skin/docs2026.ico', null]].forEach(function (i) {
+          var l = document.createElement('link');
+          l.rel = 'icon'; l.type = i[0]; l.href = i[1];
+          if (i[2]) l.sizes = i[2];
+          document.head.appendChild(l);
+        });
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

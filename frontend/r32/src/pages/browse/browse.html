@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#131110" />
+    <script src="/skin/theme-boot.js?v=8"></script>
+    <script src="/skin/palette.js?v=3" defer></script>
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <title>browse</title>
+    <style>
+      /* iOS WebKit ignores subframe viewport metas and auto-expands iframes to
+         content width, ballooning the page (Luke 2026-10-24: "every site too
+         wide for the viewbox"). Pin tab frames to the stage; no-op elsewhere.
+         !important so cascade order vs the injected bundle CSS never matters. */
+      .stage .tabframe { width: 1px !important; min-width: 100% !important; }
+    </style>
+    <script>
+      // cloak bootstrap: runs synchronously before first paint and before the module bundle.
+      // Captures the true uncloaked baseline, then cloaks pre-paint when rj-cloak is on
+      // (key absent = on), so an ON browser never flashes "browse" and an OFF browser
+      // never flashes "Google Docs". Storage failure reads as ON, matching src/lib/cloak.js.
+      (function () {
+        var base = { title: document.title, icons: [].map.call(document.querySelectorAll("link[rel~='icon']"), function (l) { return l.getAttribute('href'); }) };
+        try { window.__rjCloakBase = base; } catch (e) {}
+        var on = true;
+        try { on = localStorage.getItem('rj-cloak') !== '0'; } catch (e) { on = true; }
+        if (!on) return;
+        document.title = 'Google Docs';
+        [['image/png', '/skin/docs2026-32.png', '32x32'], ['image/x-icon', '/skin/docs2026.ico', null]].forEach(function (i) {
+          var l = document.createElement('link');
+          l.rel = 'icon'; l.type = i[0]; l.href = i[1];
+          if (i[2]) l.sizes = i[2];
+          document.head.appendChild(l);
+        });
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module" src="./browse.js"></script>
+  </body>
+</html>

@@ -1,0 +1,53 @@
+[
+  {
+    "name": "curl",
+    "source_url": "https://github.com/ading2210/curl",
+    "build_script_ref": "8.17.0-patched",
+    "resolved_refs": [
+      "a15072369578a37ce314ea4d8b06f30c2762ebcc\trefs/heads/8.17.0-patched"
+    ]
+  },
+  {
+    "name": "brotli",
+    "source_url": "https://github.com/google/brotli",
+    "build_script_ref": "v1.2.0",
+    "resolved_refs": [
+      "028fb5a23661f123017c060daa546b55cf4bde29\trefs/tags/v1.2.0"
+    ]
+  },
+  {
+    "name": "cJSON",
+    "source_url": "https://github.com/DaveGamble/cJSON",
+    "build_script_ref": "v1.7.19",
+    "resolved_refs": [
+      "c859b25da02955fef659d658b8f324b5cde87be3\trefs/tags/v1.7.19"
+    ]
+  },
+  {
+    "name": "mbedtls",
+    "source_url": "https://github.com/Mbed-TLS/mbedtls",
+    "build_script_ref": "mbedtls-3.6.5",
+    "resolved_refs": [
+      "c3db4124ce35e6a698019bd62a281f16ddb677a6\trefs/tags/mbedtls-3.6.5",
+      "e185d7fd85499c8ce5ca2a54f5cf8fe7dbe3f8df\trefs/tags/mbedtls-3.6.5^{}"
+    ]
+  },
+  {
+    "name": "nghttp2",
+    "source_url": "https://github.com/nghttp2/nghttp2",
+    "build_script_ref": "v1.68.0",
+    "resolved_refs": [
+      "43b29f991403b5419dd0bea2840581078ead9bf8\trefs/tags/v1.68.0",
+      "534b74b72524e962c18c7146470914632ca7eb2d\trefs/tags/v1.68.0^{}"
+    ]
+  },
+  {
+    "name": "zlib",
+    "source_url": "https://github.com/madler/zlib",
+    "build_script_ref": "v1.3.1",
+    "resolved_refs": [
+      "925af44f3cde53c6b076611c297850091b5dc7bb\trefs/tags/v1.3.1",
+      "51b7f2abdade71cd9bb0e7a373ef2610ec6f9daf\trefs/tags/v1.3.1^{}"
+    ]
+  }
+]

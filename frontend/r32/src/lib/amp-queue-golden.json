@@ -1,0 +1,695 @@
+[
+ {
+  "name": "bandwidth never skips or falls back",
+  "sections": [
+   {
+    "key": "yt:1",
+    "src": "yt",
+    "title": "Get Lucky",
+    "stream": "/s/yt:1"
+   },
+   {
+    "key": "sc:1",
+    "src": "sc",
+    "title": "Get Lucky",
+    "stream": "/s/sc:1"
+   },
+   {
+    "key": "au:1",
+    "src": "au",
+    "title": "Other Song",
+    "stream": "/s/au:1"
+   }
+  ],
+  "queue": [
+   "yt:1",
+   "sc:1",
+   "au:1"
+  ],
+  "now": {
+   "key": "yt:1",
+   "qi": 0,
+   "__fellBack": false
+  },
+  "errStreak": 2,
+  "retried": false,
+  "why": {
+   "kind": "bandwidth",
+   "msg": "the streaming limit has been reached."
+  },
+  "expect": {
+   "action": "show-bandwidth",
+   "errStreak": 2,
+   "trackErr": "the streaming limit has been reached."
+  }
+ },
+ {
+  "name": "network error: first one retries",
+  "sections": [
+   {
+    "key": "yt:1",
+    "src": "yt",
+    "title": "Get Lucky",
+    "stream": "/s/yt:1"
+   },
+   {
+    "key": "sc:1",
+    "src": "sc",
+    "title": "Get Lucky",
+    "stream": "/s/sc:1"
+   },
+   {
+    "key": "au:1",
+    "src": "au",
+    "title": "Other Song",
+    "stream": "/s/au:1"
+   }
+  ],
+  "queue": [
+   "yt:1",
+   "sc:1",
+   "au:1"
+  ],
+  "now": {
+   "key": "yt:1",
+   "qi": 0,
+   "__fellBack": false
+  },
+  "errStreak": 0,
+  "retried": false,
+  "why": {
+   "kind": "network",
+   "msg": ""
+  },
+  "expect": {
+   "action": "retry",
+   "errStreak": 0,
+   "retried": true
+  }
+ },
+ {
+  "name": "element error on healthy route: first one retries",
+  "sections": [
+   {
+    "key": "yt:1",
+    "src": "yt",
+    "title": "Get Lucky",
+    "stream": "/s/yt:1"
+   },
+   {
+    "key": "sc:1",
+    "src": "sc",
+    "title": "Get Lucky",
+    "stream": "/s/sc:1"
+   },
+   {
+    "key": "au:1",
+    "src": "au",
+    "title": "Other Song",
+    "stream": "/s/au:1"
+   }
+  ],
+  "queue": [
+   "yt:1",
+   "sc:1",
+   "au:1"
+  ],
+  "now": {
+   "key": "yt:1",
+   "qi": 0,
+   "__fellBack": false
+  },
+  "errStreak": 0,
+  "retried": false,
+  "why": {
+   "kind": "ok",
+   "msg": ""
+  },
+  "expect": {
+   "action": "retry",
+   "retried": true
+  }
+ },
+ {
+  "name": "network error after retry: falls back to other-source copy",
+  "sections": [
+   {
+    "key": "yt:1",
+    "src": "yt",
+    "title": "Get Lucky",
+    "stream": "/s/yt:1"
+   },
+   {
+    "key": "sc:1",
+    "src": "sc",
+    "title": "Get Lucky",
+    "stream": "/s/sc:1"
+   },
+   {
+    "key": "au:1",
+    "src": "au",
+    "title": "Other Song",
+    "stream": "/s/au:1"
+   }
+  ],
+  "queue": [
+   "yt:1",
+   "sc:1",
+   "au:1"
+  ],
+  "now": {
+   "key": "yt:1",
+   "qi": 0,
+   "__fellBack": false
+  },
+  "errStreak": 0,
+  "retried": true,
+  "why": {
+   "kind": "network",
+   "msg": ""
+  },
+  "expect": {
+   "action": "fallback",
+   "errStreak": 1,
+   "altKey": "sc:1",
+   "note": "playing the soundcloud copy instead",
+   "retried": false
+  }
+ },
+ {
+  "name": "http 503 on yt: no retry, straight to fallback",
+  "sections": [
+   {
+    "key": "yt:1",
+    "src": "yt",
+    "title": "Get Lucky",
+    "stream": "/s/yt:1"
+   },
+   {
+    "key": "sc:1",
+    "src": "sc",
+    "title": "Get Lucky",
+    "stream": "/s/sc:1"
+   },
+   {
+    "key": "au:1",
+    "src": "au",
+    "title": "Other Song",
+    "stream": "/s/au:1"
+   }
+  ],
+  "queue": [
+   "yt:1",
+   "sc:1",
+   "au:1"
+  ],
+  "now": {
+   "key": "yt:1",
+   "qi": 0,
+   "__fellBack": false
+  },
+  "errStreak": 0,
+  "retried": false,
+  "why": {
+   "kind": "http",
+   "status": 503,
+   "msg": ""
+  },
+  "expect": {
+   "action": "fallback",
+   "errStreak": 1,
+   "altKey": "sc:1",
+   "retried": false
+  }
+ },
+ {
+  "name": "sc broke: note says that copy broke",
+  "sections": [
+   {
+    "key": "yt:1",
+    "src": "yt",
+    "title": "Get Lucky",
+    "stream": "/s/yt:1"
+   },
+   {
+    "key": "sc:1",
+    "src": "sc",
+    "title": "Get Lucky",
+    "stream": "/s/sc:1"
+   },
+   {
+    "key": "au:1",
+    "src": "au",
+    "title": "Other Song",
+    "stream": "/s/au:1"
+   }
+  ],
+  "queue": [
+   "sc:1",
+   "yt:1",
+   "au:1"
+  ],
+  "now": {
+   "key": "sc:1",
+   "qi": 0,
+   "__fellBack": false
+  },
+  "errStreak": 0,
+  "retried": false,
+  "why": {
+   "kind": "http",
+   "status": 502,
+   "msg": ""
+  },
+  "expect": {
+   "action": "fallback",
+   "errStreak": 1,
+   "altKey": "yt:1",
+   "note": "playing the youtube copy instead"
+  }
+ },
+ {
+  "name": "already fell back once: skip, not another fallback",
+  "sections": [
+   {
+    "key": "yt:1",
+    "src": "yt",
+    "title": "Get Lucky",
+    "stream": "/s/yt:1"
+   },
+   {
+    "key": "sc:1",
+    "src": "sc",
+    "title": "Get Lucky",
+    "stream": "/s/sc:1"
+   },
+   {
+    "key": "au:1",
+    "src": "au",
+    "title": "Other Song",
+    "stream": "/s/au:1"
+   }
+  ],
+  "queue": [
+   "yt:1",
+   "sc:1",
+   "au:1"
+  ],
+  "now": {
+   "key": "sc:1",
+   "qi": 1,
+   "__fellBack": true
+  },
+  "errStreak": 1,
+  "retried": false,
+  "why": {
+   "kind": "http",
+   "status": 502,
+   "msg": ""
+  },
+  "expect": {
+   "action": "skip",
+   "errStreak": 2,
+   "note": "this song wouldn't play, so it's been skipped."
+  }
+ },
+ {
+  "name": "no alt copy: skip to next",
+  "sections": [
+   {
+    "key": "yt:1",
+    "src": "yt",
+    "title": "Solo",
+    "stream": "/s/yt:1"
+   },
+   {
+    "key": "au:1",
+    "src": "au",
+    "title": "Different",
+    "stream": "/s/au:1"
+   },
+   {
+    "key": "yt:2",
+    "src": "yt",
+    "title": "Third",
+    "stream": "/s/yt:2"
+   }
+  ],
+  "queue": [
+   "yt:1",
+   "au:1",
+   "yt:2"
+  ],
+  "now": {
+   "key": "yt:1",
+   "qi": 0,
+   "__fellBack": false
+  },
+  "errStreak": 0,
+  "retried": false,
+  "why": {
+   "kind": "http",
+   "status": 502,
+   "msg": ""
+  },
+  "expect": {
+   "action": "skip",
+   "errStreak": 1
+  }
+ },
+ {
+  "name": "third consecutive failure stops skipping",
+  "sections": [
+   {
+    "key": "yt:1",
+    "src": "yt",
+    "title": "Solo",
+    "stream": "/s/yt:1"
+   },
+   {
+    "key": "au:1",
+    "src": "au",
+    "title": "Different",
+    "stream": "/s/au:1"
+   },
+   {
+    "key": "yt:2",
+    "src": "yt",
+    "title": "Third",
+    "stream": "/s/yt:2"
+   }
+  ],
+  "queue": [
+   "yt:1",
+   "au:1",
+   "yt:2"
+  ],
+  "now": {
+   "key": "yt:1",
+   "qi": 0,
+   "__fellBack": false
+  },
+  "errStreak": 2,
+  "retried": false,
+  "why": {
+   "kind": "http",
+   "status": 502,
+   "msg": ""
+  },
+  "expect": {
+   "action": "give-up",
+   "errStreak": 3,
+   "trackErr": "this song couldn't play."
+  }
+ },
+ {
+  "name": "last track in queue: gives up with the source-specific message (yt)",
+  "sections": [
+   {
+    "key": "yt:1",
+    "src": "yt",
+    "title": "Solo",
+    "stream": "/s/yt:1"
+   },
+   {
+    "key": "au:1",
+    "src": "au",
+    "title": "Different",
+    "stream": "/s/au:1"
+   },
+   {
+    "key": "yt:2",
+    "src": "yt",
+    "title": "Third",
+    "stream": "/s/yt:2"
+   }
+  ],
+  "queue": [
+   "yt:1"
+  ],
+  "now": {
+   "key": "yt:1",
+   "qi": 0,
+   "__fellBack": false
+  },
+  "errStreak": 0,
+  "retried": false,
+  "why": {
+   "kind": "http",
+   "status": 502,
+   "msg": ""
+  },
+  "expect": {
+   "action": "give-up",
+   "errStreak": 1,
+   "trackErr": "this song couldn't play."
+  }
+ },
+ {
+  "name": "last track in queue: sc/au message",
+  "sections": [
+   {
+    "key": "yt:1",
+    "src": "yt",
+    "title": "Solo",
+    "stream": "/s/yt:1"
+   },
+   {
+    "key": "au:1",
+    "src": "au",
+    "title": "Different",
+    "stream": "/s/au:1"
+   },
+   {
+    "key": "yt:2",
+    "src": "yt",
+    "title": "Third",
+    "stream": "/s/yt:2"
+   }
+  ],
+  "queue": [
+   "au:1"
+  ],
+  "now": {
+   "key": "au:1",
+   "qi": 0,
+   "__fellBack": false
+  },
+  "errStreak": 0,
+  "retried": false,
+  "why": {
+   "kind": "http",
+   "status": 502,
+   "msg": ""
+  },
+  "expect": {
+   "action": "give-up",
+   "errStreak": 1,
+   "trackErr": "this song couldn't play."
+  }
+ },
+ {
+  "name": "title match ignores (parens) and feat. tails",
+  "sections": [
+   {
+    "key": "yt:1",
+    "src": "yt",
+    "title": "Get Lucky (Radio Edit)",
+    "stream": "/s/yt:1"
+   },
+   {
+    "key": "sc:1",
+    "src": "sc",
+    "title": "Get Lucky - feat. Pharrell",
+    "stream": "/s/sc:1"
+   }
+  ],
+  "queue": [
+   "yt:1",
+   "sc:1"
+  ],
+  "now": {
+   "key": "yt:1",
+   "qi": 0,
+   "__fellBack": false
+  },
+  "errStreak": 0,
+  "retried": false,
+  "why": {
+   "kind": "http",
+   "status": 502,
+   "msg": ""
+  },
+  "expect": {
+   "action": "fallback",
+   "altKey": "sc:1",
+   "errStreak": 1
+  }
+ },
+ {
+  "name": "prefix rule (8+ chars, 6 slack) matches a longer alt title",
+  "sections": [
+   {
+    "key": "yt:1",
+    "src": "yt",
+    "title": "Instant Crush",
+    "stream": "/s/yt:1"
+   },
+   {
+    "key": "sc:1",
+    "src": "sc",
+    "title": "Instant Crush Live at Wembley 2014",
+    "stream": "/s/sc:1"
+   }
+  ],
+  "queue": [
+   "yt:1",
+   "sc:1"
+  ],
+  "now": {
+   "key": "yt:1",
+   "qi": 0,
+   "__fellBack": false
+  },
+  "errStreak": 0,
+  "retried": false,
+  "why": {
+   "kind": "http",
+   "status": 502,
+   "msg": ""
+  },
+  "expect": {
+   "action": "fallback",
+   "altKey": "sc:1",
+   "errStreak": 1
+  },
+  "note": "want='instant crush' (13) -> prefix 'instant' (7)->max(8,7)=8 chars 'instant '"
+ },
+ {
+  "name": "alt without a stream url is ignored",
+  "sections": [
+   {
+    "key": "yt:1",
+    "src": "yt",
+    "title": "Get Lucky",
+    "stream": "/s/yt:1"
+   },
+   {
+    "key": "sc:1",
+    "src": "sc",
+    "title": "Get Lucky",
+    "stream": ""
+   },
+   {
+    "key": "au:1",
+    "src": "au",
+    "title": "Other",
+    "stream": "/s/au:1"
+   }
+  ],
+  "queue": [
+   "yt:1",
+   "sc:1",
+   "au:1"
+  ],
+  "now": {
+   "key": "yt:1",
+   "qi": 0,
+   "__fellBack": false
+  },
+  "errStreak": 0,
+  "retried": false,
+  "why": {
+   "kind": "http",
+   "status": 502,
+   "msg": ""
+  },
+  "expect": {
+   "action": "skip",
+   "errStreak": 1
+  }
+ },
+ {
+  "name": "untitled rows never match each other (guard on empty normTitle)",
+  "sections": [
+   {
+    "key": "yt:1",
+    "src": "yt",
+    "title": "",
+    "stream": "/s/yt:1"
+   },
+   {
+    "key": "sc:1",
+    "src": "sc",
+    "title": "",
+    "stream": "/s/sc:1"
+   },
+   {
+    "key": "au:1",
+    "src": "au",
+    "title": "x",
+    "stream": "/s/au:1"
+   }
+  ],
+  "queue": [
+   "yt:1",
+   "sc:1",
+   "au:1"
+  ],
+  "now": {
+   "key": "yt:1",
+   "qi": 0,
+   "__fellBack": false
+  },
+  "errStreak": 0,
+  "retried": false,
+  "why": {
+   "kind": "http",
+   "status": 502,
+   "msg": ""
+  },
+  "expect": {
+   "action": "skip",
+   "altKey": "",
+   "errStreak": 1
+  },
+  "note": "flipped from the old quirk pin: an empty normalised title never counts as the same song."
+ },
+ {
+  "name": "prefix rule needs 8+ chars: short titles do not fuzzy-match (so it skips)",
+  "sections": [
+   {
+    "key": "yt:1",
+    "src": "yt",
+    "title": "Short",
+    "stream": "/s/yt:1"
+   },
+   {
+    "key": "sc:1",
+    "src": "sc",
+    "title": "Shorter Song",
+    "stream": "/s/sc:1"
+   }
+  ],
+  "queue": [
+   "yt:1",
+   "sc:1"
+  ],
+  "now": {
+   "key": "yt:1",
+   "qi": 0,
+   "__fellBack": false
+  },
+  "errStreak": 0,
+  "retried": false,
+  "why": {
+   "kind": "http",
+   "status": 502,
+   "msg": ""
+  },
+  "expect": {
+   "action": "skip",
+   "errStreak": 1
+  }
+ }
+]
