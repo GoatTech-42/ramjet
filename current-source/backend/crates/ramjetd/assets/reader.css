@@ -1,0 +1,42 @@
+/* mirror of sx.css head */
+:root{--rj-bg:#0a0a0a;--rj-surface:#141414;--rj-surface-2:#1f1f1f;--rj-hover:#1f1f1f;--rj-line:#333333;--rj-strong:#4d4d4d;--rj-text:#f2f2f2;--rj-text-dim:#b3b3b3;--rj-text-faint:#8f8f8f;--rj-accent:#ffffff;--rj-accent-ink:#0a0a0a;--rj-danger:#ffffff;--rj-radius:4px;--rj-pill:999px}
+:root[data-skin='paper']{--rj-bg:#f2f2f2;--rj-surface:#e8e8e8;--rj-surface-2:#d4d4d4;--rj-hover:#d4d4d4;--rj-line:#cdcdcd;--rj-strong:#b3b3b3;--rj-text:#0a0a0a;--rj-text-dim:#4d4d4d;--rj-text-faint:#626262;--rj-accent:#0a0a0a;--rj-accent-ink:#ffffff;--rj-danger:#0a0a0a}
+*{box-sizing:border-box}
+::selection{background:color-mix(in srgb,var(--rj-accent) 32%,transparent)}
+body{background:var(--rj-bg);color:var(--rj-text);font-family:"Geist",ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;margin:0;font-size:17px;line-height:1.75}
+a{color:var(--rj-accent);text-decoration:none}
+a:hover{text-decoration:underline}
+a:focus-visible{outline:2px solid var(--rj-accent);outline-offset:3px}
+.bar{max-width:640px;margin:0 auto;padding:14px 20px 0;display:flex;gap:14px;align-items:center}
+.bar a{font-family:"Geist Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px;color:var(--rj-text-dim)}
+.bar a:hover{color:var(--rj-text)}
+main{max-width:640px;margin:0 auto;padding:8px 20px 80px}
+.src{font-family:"Geist Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;color:var(--rj-text-faint);margin:18px 0 6px}
+h1.t{font-size:28px;font-weight:600;letter-spacing:-.03em;line-height:1.2;margin:0 0 22px}
+h2{font-size:21px;font-weight:600;letter-spacing:-.02em;margin:30px 0 10px}
+h3,h4{font-size:17px;font-weight:600;margin:24px 0 8px}
+p{margin:0 0 16px}
+ul,ol{margin:0 0 16px;padding-left:22px}
+li{margin:4px 0}
+blockquote{margin:0 0 16px;padding:2px 0 2px 14px;border-left:2px solid var(--rj-strong);color:var(--rj-text-dim)}
+pre{background:var(--rj-surface);border:1px solid var(--rj-line);border-radius:var(--rj-radius);padding:12px 14px;overflow-x:auto;margin:0 0 16px}
+code{font-family:"Geist Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px}
+p code,li code{background:var(--rj-surface-2);border-radius:4px;padding:1px 5px}
+img{max-width:100%;height:auto;border-radius:var(--rj-radius);margin:8px 0}
+figure{margin:0 0 16px}
+figcaption{font-family:"Geist Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;color:var(--rj-text-faint);margin-top:4px}
+table{border-collapse:collapse;width:100%;margin:0 0 16px;font-size:15px}
+th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--rj-line)}
+hr{border:0;border-top:1px solid var(--rj-line);margin:28px 0}
+.err{max-width:640px;margin:18vh auto 0;padding:0 20px;color:var(--rj-text-dim);font-size:16px}
+.err a{text-decoration:underline}
+.bar .mark{font:700 20px "Geist",ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;letter-spacing:-.03em;color:var(--rj-text)}
+.back{width:34px;height:34px;display:grid;place-items:center;border-radius:4px}.back:hover{background:var(--rj-hover)}.back svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round}
+
+.back{min-width:44px;min-height:44px}.err a{display:inline-flex;align-items:center;min-height:44px}.bar a{min-height:44px;display:inline-flex;align-items:center}
+
+/* c16e: reader bar at 390, quiet full-page link next to try again, explicit back colour */
+@media(max-width:479px){.bar .mark{display:none}}
+.back{color:var(--rj-text-dim)}
+.err a[data-reader-retry]~a{color:var(--rj-text-dim);text-decoration:none}
+.err a[data-reader-retry]~a:hover{color:var(--rj-text);text-decoration:underline}

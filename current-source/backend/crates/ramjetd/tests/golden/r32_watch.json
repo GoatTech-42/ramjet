@@ -1,0 +1,174 @@
+{
+ "entries": {
+  "full": {
+   "url": null,
+   "quality": "1080p",
+   "channel": "Chan \"x\"",
+   "channelId": "UC1",
+   "hd": {
+    "videoUrl": "V1",
+    "audioUrl": "A",
+    "quality": "1080p"
+   },
+   "hdVp9": {
+    "videoUrl": "V2",
+    "audioUrl": "A",
+    "quality": "1080p"
+   },
+   "hdL": {
+    "videoUrl": "V3",
+    "audioUrl": "A",
+    "quality": "720p"
+   },
+   "hdLVp9": {
+    "videoUrl": "V4",
+    "audioUrl": "A",
+    "quality": "720p"
+   }
+  },
+  "muxonly": {
+   "url": "MUX",
+   "quality": "360p",
+   "channel": "",
+   "channelId": "",
+   "hd": null,
+   "hdVp9": null,
+   "hdL": null,
+   "hdLVp9": null
+  },
+  "vp9only": {
+   "url": null,
+   "quality": "1080p",
+   "channel": "ü ",
+   "channelId": "U",
+   "hd": null,
+   "hdVp9": {
+    "videoUrl": "V2",
+    "audioUrl": "A",
+    "quality": "1080p"
+   },
+   "hdL": null,
+   "hdLVp9": null
+  },
+  "nolite": {
+   "url": null,
+   "quality": "480p",
+   "channel": "c",
+   "channelId": "u",
+   "hd": {
+    "videoUrl": "V1",
+    "audioUrl": "A",
+    "quality": "480p"
+   },
+   "hdVp9": {
+    "videoUrl": "V2",
+    "audioUrl": "A",
+    "quality": "480p"
+   },
+   "hdL": null,
+   "hdLVp9": {
+    "videoUrl": "V4",
+    "audioUrl": "A",
+    "quality": "360p"
+   }
+  }
+ },
+ "cases": [
+  {
+   "name": "full",
+   "vp9": false,
+   "lite": false,
+   "body": "{\"ok\":true,\"id\":\"abcDEF12345\",\"quality\":\"1080p\",\"stream\":\"/api/apps/jetstream/stream?id=abcDEF12345\",\"direct\":null,\"channel\":\"Chan \\\"x\\\"\",\"channelId\":\"UC1\",\"hd\":{\"quality\":\"1080p\",\"video\":\"/api/apps/jetstream/vsrc?id=abcDEF12345&kind=video\",\"audio\":\"/api/apps/jetstream/vsrc?id=abcDEF12345&kind=audio\",\"directVideo\":\"V1\",\"directAudio\":\"A\"}}"
+  },
+  {
+   "name": "full",
+   "vp9": false,
+   "lite": true,
+   "body": "{\"ok\":true,\"id\":\"abcDEF12345\",\"quality\":\"1080p\",\"stream\":\"/api/apps/jetstream/stream?id=abcDEF12345\",\"direct\":null,\"channel\":\"Chan \\\"x\\\"\",\"channelId\":\"UC1\",\"hd\":{\"quality\":\"720p\",\"video\":\"/api/apps/jetstream/vsrc?id=abcDEF12345&kind=lvideo\",\"audio\":\"/api/apps/jetstream/vsrc?id=abcDEF12345&kind=audio\",\"directVideo\":\"V3\",\"directAudio\":\"A\"}}"
+  },
+  {
+   "name": "full",
+   "vp9": true,
+   "lite": false,
+   "body": "{\"ok\":true,\"id\":\"abcDEF12345\",\"quality\":\"1080p\",\"stream\":\"/api/apps/jetstream/stream?id=abcDEF12345\",\"direct\":null,\"channel\":\"Chan \\\"x\\\"\",\"channelId\":\"UC1\",\"hd\":{\"quality\":\"1080p\",\"video\":\"/api/apps/jetstream/vsrc?id=abcDEF12345&kind=vp9video\",\"audio\":\"/api/apps/jetstream/vsrc?id=abcDEF12345&kind=audio\",\"directVideo\":\"V2\",\"directAudio\":\"A\"}}"
+  },
+  {
+   "name": "full",
+   "vp9": true,
+   "lite": true,
+   "body": "{\"ok\":true,\"id\":\"abcDEF12345\",\"quality\":\"1080p\",\"stream\":\"/api/apps/jetstream/stream?id=abcDEF12345\",\"direct\":null,\"channel\":\"Chan \\\"x\\\"\",\"channelId\":\"UC1\",\"hd\":{\"quality\":\"720p\",\"video\":\"/api/apps/jetstream/vsrc?id=abcDEF12345&kind=lvp9video\",\"audio\":\"/api/apps/jetstream/vsrc?id=abcDEF12345&kind=audio\",\"directVideo\":\"V4\",\"directAudio\":\"A\"}}"
+  },
+  {
+   "name": "muxonly",
+   "vp9": false,
+   "lite": false,
+   "body": "{\"ok\":true,\"id\":\"abcDEF12345\",\"quality\":\"360p\",\"stream\":\"/api/apps/jetstream/stream?id=abcDEF12345\",\"direct\":\"MUX\",\"channel\":\"\",\"channelId\":\"\"}"
+  },
+  {
+   "name": "muxonly",
+   "vp9": false,
+   "lite": true,
+   "body": "{\"ok\":true,\"id\":\"abcDEF12345\",\"quality\":\"360p\",\"stream\":\"/api/apps/jetstream/stream?id=abcDEF12345\",\"direct\":\"MUX\",\"channel\":\"\",\"channelId\":\"\"}"
+  },
+  {
+   "name": "muxonly",
+   "vp9": true,
+   "lite": false,
+   "body": "{\"ok\":true,\"id\":\"abcDEF12345\",\"quality\":\"360p\",\"stream\":\"/api/apps/jetstream/stream?id=abcDEF12345\",\"direct\":\"MUX\",\"channel\":\"\",\"channelId\":\"\"}"
+  },
+  {
+   "name": "muxonly",
+   "vp9": true,
+   "lite": true,
+   "body": "{\"ok\":true,\"id\":\"abcDEF12345\",\"quality\":\"360p\",\"stream\":\"/api/apps/jetstream/stream?id=abcDEF12345\",\"direct\":\"MUX\",\"channel\":\"\",\"channelId\":\"\"}"
+  },
+  {
+   "name": "vp9only",
+   "vp9": false,
+   "lite": false,
+   "body": "{\"ok\":true,\"id\":\"abcDEF12345\",\"quality\":\"1080p\",\"stream\":\"/api/apps/jetstream/stream?id=abcDEF12345\",\"direct\":null,\"channel\":\"ü \",\"channelId\":\"U\"}"
+  },
+  {
+   "name": "vp9only",
+   "vp9": false,
+   "lite": true,
+   "body": "{\"ok\":true,\"id\":\"abcDEF12345\",\"quality\":\"1080p\",\"stream\":\"/api/apps/jetstream/stream?id=abcDEF12345\",\"direct\":null,\"channel\":\"ü \",\"channelId\":\"U\"}"
+  },
+  {
+   "name": "vp9only",
+   "vp9": true,
+   "lite": false,
+   "body": "{\"ok\":true,\"id\":\"abcDEF12345\",\"quality\":\"1080p\",\"stream\":\"/api/apps/jetstream/stream?id=abcDEF12345\",\"direct\":null,\"channel\":\"ü \",\"channelId\":\"U\",\"hd\":{\"quality\":\"1080p\",\"video\":\"/api/apps/jetstream/vsrc?id=abcDEF12345&kind=vp9video\",\"audio\":\"/api/apps/jetstream/vsrc?id=abcDEF12345&kind=audio\",\"directVideo\":\"V2\",\"directAudio\":\"A\"}}"
+  },
+  {
+   "name": "vp9only",
+   "vp9": true,
+   "lite": true,
+   "body": "{\"ok\":true,\"id\":\"abcDEF12345\",\"quality\":\"1080p\",\"stream\":\"/api/apps/jetstream/stream?id=abcDEF12345\",\"direct\":null,\"channel\":\"ü \",\"channelId\":\"U\",\"hd\":{\"quality\":\"1080p\",\"video\":\"/api/apps/jetstream/vsrc?id=abcDEF12345&kind=vp9video\",\"audio\":\"/api/apps/jetstream/vsrc?id=abcDEF12345&kind=audio\",\"directVideo\":\"V2\",\"directAudio\":\"A\"}}"
+  },
+  {
+   "name": "nolite",
+   "vp9": false,
+   "lite": false,
+   "body": "{\"ok\":true,\"id\":\"abcDEF12345\",\"quality\":\"480p\",\"stream\":\"/api/apps/jetstream/stream?id=abcDEF12345\",\"direct\":null,\"channel\":\"c\",\"channelId\":\"u\",\"hd\":{\"quality\":\"480p\",\"video\":\"/api/apps/jetstream/vsrc?id=abcDEF12345&kind=video\",\"audio\":\"/api/apps/jetstream/vsrc?id=abcDEF12345&kind=audio\",\"directVideo\":\"V1\",\"directAudio\":\"A\"}}"
+  },
+  {
+   "name": "nolite",
+   "vp9": false,
+   "lite": true,
+   "body": "{\"ok\":true,\"id\":\"abcDEF12345\",\"quality\":\"480p\",\"stream\":\"/api/apps/jetstream/stream?id=abcDEF12345\",\"direct\":null,\"channel\":\"c\",\"channelId\":\"u\",\"hd\":{\"quality\":\"480p\",\"video\":\"/api/apps/jetstream/vsrc?id=abcDEF12345&kind=video\",\"audio\":\"/api/apps/jetstream/vsrc?id=abcDEF12345&kind=audio\",\"directVideo\":\"V1\",\"directAudio\":\"A\"}}"
+  },
+  {
+   "name": "nolite",
+   "vp9": true,
+   "lite": false,
+   "body": "{\"ok\":true,\"id\":\"abcDEF12345\",\"quality\":\"480p\",\"stream\":\"/api/apps/jetstream/stream?id=abcDEF12345\",\"direct\":null,\"channel\":\"c\",\"channelId\":\"u\",\"hd\":{\"quality\":\"480p\",\"video\":\"/api/apps/jetstream/vsrc?id=abcDEF12345&kind=vp9video\",\"audio\":\"/api/apps/jetstream/vsrc?id=abcDEF12345&kind=audio\",\"directVideo\":\"V2\",\"directAudio\":\"A\"}}"
+  },
+  {
+   "name": "nolite",
+   "vp9": true,
+   "lite": true,
+   "body": "{\"ok\":true,\"id\":\"abcDEF12345\",\"quality\":\"480p\",\"stream\":\"/api/apps/jetstream/stream?id=abcDEF12345\",\"direct\":null,\"channel\":\"c\",\"channelId\":\"u\",\"hd\":{\"quality\":\"360p\",\"video\":\"/api/apps/jetstream/vsrc?id=abcDEF12345&kind=lvp9video\",\"audio\":\"/api/apps/jetstream/vsrc?id=abcDEF12345&kind=audio\",\"directVideo\":\"V4\",\"directAudio\":\"A\"}}"
+  }
+ ]
+}

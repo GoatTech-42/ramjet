@@ -1,0 +1,1 @@
+<script>document.addEventListener("click",function(e){var a=e.target&&e.target.closest?e.target.closest("a[data-reader-retry]"):null;if(!a)return;if(a.getAttribute("aria-disabled")==="true"){e.preventDefault();return;}a.setAttribute("aria-disabled","true");},true);</script>

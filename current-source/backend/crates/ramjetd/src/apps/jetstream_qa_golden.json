@@ -1,0 +1,558 @@
+[
+ {
+  "name": "history empty",
+  "user": "u",
+  "method": "GET",
+  "path": "/history",
+  "body": null,
+  "expect": {
+   "status": 200,
+   "body": "{\"ok\":true,\"items\":[]}"
+  }
+ },
+ {
+  "name": "history bad id",
+  "user": "u",
+  "method": "POST",
+  "path": "/history",
+  "body": "{\"id\":\"short\",\"title\":\"t\"}",
+  "expect": {
+   "status": 400,
+   "body": "{\"ok\":false,\"error\":\"bad video id\"}"
+  }
+ },
+ {
+  "name": "history no title",
+  "user": "u",
+  "method": "POST",
+  "path": "/history",
+  "body": "{\"id\":\"vvvvvvvvvv1\",\"title\":\"  \"}",
+  "expect": {
+   "status": 400,
+   "body": "{\"ok\":false,\"error\":\"need a title\"}"
+  }
+ },
+ {
+  "name": "history garbage body",
+  "user": "u",
+  "method": "POST",
+  "path": "/history",
+  "body": "{ nope",
+  "expect": {
+   "status": 400,
+   "body": "{\"ok\":false,\"error\":\"bad video id\"}"
+  }
+ },
+ {
+  "name": "history add",
+  "user": "u",
+  "method": "POST",
+  "path": "/history",
+  "body": "{\"id\":\"vvvvvvvvvv1\",\"title\":\"  A title \",\"channel\":\"ch\",\"duration\":\"12:34\"}",
+  "expect": {
+   "status": 200,
+   "body": "{\"ok\":true}"
+  }
+ },
+ {
+  "name": "history add short",
+  "user": "u",
+  "method": "POST",
+  "path": "/history",
+  "body": "{\"id\":\"vvvvvvvvvv2\",\"title\":\"short vid\",\"duration\":\"0:45\"}",
+  "expect": {
+   "status": 200,
+   "body": "{\"ok\":true}"
+  }
+ },
+ {
+  "name": "history list (shorts <=61s filtered)",
+  "user": "u",
+  "method": "GET",
+  "path": "/history",
+  "body": null,
+  "expect": {
+   "status": 200,
+   "body": "{\"ok\":true,\"items\":[{\"id\":\"vvvvvvvvvv1\",\"title\":\"A title\",\"channel\":\"ch\",\"duration\":\"12:34\",\"secs\":754,\"completed\":false,\"at\":1760000000001}]}"
+  }
+ },
+ {
+  "name": "history title 300 chars",
+  "user": "u",
+  "method": "POST",
+  "path": "/history",
+  "body": "{\"id\":\"vvvvvvvvvv3\",\"title\":\"tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt\",\"duration\":\"1:00:00:00:99\"}",
+  "expect": {
+   "status": 200,
+   "body": "{\"ok\":true}"
+  }
+ },
+ {
+  "name": "history complete V1",
+  "user": "u",
+  "method": "POST",
+  "path": "/history/complete",
+  "body": "{\"id\":\"vvvvvvvvvv1\"}",
+  "expect": {
+   "status": 200,
+   "body": "{\"ok\":true}"
+  }
+ },
+ {
+  "name": "history complete unknown (still 200)",
+  "user": "u",
+  "method": "POST",
+  "path": "/history/complete",
+  "body": "{\"id\":\"vvvvvvvvvv9\"}",
+  "expect": {
+   "status": 200,
+   "body": "{\"ok\":true}"
+  }
+ },
+ {
+  "name": "history list (completed leaves shelf)",
+  "user": "u",
+  "method": "GET",
+  "path": "/history",
+  "body": null,
+  "expect": {
+   "status": 200,
+   "body": "{\"ok\":true,\"items\":[{\"id\":\"vvvvvvvvvv3\",\"title\":\"tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt\",\"channel\":\"\",\"duration\":\"1:00:00:\",\"secs\":null,\"completed\":false,\"at\":1760000000004}]}"
+  }
+ },
+ {
+  "name": "history delete",
+  "user": "u",
+  "method": "POST",
+  "path": "/history/delete",
+  "body": "{\"id\":\"vvvvvvvvvv3\"}",
+  "expect": {
+   "status": 200,
+   "body": "{\"ok\":true}"
+  }
+ },
+ {
+  "name": "settings get",
+  "user": "u",
+  "method": "GET",
+  "path": "/settings",
+  "body": null,
+  "expect": {
+   "status": 200,
+   "body": "{\"ok\":true,\"paused\":false,\"count\":2}"
+  }
+ },
+ {
+  "name": "settings pause",
+  "user": "u",
+  "method": "POST",
+  "path": "/settings",
+  "body": "{\"paused\":true}",
+  "expect": {
+   "status": 200,
+   "body": "{\"ok\":true,\"paused\":true}"
+  }
+ },
+ {
+  "name": "history add while paused",
+  "user": "u",
+  "method": "POST",
+  "path": "/history",
+  "body": "{\"id\":\"vvvvvvvvvv4\",\"title\":\"x\"}",
+  "expect": {
+   "status": 200,
+   "body": "{\"ok\":true,\"paused\":true}"
+  }
+ },
+ {
+  "name": "settings garbage body unpauses",
+  "user": "u",
+  "method": "POST",
+  "path": "/settings",
+  "body": "{ nope",
+  "expect": {
+   "status": 200,
+   "body": "{\"ok\":true,\"paused\":false}"
+  }
+ },
+ {
+  "name": "settings get after",
+  "user": "u",
+  "method": "GET",
+  "path": "/settings",
+  "body": null,
+  "expect": {
+   "status": 200,
+   "body": "{\"ok\":true,\"paused\":false,\"count\":2}"
+  }
+ },
+ {
+  "name": "likes toggle bad id",
+  "user": "u",
+  "method": "POST",
+  "path": "/likes/toggle",
+  "body": "{\"id\":\"x\"}",
+  "expect": {
+   "status": 400,
+   "body": "{\"ok\":false,\"error\":\"bad id\"}"
+  }
+ },
+ {
+  "name": "likes toggle on",
+  "user": "u",
+  "method": "POST",
+  "path": "/likes/toggle",
+  "body": "{\"id\":\"vvvvvvvvvv5\",\"title\":\"L\",\"channel\":\"c\",\"duration\":\"3:00\"}",
+  "expect": {
+   "status": 200,
+   "body": "{\"ok\":true,\"liked\":true}"
+  }
+ },
+ {
+  "name": "likes get",
+  "user": "u",
+  "method": "GET",
+  "path": "/likes",
+  "body": null,
+  "expect": {
+   "status": 200,
+   "body": "{\"ok\":true,\"ids\":[\"vvvvvvvvvv5\"]}"
+  }
+ },
+ {
+  "name": "likes toggle off",
+  "user": "u",
+  "method": "POST",
+  "path": "/likes/toggle",
+  "body": "{\"id\":\"vvvvvvvvvv5\"}",
+  "expect": {
+   "status": 200,
+   "body": "{\"ok\":true,\"liked\":false}"
+  }
+ },
+ {
+  "name": "dislikes toggle on",
+  "user": "u",
+  "method": "POST",
+  "path": "/dislikes/toggle",
+  "body": "{\"id\":\"vvvvvvvvvv6\"}",
+  "expect": {
+   "status": 200,
+   "body": "{\"ok\":true,\"disliked\":true}"
+  }
+ },
+ {
+  "name": "dislikes get",
+  "user": "u",
+  "method": "GET",
+  "path": "/dislikes",
+  "body": null,
+  "expect": {
+   "status": 200,
+   "body": "{\"ok\":true,\"ids\":[\"vvvvvvvvvv6\"]}"
+  }
+ },
+ {
+  "name": "subs toggle missing name",
+  "user": "u",
+  "method": "POST",
+  "path": "/subs/toggle",
+  "body": "{\"id\":\"UCx\"}",
+  "expect": {
+   "status": 400,
+   "body": "{\"ok\":false,\"error\":\"missing channel\"}"
+  }
+ },
+ {
+  "name": "subs toggle on",
+  "user": "u",
+  "method": "POST",
+  "path": "/subs/toggle",
+  "body": "{\"id\":\"UCx\",\"name\":\"  Chan  \"}",
+  "expect": {
+   "status": 200,
+   "body": "{\"ok\":true,\"subbed\":true}"
+  }
+ },
+ {
+  "name": "subs get",
+  "user": "u",
+  "method": "GET",
+  "path": "/subs",
+  "body": null,
+  "expect": {
+   "status": 200,
+   "body": "{\"ok\":true,\"subs\":[{\"id\":\"UCx\",\"name\":\"Chan\",\"ts\":1760000000008}]}"
+  }
+ },
+ {
+  "name": "subs toggle off",
+  "user": "u",
+  "method": "POST",
+  "path": "/subs/toggle",
+  "body": "{\"id\":\"UCx\",\"name\":\"Chan\"}",
+  "expect": {
+   "status": 200,
+   "body": "{\"ok\":true,\"subbed\":false}"
+  }
+ },
+ {
+  "name": "subs/new no subs",
+  "user": "u",
+  "method": "GET",
+  "path": "/subs/new",
+  "body": null,
+  "expect": {
+   "status": 200,
+   "body": "{\"ok\":true,\"items\":[]}"
+  }
+ },
+ {
+  "name": "ws insert with watched+seq",
+  "user": "w",
+  "method": "POST",
+  "path": "/history",
+  "body": "{\"id\":\"vvvvvvvvv20\",\"title\":\"W\",\"duration\":\"10:00\",\"watched\":18.6,\"seq\":1000}",
+  "expect": {
+   "status": 200,
+   "body": "{\"ok\":true}"
+  }
+ },
+ {
+  "name": "ws list shows ws,wsSeq",
+  "user": "w",
+  "method": "GET",
+  "path": "/history",
+  "body": null,
+  "expect": {
+   "status": 200,
+   "body": "{\"ok\":true,\"items\":[{\"id\":\"vvvvvvvvv20\",\"title\":\"W\",\"channel\":\"\",\"duration\":\"10:00\",\"secs\":600,\"completed\":false,\"at\":1760000000009,\"wsSeq\":1000,\"ws\":19}]}"
+  }
+ },
+ {
+  "name": "ws update newer seq",
+  "user": "w",
+  "method": "POST",
+  "path": "/history",
+  "body": "{\"id\":\"vvvvvvvvv20\",\"title\":\"W\",\"watched\":20,\"seq\":2000}",
+  "expect": {
+   "status": 200,
+   "body": "{\"ok\":true}"
+  }
+ },
+ {
+  "name": "ws update OLDER seq -> stale",
+  "user": "w",
+  "method": "POST",
+  "path": "/history",
+  "body": "{\"id\":\"vvvvvvvvv20\",\"title\":\"W\",\"watched\":18,\"seq\":1500}",
+  "expect": {
+   "status": 200,
+   "body": "{\"ok\":true,\"stale\":true}"
+  }
+ },
+ {
+  "name": "ws update EQUAL seq applies",
+  "user": "w",
+  "method": "POST",
+  "path": "/history",
+  "body": "{\"id\":\"vvvvvvvvv20\",\"title\":\"W\",\"watched\":21,\"seq\":2000}",
+  "expect": {
+   "status": 200,
+   "body": "{\"ok\":true}"
+  }
+ },
+ {
+  "name": "ws update no seq last-write-wins",
+  "user": "w",
+  "method": "POST",
+  "path": "/history",
+  "body": "{\"id\":\"vvvvvvvvv20\",\"title\":\"W\",\"watched\":5}",
+  "expect": {
+   "status": 200,
+   "body": "{\"ok\":true}"
+  }
+ },
+ {
+  "name": "ws negative watched clamps to 0",
+  "user": "w",
+  "method": "POST",
+  "path": "/history",
+  "body": "{\"id\":\"vvvvvvvvv20\",\"title\":\"W\",\"watched\":-9,\"seq\":3000}",
+  "expect": {
+   "status": 200,
+   "body": "{\"ok\":true}"
+  }
+ },
+ {
+  "name": "ws float seq floors",
+  "user": "w",
+  "method": "POST",
+  "path": "/history",
+  "body": "{\"id\":\"vvvvvvvvv20\",\"title\":\"W\",\"watched\":7,\"seq\":3000.9}",
+  "expect": {
+   "status": 200,
+   "body": "{\"ok\":true}"
+  }
+ },
+ {
+  "name": "ws seq 0 and negative ignored (no stale check)",
+  "user": "w",
+  "method": "POST",
+  "path": "/history",
+  "body": "{\"id\":\"vvvvvvvvv20\",\"title\":\"W\",\"watched\":8,\"seq\":-5}",
+  "expect": {
+   "status": 200,
+   "body": "{\"ok\":true}"
+  }
+ },
+ {
+  "name": "ws seq as string ignored",
+  "user": "w",
+  "method": "POST",
+  "path": "/history",
+  "body": "{\"id\":\"vvvvvvvvv20\",\"title\":\"W\",\"watched\":9,\"seq\":\"99999\"}",
+  "expect": {
+   "status": 200,
+   "body": "{\"ok\":true}"
+  }
+ },
+ {
+  "name": "ws watched as string -> NOT an update, re-surfaces (insert path)",
+  "user": "w",
+  "method": "POST",
+  "path": "/history",
+  "body": "{\"id\":\"vvvvvvvvv20\",\"title\":\"W2\",\"watched\":\"12\"}",
+  "expect": {
+   "status": 200,
+   "body": "{\"ok\":true}"
+  }
+ },
+ {
+  "name": "ws list after",
+  "user": "w",
+  "method": "GET",
+  "path": "/history",
+  "body": null,
+  "expect": {
+   "status": 200,
+   "body": "{\"ok\":true,\"items\":[{\"id\":\"vvvvvvvvv20\",\"title\":\"W2\",\"channel\":\"\",\"duration\":\"\",\"secs\":null,\"completed\":false,\"at\":1760000000011}]}"
+  }
+ },
+ {
+  "name": "ws update on missing entry inserts with ws",
+  "user": "w",
+  "method": "POST",
+  "path": "/history",
+  "body": "{\"id\":\"vvvvvvvvv21\",\"title\":\"N\",\"duration\":\"9:00\",\"watched\":3,\"seq\":10}",
+  "expect": {
+   "status": 200,
+   "body": "{\"ok\":true}"
+  }
+ },
+ {
+  "name": "ws list after insert",
+  "user": "w",
+  "method": "GET",
+  "path": "/history",
+  "body": null,
+  "expect": {
+   "status": 200,
+   "body": "{\"ok\":true,\"items\":[{\"id\":\"vvvvvvvvv21\",\"title\":\"N\",\"channel\":\"\",\"duration\":\"9:00\",\"secs\":540,\"completed\":false,\"at\":1760000000013,\"wsSeq\":10,\"ws\":3},{\"id\":\"vvvvvvvvv20\",\"title\":\"W2\",\"channel\":\"\",\"duration\":\"\",\"secs\":null,\"completed\":false,\"at\":1760000000011}]}"
+  }
+ },
+ {
+  "name": "likes cap 100 (count after 105 toggles)",
+  "user": "cap",
+  "method": "GET",
+  "path": "/likes",
+  "body": null,
+  "expect": {
+   "status": 200,
+   "bodySha256": "703b880506d2c5e693a75b3908f25602636daa8b4a6542b2edeb9f2b03bbe864",
+   "bodyLen": 1419,
+   "head": "{\"ok\":true,\"ids\":[\"vvvvvvvv204\",\"vvvvvvvv203\",\"vvvvvvvv202\",\"vvvvvvvv201\",\"vvvvvvvv200\",\"vvvvvvvv199\",\"vvvvvvvv198\",\"vvvvvvvv197\",\"vvvvvvvv196\",\"vvvvvvvv195\",\"vvvvvvvv194\",\"vvvvvvvv193\",\"vvvvvvvv192\",\"vvvvvvvv191\",\"vvvvvvvv190\",\"vvvvvvvv189\",\"vvvvvvvv188\",\"vvvvvvvv187\",\"vvvvvvvv186\",\"vvvvvvvv185\",\"v"
+  }
+ },
+ {
+  "name": "history shelf slice 10 after 205 adds",
+  "user": "cap",
+  "method": "GET",
+  "path": "/history",
+  "body": null,
+  "expect": {
+   "status": 200,
+   "bodySha256": "ddb6f6268bef2f22ad079d26ac1e39d27ec52d1947f304e87f2cebff9ef2c5ee",
+   "bodyLen": 1181,
+   "head": "{\"ok\":true,\"items\":[{\"id\":\"vvvvvvv1204\",\"title\":\"h204\",\"channel\":\"\",\"duration\":\"10:00\",\"secs\":600,\"completed\":false,\"at\":1760000000324},{\"id\":\"vvvvvvv1203\",\"title\":\"h203\",\"channel\":\"\",\"duration\":\"10:00\",\"secs\":600,\"completed\":false,\"at\":1760000000323},{\"id\":\"vvvvvvv1202\",\"title\":\"h202\",\"channel\":\"\","
+  }
+ },
+ {
+  "name": "settings count cap 200",
+  "user": "cap",
+  "method": "GET",
+  "path": "/settings",
+  "body": null,
+  "expect": {
+   "status": 200,
+   "body": "{\"ok\":true,\"paused\":false,\"count\":200}"
+  }
+ },
+ {
+  "name": "history clear-watch",
+  "user": "cap",
+  "method": "POST",
+  "path": "/history/clear-watch",
+  "body": "",
+  "expect": {
+   "status": 200,
+   "body": "{\"ok\":true}"
+  }
+ },
+ {
+  "name": "likes survive clear-watch",
+  "user": "cap",
+  "method": "GET",
+  "path": "/likes",
+  "body": null,
+  "expect": {
+   "status": 200,
+   "bodySha256": "703b880506d2c5e693a75b3908f25602636daa8b4a6542b2edeb9f2b03bbe864",
+   "bodyLen": 1419,
+   "head": "{\"ok\":true,\"ids\":[\"vvvvvvvv204\",\"vvvvvvvv203\",\"vvvvvvvv202\",\"vvvvvvvv201\",\"vvvvvvvv200\",\"vvvvvvvv199\",\"vvvvvvvv198\",\"vvvvvvvv197\",\"vvvvvvvv196\",\"vvvvvvvv195\",\"vvvvvvvv194\",\"vvvvvvvv193\",\"vvvvvvvv192\",\"vvvvvvvv191\",\"vvvvvvvv190\",\"vvvvvvvv189\",\"vvvvvvvv188\",\"vvvvvvvv187\",\"vvvvvvvv186\",\"vvvvvvvv185\",\"v"
+  }
+ },
+ {
+  "name": "history/clear nukes likes+dislikes+subs+history",
+  "user": "cap",
+  "method": "POST",
+  "path": "/history/clear",
+  "body": "",
+  "expect": {
+   "status": 200,
+   "body": "{\"ok\":true}"
+  }
+ },
+ {
+  "name": "likes after clear",
+  "user": "cap",
+  "method": "GET",
+  "path": "/likes",
+  "body": null,
+  "expect": {
+   "status": 200,
+   "body": "{\"ok\":true,\"ids\":[]}"
+  }
+ },
+ {
+  "name": "user isolation: u likes untouched by cap clear",
+  "user": "u",
+  "method": "GET",
+  "path": "/likes",
+  "body": null,
+  "expect": {
+   "status": 200,
+   "body": "{\"ok\":true,\"ids\":[]}"
+  }
+ }
+]

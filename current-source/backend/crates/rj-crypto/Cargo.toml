@@ -1,0 +1,8 @@
+[package]
+name = "rj-crypto"
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+scrypt = "0.11"
+subtle = "2"

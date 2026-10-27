@@ -1,0 +1,1188 @@
+{
+ "nowMs": 1760000000000,
+ "rngScript": [
+  0.11,
+  0.52,
+  0.93,
+  0.27,
+  0.68,
+  0.04,
+  0.81,
+  0.39
+ ],
+ "cases": [
+  {
+   "name": "parseSecs",
+   "input": "0:45",
+   "expect": 45
+  },
+  {
+   "name": "parseSecs",
+   "input": "1:01",
+   "expect": 61
+  },
+  {
+   "name": "parseSecs",
+   "input": "1:02",
+   "expect": 62
+  },
+  {
+   "name": "parseSecs",
+   "input": "12:34",
+   "expect": 754
+  },
+  {
+   "name": "parseSecs",
+   "input": "1:00:00",
+   "expect": 3600
+  },
+  {
+   "name": "parseSecs",
+   "input": "1:2:3:4",
+   "expect": null
+  },
+  {
+   "name": "parseSecs",
+   "input": "abc",
+   "expect": null
+  },
+  {
+   "name": "parseSecs",
+   "input": "",
+   "expect": null
+  },
+  {
+   "name": "parseSecs",
+   "input": "45",
+   "expect": null
+  },
+  {
+   "name": "parseSecs",
+   "input": " 3:05 ",
+   "expect": 185
+  },
+  {
+   "name": "parseSecs",
+   "input": "-1:00",
+   "expect": null
+  },
+  {
+   "name": "parseSecs",
+   "input": "1:60",
+   "expect": 120
+  },
+  {
+   "name": "parseSecs",
+   "input": "١:٢٣",
+   "expect": null
+  },
+  {
+   "name": "parseViews",
+   "input": "1.2M views",
+   "expect": 1200000
+  },
+  {
+   "name": "parseViews",
+   "input": "523 views",
+   "expect": 523
+  },
+  {
+   "name": "parseViews",
+   "input": "1,234,567 views",
+   "expect": 1234567
+  },
+  {
+   "name": "parseViews",
+   "input": "12K",
+   "expect": 12000
+  },
+  {
+   "name": "parseViews",
+   "input": "3B",
+   "expect": 3000000000
+  },
+  {
+   "name": "parseViews",
+   "input": "no views",
+   "expect": 0
+  },
+  {
+   "name": "parseViews",
+   "input": "",
+   "expect": 0
+  },
+  {
+   "name": "parseViews",
+   "input": "0 views",
+   "expect": 0
+  },
+  {
+   "name": "parseViews",
+   "input": "1.2.3M",
+   "expect": 1200000
+  },
+  {
+   "name": "parseViews",
+   "input": "2k watching",
+   "expect": 2000
+  },
+  {
+   "name": "parseAgoDays",
+   "input": "5 minutes ago",
+   "expect": 0.0034722222222222225
+  },
+  {
+   "name": "parseAgoDays",
+   "input": "1 hour ago",
+   "expect": 0.041666666666666664
+  },
+  {
+   "name": "parseAgoDays",
+   "input": "2 days ago",
+   "expect": 2
+  },
+  {
+   "name": "parseAgoDays",
+   "input": "3 weeks ago",
+   "expect": 21
+  },
+  {
+   "name": "parseAgoDays",
+   "input": "1 month ago",
+   "expect": 30
+  },
+  {
+   "name": "parseAgoDays",
+   "input": "2 years ago",
+   "expect": 730
+  },
+  {
+   "name": "parseAgoDays",
+   "input": "Streamed 4 hours ago",
+   "expect": 0.16666666666666666
+  },
+  {
+   "name": "parseAgoDays",
+   "input": "just now",
+   "expect": null
+  },
+  {
+   "name": "parseAgoDays",
+   "input": "",
+   "expect": null
+  },
+  {
+   "name": "parseAgoDays",
+   "input": "1 day",
+   "expect": null
+  },
+  {
+   "name": "words",
+   "input": "The quick brown fox",
+   "expect": [
+    "quick",
+    "brown"
+   ]
+  },
+  {
+   "name": "words",
+   "input": "a THE and This",
+   "expect": []
+  },
+  {
+   "name": "words",
+   "input": "Café déjà vu 2024",
+   "expect": [
+    "2024"
+   ]
+  },
+  {
+   "name": "words",
+   "input": "x-y_z w0w",
+   "expect": []
+  },
+  {
+   "name": "words",
+   "input": "",
+   "expect": []
+  },
+  {
+   "name": "outcome",
+   "input": {
+    "secs": 30
+   },
+   "expect": 0.15
+  },
+  {
+   "name": "outcome",
+   "input": {
+    "secs": 30,
+    "ws": 0
+   },
+   "expect": -1
+  },
+  {
+   "name": "outcome",
+   "input": {
+    "secs": 30,
+    "ws": 1.4
+   },
+   "expect": -1
+  },
+  {
+   "name": "outcome",
+   "input": {
+    "secs": 30,
+    "ws": 1.5
+   },
+   "expect": -1
+  },
+  {
+   "name": "outcome",
+   "input": {
+    "secs": 30,
+    "ws": 4
+   },
+   "expect": -1
+  },
+  {
+   "name": "outcome",
+   "input": {
+    "secs": 30,
+    "ws": 4.5
+   },
+   "expect": -0.4
+  },
+  {
+   "name": "outcome",
+   "input": {
+    "secs": 30,
+    "ws": 12
+   },
+   "expect": 0.25
+  },
+  {
+   "name": "outcome",
+   "input": {
+    "secs": 30,
+    "ws": 21
+   },
+   "expect": 0.8
+  },
+  {
+   "name": "outcome",
+   "input": {
+    "secs": 30,
+    "ws": 29
+   },
+   "expect": 0.8
+  },
+  {
+   "name": "outcome",
+   "input": {
+    "secs": 30,
+    "ws": 30
+   },
+   "expect": 1.2
+  },
+  {
+   "name": "outcome",
+   "input": {
+    "secs": 30,
+    "ws": 45
+   },
+   "expect": 1.2
+  },
+  {
+   "name": "outcome",
+   "input": {
+    "duration": "0:20",
+    "ws": 20
+   },
+   "expect": 1.2
+  },
+  {
+   "name": "outcome",
+   "input": {
+    "secs": 0,
+    "ws": 5
+   },
+   "expect": 0.15
+  },
+  {
+   "name": "outcome",
+   "input": {
+    "ws": 5
+   },
+   "expect": 0.15
+  },
+  {
+   "name": "outcome",
+   "input": {
+    "secs": 30,
+    "ws": "5"
+   },
+   "expect": 0.15
+  },
+  {
+   "name": "longOutcome",
+   "input": {
+    "secs": 600
+   },
+   "expect": 0.16666666666666666
+  },
+  {
+   "name": "longOutcome",
+   "input": {
+    "secs": 600,
+    "ws": 2
+   },
+   "expect": -0.5
+  },
+  {
+   "name": "longOutcome",
+   "input": {
+    "secs": 600,
+    "ws": 3
+   },
+   "expect": -0.5
+  },
+  {
+   "name": "longOutcome",
+   "input": {
+    "secs": 600,
+    "ws": 89
+   },
+   "expect": -0.5
+  },
+  {
+   "name": "longOutcome",
+   "input": {
+    "secs": 600,
+    "ws": 90
+   },
+   "expect": 1
+  },
+  {
+   "name": "longOutcome",
+   "input": {
+    "secs": 600,
+    "ws": 420
+   },
+   "expect": 1
+  },
+  {
+   "name": "longOutcome",
+   "input": {
+    "secs": 600,
+    "ws": 25
+   },
+   "expect": -0.5
+  },
+  {
+   "name": "longOutcome",
+   "input": {
+    "secs": 15,
+    "ws": 3
+   },
+   "expect": 0.08333333333333333
+  },
+  {
+   "name": "longOutcome",
+   "input": {
+    "secs": 15,
+    "ws": 2.9
+   },
+   "expect": -0.5
+  },
+  {
+   "name": "longOutcome",
+   "input": {
+    "secs": 15,
+    "ws": 9
+   },
+   "expect": 0.08333333333333333
+  },
+  {
+   "name": "longOutcome",
+   "input": {
+    "secs": 20,
+    "ws": 2
+   },
+   "expect": -0.5
+  },
+  {
+   "name": "longOutcome",
+   "input": {
+    "secs": 21,
+    "ws": 3.1
+   },
+   "expect": -0.5
+  },
+  {
+   "name": "longOutcome",
+   "input": {
+    "secs": 21,
+    "ws": 3.2
+   },
+   "expect": 0.08333333333333333
+  },
+  {
+   "name": "trainingRows",
+   "input": {
+    "hist": [
+     {
+      "id": "s0000000001",
+      "title": "Funny cats jumping",
+      "channel": "CatCo",
+      "duration": "0:30",
+      "ws": 30,
+      "secs": 30
+     },
+     {
+      "id": "s0000000002",
+      "title": "Long cooking tutorial",
+      "channel": "Chef",
+      "duration": "15:00",
+      "secs": 900,
+      "ws": 700
+     },
+     {
+      "id": "s0000000003",
+      "title": "Skipped prank video",
+      "channel": "Prank",
+      "duration": "0:30",
+      "ws": 1
+     },
+     {
+      "id": "s0000000004",
+      "title": "Funny dogs",
+      "channel": "CatCo",
+      "duration": "0:30",
+      "ws": 20
+     },
+     {
+      "id": "s0000000005",
+      "title": "No telemetry short",
+      "channel": "X",
+      "duration": "0:30"
+     }
+    ],
+    "likes": [
+     {
+      "id": "s0000000006",
+      "title": "Liked science short",
+      "channel": "Sci",
+      "duration": "0:30"
+     },
+     {
+      "id": "s0000000007",
+      "title": "Liked long",
+      "channel": "Chef",
+      "duration": "11:40",
+      "secs": 700
+     }
+    ],
+    "dislikes": [
+     {
+      "id": "s0000000008",
+      "title": "Disliked prank clip",
+      "channel": "Prank",
+      "duration": "0:30"
+     }
+    ]
+   },
+   "expect": [
+    {
+     "id": "s0000000001",
+     "w": 2.4,
+     "o": 1.2,
+     "long": false
+    },
+    {
+     "id": "s0000000002",
+     "w": 0.8571428571428571,
+     "o": 1,
+     "long": true
+    },
+    {
+     "id": "s0000000003",
+     "w": -1.8181818181818181,
+     "o": -1,
+     "long": false
+    },
+    {
+     "id": "s0000000004",
+     "w": 0.4166666666666667,
+     "o": 0.25,
+     "long": false
+    },
+    {
+     "id": "s0000000005",
+     "w": 0.23076923076923073,
+     "o": 0.15,
+     "long": false
+    },
+    {
+     "id": "s0000000006",
+     "w": 1.5,
+     "o": 1.5,
+     "long": false
+    },
+    {
+     "id": "s0000000007",
+     "w": 0.8888888888888888,
+     "o": 1,
+     "long": true
+    },
+    {
+     "id": "s0000000008",
+     "w": -2,
+     "o": -1,
+     "long": false
+    }
+   ]
+  },
+  {
+   "name": "buildProfile",
+   "input": {
+    "hist": [
+     {
+      "id": "s0000000001",
+      "title": "Funny cats jumping",
+      "channel": "CatCo",
+      "duration": "0:30",
+      "ws": 30,
+      "secs": 30
+     },
+     {
+      "id": "s0000000002",
+      "title": "Long cooking tutorial",
+      "channel": "Chef",
+      "duration": "15:00",
+      "secs": 900,
+      "ws": 700
+     },
+     {
+      "id": "s0000000003",
+      "title": "Skipped prank video",
+      "channel": "Prank",
+      "duration": "0:30",
+      "ws": 1
+     },
+     {
+      "id": "s0000000004",
+      "title": "Funny dogs",
+      "channel": "CatCo",
+      "duration": "0:30",
+      "ws": 20
+     },
+     {
+      "id": "s0000000005",
+      "title": "No telemetry short",
+      "channel": "X",
+      "duration": "0:30"
+     }
+    ],
+    "likes": [
+     {
+      "id": "s0000000006",
+      "title": "Liked science short",
+      "channel": "Sci",
+      "duration": "0:30"
+     },
+     {
+      "id": "s0000000007",
+      "title": "Liked long",
+      "channel": "Chef",
+      "duration": "11:40",
+      "secs": 700
+     }
+    ],
+    "dislikes": [
+     {
+      "id": "s0000000008",
+      "title": "Disliked prank clip",
+      "channel": "Prank",
+      "duration": "0:30"
+     }
+    ],
+    "subs": [
+     {
+      "id": "u1",
+      "name": "CatCo"
+     },
+     {
+      "id": "u2",
+      "name": "  "
+     }
+    ]
+   },
+   "expect": {
+    "topic": [
+     [
+      "funny",
+      2.8166666666666664
+     ],
+     [
+      "cats",
+      2.4
+     ],
+     [
+      "jumping",
+      2.4
+     ],
+     [
+      "long",
+      1.746031746031746
+     ],
+     [
+      "cooking",
+      0.8571428571428571
+     ],
+     [
+      "tutorial",
+      0.8571428571428571
+     ],
+     [
+      "skipped",
+      -1.8181818181818181
+     ],
+     [
+      "prank",
+      -3.8181818181818183
+     ],
+     [
+      "dogs",
+      0.4166666666666667
+     ],
+     [
+      "telemetry",
+      0.23076923076923073
+     ],
+     [
+      "liked",
+      2.388888888888889
+     ],
+     [
+      "science",
+      1.5
+     ],
+     [
+      "disliked",
+      -2
+     ],
+     [
+      "clip",
+      -2
+     ]
+    ],
+    "topicN": [
+     [
+      "funny",
+      2
+     ],
+     [
+      "cats",
+      1
+     ],
+     [
+      "jumping",
+      1
+     ],
+     [
+      "long",
+      2
+     ],
+     [
+      "cooking",
+      1
+     ],
+     [
+      "tutorial",
+      1
+     ],
+     [
+      "skipped",
+      1
+     ],
+     [
+      "prank",
+      2
+     ],
+     [
+      "dogs",
+      1
+     ],
+     [
+      "telemetry",
+      1
+     ],
+     [
+      "liked",
+      2
+     ],
+     [
+      "science",
+      1
+     ],
+     [
+      "disliked",
+      1
+     ],
+     [
+      "clip",
+      1
+     ]
+    ],
+    "chan": [
+     [
+      "CatCo",
+      4.45
+     ],
+     [
+      "Chef",
+      2
+     ],
+     [
+      "Prank",
+      -2
+     ],
+     [
+      "X",
+      0.15
+     ],
+     [
+      "Sci",
+      1.5
+     ]
+    ],
+    "chanN": [
+     [
+      "CatCo",
+      3
+     ],
+     [
+      "Chef",
+      2
+     ],
+     [
+      "Prank",
+      2
+     ],
+     [
+      "X",
+      1
+     ],
+     [
+      "Sci",
+      1
+     ]
+    ],
+    "prefDur": 29.999999999999996,
+    "exposures": 8
+   }
+  },
+  {
+   "name": "shortsSeeds",
+   "input": {
+    "n": 0,
+    "rng": "script"
+   },
+   "expect": [
+    "CatCo shorts",
+    "Chef shorts",
+    "funny shorts",
+    "funny cats shorts",
+    "cooking shorts"
+   ]
+  },
+  {
+   "name": "shortsSeeds",
+   "input": {
+    "n": 1,
+    "rng": "script"
+   },
+   "expect": [
+    "Chef shorts",
+    "Sci shorts",
+    "cats shorts",
+    "funny jumping shorts",
+    "cooking shorts",
+    "science shorts"
+   ]
+  },
+  {
+   "name": "shortsSeeds",
+   "input": {
+    "n": 2,
+    "rng": "script"
+   },
+   "expect": [
+    "Sci shorts",
+    "CatCo shorts",
+    "jumping shorts",
+    "funny liked shorts",
+    "cooking shorts",
+    "gaming shorts"
+   ]
+  },
+  {
+   "name": "shortsSeeds",
+   "input": {
+    "n": 7,
+    "rng": "script"
+   },
+   "expect": [
+    "Chef shorts",
+    "Sci shorts",
+    "cats shorts",
+    "funny liked shorts",
+    "cooking shorts",
+    "animals shorts"
+   ]
+  },
+  {
+   "name": "scoreShort explore=false",
+   "input": {
+    "id": "s0000000020",
+    "title": "Funny cats again",
+    "channel": "CatCo",
+    "duration": "0:30",
+    "published": "2 hours ago",
+    "views": "1.2M views",
+    "secs": 25
+   },
+   "expect": {
+    "total": 102.94103357880401,
+    "f": {
+     "topic": 48.19600442004208,
+     "embed": 0,
+     "chan": 24.92,
+     "dur": -2.333333333333332,
+     "fresh": 12,
+     "pop": 12.15836249209525,
+     "vel": 8,
+     "bait": 0,
+     "explore": 0,
+     "jitter": 0
+    },
+    "novel": false
+   }
+  },
+  {
+   "name": "scoreShort explore=false",
+   "input": {
+    "id": "s0000000021",
+    "title": "Tiktok compilation fails",
+    "channel": "Meh",
+    "duration": "0:30",
+    "published": "3 years ago",
+    "views": "900 views",
+    "secs": 40
+   },
+   "expect": {
+    "total": -32.34133559843341,
+    "f": {
+     "topic": 0,
+     "embed": 0,
+     "chan": 0,
+     "dur": -4.666666666666669,
+     "fresh": -4,
+     "pop": 5.9084850188786495,
+     "vel": 0.41684604935460784,
+     "bait": -30,
+     "explore": 0,
+     "jitter": 0
+    },
+    "novel": true
+   }
+  },
+  {
+   "name": "scoreShort explore=false",
+   "input": {
+    "id": "s0000000022",
+    "title": "Quantum bridges explained",
+    "channel": "New",
+    "duration": "0:30",
+    "published": "5 days ago",
+    "views": "12K views",
+    "secs": 55
+   },
+   "expect": {
+    "total": 9.900323281519825,
+    "f": {
+     "topic": 0,
+     "embed": 0,
+     "chan": 0,
+     "dur": -11.66666666666667,
+     "fresh": 8,
+     "pop": 8.15836249209525,
+     "vel": 5.408627456091244,
+     "bait": 0,
+     "explore": 0,
+     "jitter": 0
+    },
+    "novel": true
+   }
+  },
+  {
+   "name": "scoreShort explore=false",
+   "input": {
+    "id": "s0000000023",
+    "title": "tiny",
+    "channel": "New",
+    "duration": "0:30",
+    "secs": 4
+   },
+   "expect": {
+    "total": -22.133333333333333,
+    "f": {
+     "topic": 0,
+     "embed": 0,
+     "chan": 0,
+     "dur": -22.133333333333333,
+     "fresh": 0,
+     "pop": 0,
+     "vel": 0,
+     "bait": 0,
+     "explore": 0,
+     "jitter": 0
+    },
+    "novel": true
+   }
+  },
+  {
+   "name": "scoreShort explore=false",
+   "input": {
+    "id": "s0000000024",
+    "title": "Prank gone wrong",
+    "channel": "Prank",
+    "duration": "0:30",
+    "secs": 30,
+    "published": "1 day ago",
+    "views": "5M views"
+   },
+   "expect": {
+    "total": -48.161993845634264,
+    "f": {
+     "topic": -37.5599338543063,
+     "embed": 0,
+     "chan": -14,
+     "dur": -1.6579330501069009e-15,
+     "fresh": 12,
+     "pop": 13.397940008672037,
+     "vel": 8,
+     "bait": -30,
+     "explore": 0,
+     "jitter": 0
+    },
+    "novel": false
+   }
+  },
+  {
+   "name": "scoreShort explore=true rng=0.5",
+   "input": {
+    "id": "s0000000020",
+    "title": "Funny cats again",
+    "channel": "CatCo",
+    "duration": "0:30",
+    "published": "2 hours ago",
+    "views": "1.2M views",
+    "secs": 25
+   },
+   "expect": {
+    "total": 104.94103357880401,
+    "f": {
+     "topic": 48.19600442004208,
+     "embed": 0,
+     "chan": 24.92,
+     "dur": -2.333333333333332,
+     "fresh": 12,
+     "pop": 12.15836249209525,
+     "vel": 8,
+     "bait": 0,
+     "explore": 0,
+     "jitter": 2
+    },
+    "novel": false
+   }
+  },
+  {
+   "name": "scoreShort explore=true rng=0.5",
+   "input": {
+    "id": "s0000000021",
+    "title": "Tiktok compilation fails",
+    "channel": "Meh",
+    "duration": "0:30",
+    "published": "3 years ago",
+    "views": "900 views",
+    "secs": 40
+   },
+   "expect": {
+    "total": -20.34133559843341,
+    "f": {
+     "topic": 0,
+     "embed": 0,
+     "chan": 0,
+     "dur": -4.666666666666669,
+     "fresh": -4,
+     "pop": 5.9084850188786495,
+     "vel": 0.41684604935460784,
+     "bait": -30,
+     "explore": 10,
+     "jitter": 2
+    },
+    "novel": true
+   }
+  },
+  {
+   "name": "rankShorts query(exploreFrac=0) deterministic",
+   "input": {
+    "state": "see state",
+    "cands": [
+     "s0000000020",
+     "s0000000021",
+     "s0000000022",
+     "s0000000023",
+     "s0000000024",
+     "s0000000030",
+     "s0000000001",
+     "s0000000031",
+     "s0000000032",
+     null,
+     null,
+     "s0000000020"
+    ],
+    "opts": {
+     "exploreFrac": 0,
+     "limit": 5
+    }
+   },
+   "expect": [
+    {
+     "id": "s0000000020",
+     "score": 102.94103357880401
+    },
+    {
+     "id": "s0000000023",
+     "score": -22.133333333333333
+    },
+    {
+     "id": "s0000000030",
+     "score": 20.253333333333337
+    }
+   ]
+  },
+  {
+   "name": "rankShorts explore scripted rng",
+   "input": {
+    "opts": {
+     "exploreFrac": 0.2,
+     "limit": 5,
+     "rng": "script"
+    }
+   },
+   "expect": [
+    {
+     "id": "s0000000020",
+     "score": 103.38103357880401
+    },
+    {
+     "id": "s0000000023",
+     "score": -8.413333333333332
+    },
+    {
+     "id": "s0000000030",
+     "score": 32.973333333333336
+    },
+    {
+     "id": "s0000000021",
+     "score": -20.261335598433412
+    }
+   ]
+  },
+  {
+   "name": "rankShorts 40 cands limit 14 perChan 2 exploit",
+   "input": {
+    "exploreFrac": 0,
+    "limit": 14
+   },
+   "expect": [
+    {
+     "id": "s0000000136",
+     "score": 32.27280689626798
+    },
+    {
+     "id": "s0000000127",
+     "score": 32.03071951081843
+    },
+    {
+     "id": "s0000000118",
+     "score": 31.693910650039648
+    },
+    {
+     "id": "s0000000109",
+     "score": 31.13640344813399
+    },
+    {
+     "id": "s0000000100",
+     "score": 28.44554498668932
+    },
+    {
+     "id": "s0000000139",
+     "score": 28.340523430789915
+    },
+    {
+     "id": "s0000000138",
+     "score": 28.31853266218699
+    },
+    {
+     "id": "s0000000137",
+     "score": 28.29597064136761
+    }
+   ]
+  },
+  {
+   "name": "rankShorts 40 cands cold-start explore scripted",
+   "input": {
+    "limit": 14,
+    "rng": "script"
+   },
+   "expect": [
+    {
+     "id": "s0000000118",
+     "score": 45.41391065003965
+    },
+    {
+     "id": "s0000000136",
+     "score": 44.99280689626798
+    },
+    {
+     "id": "s0000000109",
+     "score": 43.21640344813399
+    },
+    {
+     "id": "s0000000127",
+     "score": 43.11071951081843
+    },
+    {
+     "id": "s0000000110",
+     "score": 40.93918881845044
+    },
+    {
+     "id": "s0000000128",
+     "score": 40.781199443931904
+    },
+    {
+     "id": "s0000000133",
+     "score": 40.2793612822185
+    },
+    {
+     "id": "s0000000139",
+     "score": 39.90052343078992
+    }
+   ]
+  }
+ ]
+}

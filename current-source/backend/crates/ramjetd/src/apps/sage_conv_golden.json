@@ -1,0 +1,334 @@
+[
+ {
+  "name": "list empty",
+  "user": "u",
+  "method": "GET",
+  "path": "/conversations",
+  "body": null,
+  "expect": {
+   "status": 200,
+   "body": "{\"ok\":true,\"conversations\":[]}"
+  }
+ },
+ {
+  "name": "get unknown",
+  "user": "u",
+  "method": "GET",
+  "path": "/conversations/messages?id=deadbeef",
+  "body": null,
+  "expect": {
+   "status": 404,
+   "body": "{\"ok\":false,\"error\":\"that conversation is gone\"}"
+  }
+ },
+ {
+  "name": "get no id",
+  "user": "u",
+  "method": "GET",
+  "path": "/conversations/messages",
+  "body": null,
+  "expect": {
+   "status": 404,
+   "body": "{\"ok\":false,\"error\":\"that conversation is gone\"}"
+  }
+ },
+ {
+  "name": "save empty array",
+  "user": "u",
+  "method": "POST",
+  "path": "/conversations",
+  "body": "{\"messages\":[]}",
+  "expect": {
+   "status": 400,
+   "body": "{\"ok\":false,\"error\":\"nothing to save yet\"}"
+  }
+ },
+ {
+  "name": "save not array",
+  "user": "u",
+  "method": "POST",
+  "path": "/conversations",
+  "body": "{\"messages\":\"x\"}",
+  "expect": {
+   "status": 400,
+   "body": "{\"ok\":false,\"error\":\"nothing to save yet\"}"
+  }
+ },
+ {
+  "name": "save garbage body",
+  "user": "u",
+  "method": "POST",
+  "path": "/conversations",
+  "body": "{ nope",
+  "expect": {
+   "status": 400,
+   "body": "{\"ok\":false,\"error\":\"nothing to save yet\"}"
+  }
+ },
+ {
+  "name": "save only invalid msgs",
+  "user": "u",
+  "method": "POST",
+  "path": "/conversations",
+  "body": "{\"messages\":[{\"role\":\"system\",\"content\":\"x\"},{\"role\":\"user\",\"content\":\"   \"},null,{\"role\":\"user\"}]}",
+  "expect": {
+   "status": 400,
+   "body": "{\"ok\":false,\"error\":\"nothing to save yet\"}"
+  }
+ },
+ {
+  "name": "save ok title from first user msg (ws collapsed, 60 cap)",
+  "user": "u",
+  "method": "POST",
+  "path": "/conversations",
+  "body": "{\"messages\":[{\"role\":\"assistant\",\"content\":\"hello\"},{\"role\":\"user\",\"content\":\"  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word   \"},{\"role\":\"assistant\",\"content\":\"reply\"}]}",
+  "expect": {
+   "status": 200,
+   "body": "{\"ok\":true,\"id\":\"00000001\"}"
+  }
+ },
+ {
+  "name": "list one",
+  "user": "u",
+  "method": "GET",
+  "path": "/conversations",
+  "body": null,
+  "expect": {
+   "status": 200,
+   "body": "{\"ok\":true,\"conversations\":[{\"id\":\"00000001\",\"title\":\"word word word word word word word word word word word word \",\"count\":3,\"at\":1760000000000}]}"
+  }
+ },
+ {
+  "name": "get messages (id 00000001)",
+  "user": "u",
+  "method": "GET",
+  "path": "/conversations/messages?id=00000001",
+  "body": null,
+  "expect": {
+   "status": 200,
+   "body": "{\"ok\":true,\"conversation\":{\"id\":\"00000001\",\"title\":\"word word word word word word word word word word word word \",\"messages\":[{\"role\":\"assistant\",\"content\":\"hello\"},{\"role\":\"user\",\"content\":\"  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word   \"},{\"role\":\"assistant\",\"content\":\"reply\"}]}}"
+  }
+ },
+ {
+  "name": "get messages id with trailing space is trimmed",
+  "user": "u",
+  "method": "GET",
+  "path": "/conversations/messages?id=%2000000001%20",
+  "body": null,
+  "expect": {
+   "status": 200,
+   "body": "{\"ok\":true,\"conversation\":{\"id\":\"00000001\",\"title\":\"word word word word word word word word word word word word \",\"messages\":[{\"role\":\"assistant\",\"content\":\"hello\"},{\"role\":\"user\",\"content\":\"  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word  word   \"},{\"role\":\"assistant\",\"content\":\"reply\"}]}}"
+  }
+ },
+ {
+  "name": "save update existing id keeps title unless custom",
+  "user": "u",
+  "method": "POST",
+  "path": "/conversations",
+  "body": "{\"id\":\"00000001\",\"messages\":[{\"role\":\"user\",\"content\":\"m1\"},{\"role\":\"assistant\",\"content\":\"m2\"},{\"role\":\"user\",\"content\":\"m3\"}]}",
+  "expect": {
+   "status": 200,
+   "body": "{\"ok\":true,\"id\":\"00000001\"}"
+  }
+ },
+ {
+  "name": "rename empty",
+  "user": "u",
+  "method": "POST",
+  "path": "/conversations/rename",
+  "body": "{\"id\":\"00000001\",\"title\":\"   \"}",
+  "expect": {
+   "status": 400,
+   "body": "{\"ok\":false,\"error\":\"give it a name\"}"
+  }
+ },
+ {
+  "name": "rename unknown",
+  "user": "u",
+  "method": "POST",
+  "path": "/conversations/rename",
+  "body": "{\"id\":\"deadbeef\",\"title\":\"x\"}",
+  "expect": {
+   "status": 404,
+   "body": "{\"ok\":false,\"error\":\"that conversation is gone\"}"
+  }
+ },
+ {
+  "name": "rename ok (title 80 chars cut to 60)",
+  "user": "u",
+  "method": "POST",
+  "path": "/conversations/rename",
+  "body": "{\"id\":\"00000001\",\"title\":\"  TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT\"}",
+  "expect": {
+   "status": 200,
+   "body": "{\"ok\":true}"
+  }
+ },
+ {
+  "name": "save update after rename keeps custom title",
+  "user": "u",
+  "method": "POST",
+  "path": "/conversations",
+  "body": "{\"id\":\"00000001\",\"messages\":[{\"role\":\"user\",\"content\":\"m9\"}]}",
+  "expect": {
+   "status": 200,
+   "body": "{\"ok\":true,\"id\":\"00000001\"}"
+  }
+ },
+ {
+  "name": "list after rename",
+  "user": "u",
+  "method": "GET",
+  "path": "/conversations",
+  "body": null,
+  "expect": {
+   "status": 200,
+   "body": "{\"ok\":true,\"conversations\":[{\"id\":\"00000001\",\"title\":\"TTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTT\",\"count\":1,\"at\":1760000000002}]}"
+  }
+ },
+ {
+  "name": "save with non-hex id gets a fresh id",
+  "user": "u",
+  "method": "POST",
+  "path": "/conversations",
+  "body": "{\"id\":\"ZZZZZZZZ\",\"messages\":[{\"role\":\"user\",\"content\":\"m1\"}]}",
+  "expect": {
+   "status": 200,
+   "body": "{\"ok\":true,\"id\":\"00000002\"}"
+  }
+ },
+ {
+  "name": "save with uppercase-hex id gets a fresh id",
+  "user": "u",
+  "method": "POST",
+  "path": "/conversations",
+  "body": "{\"id\":\"ABCDEF12\",\"messages\":[{\"role\":\"user\",\"content\":\"m1\"}]}",
+  "expect": {
+   "status": 200,
+   "body": "{\"ok\":true,\"id\":\"00000003\"}"
+  }
+ },
+ {
+  "name": "save 101 msgs (slice 100)",
+  "user": "u",
+  "method": "POST",
+  "path": "/conversations",
+  "body": "{\"messages\":[{\"role\":\"user\",\"content\":\"m0\"},{\"role\":\"user\",\"content\":\"m1\"},{\"role\":\"user\",\"content\":\"m2\"},{\"role\":\"user\",\"content\":\"m3\"},{\"role\":\"user\",\"content\":\"m4\"},{\"role\":\"user\",\"content\":\"m5\"},{\"role\":\"user\",\"content\":\"m6\"},{\"role\":\"user\",\"content\":\"m7\"},{\"role\":\"user\",\"content\":\"m8\"},{\"role\":\"user\",\"content\":\"m9\"},{\"role\":\"user\",\"content\":\"m10\"},{\"role\":\"user\",\"content\":\"m11\"},{\"role\":\"user\",\"content\":\"m12\"},{\"role\":\"user\",\"content\":\"m13\"},{\"role\":\"user\",\"content\":\"m14\"},{\"role\":\"user\",\"content\":\"m15\"},{\"role\":\"user\",\"content\":\"m16\"},{\"role\":\"user\",\"content\":\"m17\"},{\"role\":\"user\",\"content\":\"m18\"},{\"role\":\"user\",\"content\":\"m19\"},{\"role\":\"user\",\"content\":\"m20\"},{\"role\":\"user\",\"content\":\"m21\"},{\"role\":\"user\",\"content\":\"m22\"},{\"role\":\"user\",\"content\":\"m23\"},{\"role\":\"user\",\"content\":\"m24\"},{\"role\":\"user\",\"content\":\"m25\"},{\"role\":\"user\",\"content\":\"m26\"},{\"role\":\"user\",\"content\":\"m27\"},{\"role\":\"user\",\"content\":\"m28\"},{\"role\":\"user\",\"content\":\"m29\"},{\"role\":\"user\",\"content\":\"m30\"},{\"role\":\"user\",\"content\":\"m31\"},{\"role\":\"user\",\"content\":\"m32\"},{\"role\":\"user\",\"content\":\"m33\"},{\"role\":\"user\",\"content\":\"m34\"},{\"role\":\"user\",\"content\":\"m35\"},{\"role\":\"user\",\"content\":\"m36\"},{\"role\":\"user\",\"content\":\"m37\"},{\"role\":\"user\",\"content\":\"m38\"},{\"role\":\"user\",\"content\":\"m39\"},{\"role\":\"user\",\"content\":\"m40\"},{\"role\":\"user\",\"content\":\"m41\"},{\"role\":\"user\",\"content\":\"m42\"},{\"role\":\"user\",\"content\":\"m43\"},{\"role\":\"user\",\"content\":\"m44\"},{\"role\":\"user\",\"content\":\"m45\"},{\"role\":\"user\",\"content\":\"m46\"},{\"role\":\"user\",\"content\":\"m47\"},{\"role\":\"user\",\"content\":\"m48\"},{\"role\":\"user\",\"content\":\"m49\"},{\"role\":\"user\",\"content\":\"m50\"},{\"role\":\"user\",\"content\":\"m51\"},{\"role\":\"user\",\"content\":\"m52\"},{\"role\":\"user\",\"content\":\"m53\"},{\"role\":\"user\",\"content\":\"m54\"},{\"role\":\"user\",\"content\":\"m55\"},{\"role\":\"user\",\"content\":\"m56\"},{\"role\":\"user\",\"content\":\"m57\"},{\"role\":\"user\",\"content\":\"m58\"},{\"role\":\"user\",\"content\":\"m59\"},{\"role\":\"user\",\"content\":\"m60\"},{\"role\":\"user\",\"content\":\"m61\"},{\"role\":\"user\",\"content\":\"m62\"},{\"role\":\"user\",\"content\":\"m63\"},{\"role\":\"user\",\"content\":\"m64\"},{\"role\":\"user\",\"content\":\"m65\"},{\"role\":\"user\",\"content\":\"m66\"},{\"role\":\"user\",\"content\":\"m67\"},{\"role\":\"user\",\"content\":\"m68\"},{\"role\":\"user\",\"content\":\"m69\"},{\"role\":\"user\",\"content\":\"m70\"},{\"role\":\"user\",\"content\":\"m71\"},{\"role\":\"user\",\"content\":\"m72\"},{\"role\":\"user\",\"content\":\"m73\"},{\"role\":\"user\",\"content\":\"m74\"},{\"role\":\"user\",\"content\":\"m75\"},{\"role\":\"user\",\"content\":\"m76\"},{\"role\":\"user\",\"content\":\"m77\"},{\"role\":\"user\",\"content\":\"m78\"},{\"role\":\"user\",\"content\":\"m79\"},{\"role\":\"user\",\"content\":\"m80\"},{\"role\":\"user\",\"content\":\"m81\"},{\"role\":\"user\",\"content\":\"m82\"},{\"role\":\"user\",\"content\":\"m83\"},{\"role\":\"user\",\"content\":\"m84\"},{\"role\":\"user\",\"content\":\"m85\"},{\"role\":\"user\",\"content\":\"m86\"},{\"role\":\"user\",\"content\":\"m87\"},{\"role\":\"user\",\"content\":\"m88\"},{\"role\":\"user\",\"content\":\"m89\"},{\"role\":\"user\",\"content\":\"m90\"},{\"role\":\"user\",\"content\":\"m91\"},{\"role\":\"user\",\"content\":\"m92\"},{\"role\":\"user\",\"content\":\"m93\"},{\"role\":\"user\",\"content\":\"m94\"},{\"role\":\"user\",\"content\":\"m95\"},{\"role\":\"user\",\"content\":\"m96\"},{\"role\":\"user\",\"content\":\"m97\"},{\"role\":\"user\",\"content\":\"m98\"},{\"role\":\"user\",\"content\":\"m99\"},{\"role\":\"user\",\"content\":\"m100\"}]}",
+  "expect": {
+   "status": 200,
+   "body": "{\"ok\":true,\"id\":\"00000004\"}"
+  }
+ },
+ {
+  "name": "save msg over 4000 chars is dropped, 4000 kept",
+  "user": "u",
+  "method": "POST",
+  "path": "/conversations",
+  "body": "{\"messages\":[{\"role\":\"user\",\"content\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"},{\"role\":\"user\",\"content\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"}]}",
+  "expect": {
+   "status": 200,
+   "body": "{\"ok\":true,\"id\":\"00000005\"}"
+  }
+ },
+ {
+  "name": "cap 20 convs, newest first (list)",
+  "user": "cap",
+  "method": "GET",
+  "path": "/conversations",
+  "body": null,
+  "expect": {
+   "status": 200,
+   "bodySha256": "db23eb1bfa53938d0d088827372a6426839df2492fc44a708fe00866320057be",
+   "bodyLen": 1244,
+   "head": "{\"ok\":true,\"conversations\":[{\"id\":\"00000030\",\"title\":\"m24\",\"count\":1,\"at\":1760000000031},{\"id\":\"00000029\",\"title\":\"m23\",\"count\":1,\"at\":1760000000030},{\"id\":\"00000028\",\"title\":\"m22\",\"count\":1,\"at\":1760000000029},{\"id\":\"00000027\",\"title\":\"m21\",\"count\":1,\"at\":1760000000028},{\"id\":\"00000026\",\"title\":\"m2"
+  }
+ },
+ {
+  "name": "delete unknown",
+  "user": "cap",
+  "method": "POST",
+  "path": "/conversations/delete",
+  "body": "{\"id\":\"deadbeef\"}",
+  "expect": {
+   "status": 404,
+   "body": "{\"ok\":false,\"error\":\"that conversation is gone\"}"
+  }
+ },
+ {
+  "name": "delete ok",
+  "user": "u",
+  "method": "POST",
+  "path": "/conversations/delete",
+  "body": "{\"id\":\"00000001\"}",
+  "expect": {
+   "status": 200,
+   "body": "{\"ok\":true}"
+  }
+ },
+ {
+  "name": "get after delete",
+  "user": "u",
+  "method": "GET",
+  "path": "/conversations/messages?id=00000001",
+  "body": null,
+  "expect": {
+   "status": 404,
+   "body": "{\"ok\":false,\"error\":\"that conversation is gone\"}"
+  }
+ },
+ {
+  "name": "clear",
+  "user": "cap",
+  "method": "POST",
+  "path": "/conversations/clear",
+  "body": "",
+  "expect": {
+   "status": 200,
+   "body": "{\"ok\":true}"
+  }
+ },
+ {
+  "name": "list after clear",
+  "user": "cap",
+  "method": "GET",
+  "path": "/conversations",
+  "body": null,
+  "expect": {
+   "status": 200,
+   "body": "{\"ok\":true,\"conversations\":[]}"
+  }
+ },
+ {
+  "name": "user isolation (u still has convs)",
+  "user": "u",
+  "method": "GET",
+  "path": "/conversations",
+  "body": null,
+  "expect": {
+   "status": 200,
+   "body": "{\"ok\":true,\"conversations\":[{\"id\":\"00000005\",\"title\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"count\":1,\"at\":1760000000006},{\"id\":\"00000004\",\"title\":\"m0\",\"count\":100,\"at\":1760000000005},{\"id\":\"00000003\",\"title\":\"m1\",\"count\":1,\"at\":1760000000004},{\"id\":\"00000002\",\"title\":\"m1\",\"count\":1,\"at\":1760000000003}]}"
+  }
+ },
+ {
+  "name": "unknown sage call",
+  "user": "u",
+  "method": "GET",
+  "path": "/nope",
+  "body": null,
+  "expect": {
+   "status": 404,
+   "body": "{\"ok\":false,\"error\":\"unknown sage call\"}"
+  }
+ },
+ {
+  "name": "DELETE verb on /conversations (r32: unknown call 404)",
+  "user": "u",
+  "method": "DELETE",
+  "path": "/conversations?id=00000001",
+  "body": null,
+  "expect": {
+   "status": 404,
+   "body": "{\"ok\":false,\"error\":\"unknown sage call\"}"
+  }
+ }
+]
