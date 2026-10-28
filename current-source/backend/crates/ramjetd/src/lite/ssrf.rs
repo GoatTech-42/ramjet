@@ -334,8 +334,8 @@ pub async fn safe_get(st: &AppState, url: &str, accept: &str) -> Result<(reqwest
 
 
 #[cfg(test)]
-mod doh_tests {
-    static SERIAL: std::sync::Mutex<()> = std::sync::Mutex::new(());
+pub(crate) mod doh_tests {
+    pub(crate) static SERIAL: std::sync::Mutex<()> = std::sync::Mutex::new(());
     fn clear() { for k in ["RJ_DOH_IP", "RJ_DOH_HOST", "RJ_DOH_PORT", "RJ_PROXY"] { std::env::remove_var(k); } *super::TEST_DOH.lock().unwrap_or_else(|e| e.into_inner()) = None; *super::TEST_DOH_NAME.lock().unwrap_or_else(|e| e.into_inner()) = None; }
 
     #[test]
@@ -541,6 +541,81 @@ mod doh_tests {
         let v = super::resolve_host("example.com").await.unwrap();
         assert_eq!(v, vec!["93.184.216.34".parse::<std::net::IpAddr>().unwrap()]);
         server.await.unwrap();
+        clear();
+    }
+
+    pub(crate) fn inject(r: Option<Result<Vec<std::net::IpAddr>, String>>) { *super::TEST_DOH.lock().unwrap_or_else(|e| e.into_inner()) = r; }
+
+    // Per-exchange scripted fixture: each exchange serves data, serves NOERROR-empty,
+    // serves after a delay, or stalls past the 5s exchange timeout.
+    pub(crate) enum Exch { Serve(String), Empty, Delay(u64, String), Stall }
+    pub(crate) async fn tls_doh_fixture_scripted(pxy: std::net::SocketAddr, a: Exch, aaaa: Exch) -> tokio::task::JoinHandle<()> {
+        use tokio::io::AsyncWriteExt;
+        let listener = tokio::net::TcpListener::bind(pxy).await.unwrap();
+        tokio::spawn(async move {
+            let acceptor = fixture_acceptor();
+            for (ty, ex) in [("A", a), ("AAAA", aaaa)] {
+                let (mut s, _) = listener.accept().await.unwrap();
+                socks5_handshake(&mut s, false).await;
+                let mut t = acceptor.accept(s).await.unwrap();
+                let req = read_head(&mut t).await;
+                assert!(req.starts_with(&format!("GET /dns-query?name=example.com&type={ty} HTTP/1.0\r\n")), "{req}");
+                let rty = if ty == "A" { 1 } else { 28 };
+                let body = match ex {
+                    Exch::Serve(d) => format!(r#"{{"Status":0,"Answer":[{{"name":"example.com","type":{rty},"TTL":60,"data":"{d}"}}]}}"#),
+                    Exch::Empty => r#"{"Status":0}"#.to_string(),
+                    Exch::Delay(secs, d) => { tokio::time::sleep(std::time::Duration::from_secs(secs)).await; format!(r#"{{"Status":0,"Answer":[{{"name":"example.com","type":{rty},"TTL":60,"data":"{d}"}}]}}"#) }
+                    Exch::Stall => { tokio::time::sleep(std::time::Duration::from_secs(6)).await; continue; }
+                };
+                t.write_all(format!("HTTP/1.0 200 OK\r\nContent-Type: application/dns-json\r\n\r\n{body}").as_bytes()).await.unwrap();
+                let _ = t.shutdown().await;
+            }
+        })
+    }
+
+    #[tokio::test]
+    async fn doh_both_exchanges_empty_is_no_address() {
+        let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner()); clear();
+        let probe = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let pxy = probe.local_addr().unwrap(); drop(probe);
+        std::env::set_var("RJ_PROXY", format!("socks5h://{pxy}"));
+        std::env::set_var("RJ_DOH_IP", "9.9.9.9"); std::env::set_var("RJ_DOH_HOST", "dns.test");
+        let server = tls_doh_fixture_scripted(pxy, Exch::Empty, Exch::Empty).await;
+        let r = super::resolve_host("example.com").await;
+        assert_eq!(r.unwrap_err(), "no address", "NOERROR-empty on both exchanges is a lookup failure");
+        server.await.unwrap();
+        clear();
+    }
+
+    #[tokio::test]
+    async fn doh_second_exchange_timeout_fails_closed_within_own_budget() {
+        let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner()); clear();
+        let probe = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let pxy = probe.local_addr().unwrap(); drop(probe);
+        std::env::set_var("RJ_PROXY", format!("socks5h://{pxy}"));
+        std::env::set_var("RJ_DOH_IP", "9.9.9.9"); std::env::set_var("RJ_DOH_HOST", "dns.test");
+        let server = tls_doh_fixture_scripted(pxy, Exch::Serve("93.184.216.34".into()), Exch::Stall).await;
+        let t0 = std::time::Instant::now();
+        let r = super::resolve_host("example.com").await;
+        let el = t0.elapsed();
+        assert!(r.is_err(), "stalled second exchange must fail the whole lookup, never return the partial A answer");
+        assert!(el >= std::time::Duration::from_secs(4) && el < std::time::Duration::from_secs(7), "second exchange has its own 5s budget, took {el:?}");
+        server.abort();
+        clear();
+    }
+
+    #[tokio::test]
+    async fn pin_and_pin_t_preserve_result_shapes_over_doh() {
+        let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner()); clear();
+        inject(Some(Ok(vec!["93.184.216.34".parse().unwrap()])));
+        assert_eq!(super::pin("example.com").await.unwrap(), "93.184.216.34".parse::<std::net::IpAddr>().unwrap());
+        assert_eq!(super::pin_t("example.com").await.unwrap(), "93.184.216.34".parse::<std::net::IpAddr>().unwrap());
+        inject(Some(Ok(vec!["10.0.0.1".parse().unwrap()])));
+        assert!(super::pin("example.com").await.is_err(), "blocked DoH answer refused by pin screening");
+        assert!(matches!(super::pin_t("example.com").await, Err(super::SsrfErr::Msg(_))), "blocked answer stays a policy refusal");
+        inject(Some(Err("doh timeout".to_string())));
+        assert!(super::pin("example.com").await.is_err(), "resolver failure propagates, no fallback");
+        assert!(matches!(super::pin_t("example.com").await, Err(super::SsrfErr::Transport)), "resolver failure maps to Transport");
         clear();
     }
 }
