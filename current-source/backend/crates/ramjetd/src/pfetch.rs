@@ -237,8 +237,8 @@ async fn connect_lookup(host: &str) -> Result<(), Response> {
         if crate::lite::ssrf::blocked_ip(ip) || hairpin().ip_hit(ip) { return Err(fail(StatusCode::BAD_GATEWAY, "blocked address")); }
         return Ok(());
     }
-    match tokio::net::lookup_host(format!("{h}:0")).await {
-        Ok(list) => v4_gate(list.map(|s| s.ip()).filter(|a| a.is_ipv4()).collect(), h),
+    match crate::lite::ssrf::resolve_host(h).await {
+        Ok(list) => v4_gate(list.into_iter().filter(|a| a.is_ipv4()).collect(), h),
         Err(_) => Err(fail(StatusCode::BAD_GATEWAY, &format!("getaddrinfo ENOTFOUND {h}"))),
     }
 }

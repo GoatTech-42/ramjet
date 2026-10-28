@@ -197,7 +197,7 @@ pub fn split_doh_reply(raw: &[u8]) -> Result<&[u8], String> {
 }
 
                                                                                              
-fn doh_name_ok(h: &str) -> bool { !h.is_empty() && h.len() <= 253 && h.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'.' || b == b'-') }
+pub fn doh_name_ok(h: &str) -> bool { !h.is_empty() && h.len() <= 253 && h.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'.' || b == b'-') }
 
                                                                                                                                                                                                                                                        
 pub fn doh_tls_config() -> Arc<tokio_rustls::rustls::ClientConfig> {

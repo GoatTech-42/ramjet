@@ -88,8 +88,7 @@ pub fn check_hop(u: &url::Url) -> Result<String, &'static str> {
 }
 async fn validate_resolved(host: &str) -> Result<(), &'static str> {
     if host.parse::<IpAddr>().is_ok() { return Ok(()); }
-    let l = match tokio::time::timeout(Duration::from_secs(5), tokio::net::lookup_host(format!("{host}:443"))).await { Ok(Ok(l)) => l, _ => return Err("upstream error") };                                                          
-    let v: Vec<IpAddr> = l.map(|s| s.ip()).collect();
+    let v: Vec<IpAddr> = match tokio::time::timeout(Duration::from_secs(5), crate::lite::ssrf::resolve_host(host)).await { Ok(Ok(v)) => v, _ => return Err("upstream error") };                                                          
     if v.is_empty() || v.iter().any(|a| !is_public_global(*a)) { return Err("bad url"); }
     Ok(())
 }
