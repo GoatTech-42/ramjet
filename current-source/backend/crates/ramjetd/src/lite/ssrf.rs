@@ -139,28 +139,45 @@ pub fn doh_cfg() -> Option<Result<DohCfg, String>> {
     Some(Ok(DohCfg { ip, host, port }))
 }
 
+// The DoH leg reaches the proxy as a raw SOCKS5 client, so the scheme's h-variant is moot
+// (we always CONNECT to an IP literal). The proxy must be numeric local infrastructure:
+// loopback or private/link-local/ULA - a public proxy would carry the leg off-box.
+fn local_infra_ip(ip: IpAddr) -> bool {
+    match ip {
+        IpAddr::V4(v) => { let o = v.octets(); o[0] == 127 || o[0] == 10 || (o[0] == 172 && (16..=31).contains(&o[1])) || (o[0] == 192 && o[1] == 168) || (o[0] == 169 && o[1] == 254) }
+        IpAddr::V6(v) => v.is_loopback() || (v.segments()[0] & 0xfe00) == 0xfc00 || (v.segments()[0] & 0xffc0) == 0xfe80,
+    }
+}
+
 fn doh_proxy_addr() -> Result<std::net::SocketAddr, String> {
     let p = std::env::var("RJ_PROXY").map_err(|_| "no RJ_PROXY".to_string())?;
-    let p = p.strip_prefix("http://").ok_or_else(|| "RJ_PROXY not http".to_string())?;
+    let p = p.strip_prefix("socks5h://").or_else(|| p.strip_prefix("socks5://")).ok_or_else(|| "RJ_PROXY not socks5".to_string())?;
+    if p.contains('@') || p.contains('/') && !p.ends_with('/') { return Err("RJ_PROXY bad auth".into()); }
     let a: std::net::SocketAddr = p.trim_end_matches('/').parse().map_err(|_| "RJ_PROXY bad addr".to_string())?;
-    if !a.ip().is_loopback() { return Err("RJ_PROXY not loopback".into()); }
+    if !local_infra_ip(a.ip()) { return Err("RJ_PROXY not local".into()); }
     Ok(a)
 }
 
+// RFC1928 no-auth CONNECT; destination is ALWAYS an IP literal (ATYP 1/4) - the proxy
+// never sees the queried name. Same wire contract as the live wisp sidecar's egress.
 async fn doh_connect_dial(pxy: std::net::SocketAddr, ip: IpAddr, port: u16) -> Result<tokio::net::TcpStream, String> {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     let mut s = tokio::net::TcpStream::connect(pxy).await.map_err(|e| format!("doh proxy: {e}"))?;
-    let auth = if ip.is_ipv6() { format!("[{ip}]:{port}") } else { format!("{ip}:{port}") };
-    s.write_all(format!("CONNECT {auth} HTTP/1.1\r\nHost: {auth}\r\n\r\n").as_bytes()).await.map_err(|e| e.to_string())?;
-    let mut head = Vec::new(); let mut b = [0u8; 1024];
-    loop {
-        let n = s.read(&mut b).await.map_err(|e| e.to_string())?;
-        if n == 0 { return Err("doh proxy closed".into()); }
-        head.extend_from_slice(&b[..n]);
-        if head.len() > 8192 { return Err("doh proxy head".into()); }
-        if head.windows(4).position(|w| w == b"\r\n\r\n").is_some() { break; }
-    }
-    if !(head.starts_with(b"HTTP/1.1 200") || head.starts_with(b"HTTP/1.0 200")) { return Err("doh proxy refuse".into()); }
+    s.write_all(&[5u8, 1, 0]).await.map_err(|e| e.to_string())?;
+    let mut m = [0u8; 2];
+    s.read_exact(&mut m).await.map_err(|e| e.to_string())?;
+    if m != [5, 0] { return Err("doh proxy auth".into()); }
+    let mut req = vec![5u8, 1, 0];
+    match ip { IpAddr::V4(v) => { req.push(1); req.extend_from_slice(&v.octets()); } IpAddr::V6(v) => { req.push(4); req.extend_from_slice(&v.octets()); } }
+    req.extend_from_slice(&port.to_be_bytes());
+    s.write_all(&req).await.map_err(|e| e.to_string())?;
+    let mut h = [0u8; 4];
+    s.read_exact(&mut h).await.map_err(|e| e.to_string())?;
+    if h[0] != 5 { return Err("doh proxy version".into()); }
+    if h[1] != 0 { return Err(format!("doh proxy refuse rep={}", h[1])); }
+    let skip = match h[3] { 1 => 4usize, 4 => 16, 3 => { let mut l = [0u8; 1]; s.read_exact(&mut l).await.map_err(|e| e.to_string())?; l[0] as usize }, _ => return Err("doh proxy atyp".into()) };
+    let mut rest = vec![0u8; skip + 2];
+    s.read_exact(&mut rest).await.map_err(|e| e.to_string())?;
     Ok(s)
 }
 
@@ -335,6 +352,19 @@ mod doh_tests {
         clear();
     }
 
+    #[test]
+    fn proxy_addr_only_numeric_local_infrastructure_socks5() {
+        let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner()); clear();
+        std::env::set_var("RJ_PROXY", "socks5h://127.0.0.1:40000"); assert!(super::doh_proxy_addr().is_ok(), "loopback ok");
+        std::env::set_var("RJ_PROXY", "socks5://172.25.0.1:40001"); assert!(super::doh_proxy_addr().is_ok(), "private bridge ok (production shape)");
+        std::env::set_var("RJ_PROXY", "socks5h://10.0.0.1:1080"); assert!(super::doh_proxy_addr().is_ok(), "rfc1918 ok");
+        std::env::set_var("RJ_PROXY", "socks5h://[::1]:40000"); assert!(super::doh_proxy_addr().is_ok(), "v6 loopback ok");
+        for bad in ["socks5h://9.9.9.9:40000", "http://127.0.0.1:40000", "socks5h://proxy.local:40000", "socks5h://user:pass@127.0.0.1:40000", "socks4://127.0.0.1:40000"] {
+            std::env::set_var("RJ_PROXY", bad); assert!(super::doh_proxy_addr().is_err(), "{bad} must be refused, fail closed");
+        }
+        clear();
+    }
+
     #[tokio::test]
     async fn literal_short_circuits_and_name_is_canonicalized() {
         let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner()); clear();
@@ -386,6 +416,25 @@ mod doh_tests {
         tokio_rustls::TlsAcceptor::from(std::sync::Arc::new(cfg))
     }
 
+    // Fixture-side RFC1928 server: asserts the client CONNECTs the exact IP literal 9.9.9.9:443
+    // (ATYP 1, never a hostname), then grants. drip dribbles every reply byte.
+    async fn socks5_handshake(s: &mut tokio::net::TcpStream, drip: bool) {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let mut g = [0u8; 3];
+        s.read_exact(&mut g).await.unwrap();
+        assert_eq!(g, [5, 1, 0], "greeting");
+        let grant = [5u8, 0];
+        if drip { for b in grant { s.write_all(&[b]).await.unwrap(); tokio::time::sleep(std::time::Duration::from_millis(2)).await; } } else { s.write_all(&grant).await.unwrap(); }
+        let mut h = [0u8; 4];
+        s.read_exact(&mut h).await.unwrap();
+        assert_eq!(h, [5, 1, 0, 1], "CONNECT ipv4 request head");
+        let mut addr = [0u8; 6];
+        s.read_exact(&mut addr).await.unwrap();
+        assert_eq!(addr, [9, 9, 9, 9, 0x01, 0xBB], "target must be IP literal 9.9.9.9:443, never a name");
+        let reply = [5u8, 0, 0, 1, 0, 0, 0, 0, 0, 0];
+        if drip { for b in reply { s.write_all(&[b]).await.unwrap(); tokio::time::sleep(std::time::Duration::from_millis(2)).await; } } else { s.write_all(&reply).await.unwrap(); }
+    }
+
     async fn tls_doh_fixture(pxy: std::net::SocketAddr, a_data: &str) -> tokio::task::JoinHandle<()> { tls_doh_fixture_drip(pxy, a_data, false).await }
 
     async fn tls_doh_fixture_drip(pxy: std::net::SocketAddr, a_data: &str, drip: bool) -> tokio::task::JoinHandle<()> {
@@ -396,11 +445,7 @@ mod doh_tests {
             let acceptor = fixture_acceptor();
             for ty in ["A", "AAAA"] {
                 let (mut s, _) = listener.accept().await.unwrap();
-                let head = read_head(&mut s).await;
-                assert!(head.starts_with("CONNECT 9.9.9.9:443 HTTP/1.1\r\n"), "{head}");
-                assert!(head.contains("Host: 9.9.9.9:443\r\n"), "{head}");
-                if drip { for b in b"HTTP/1.1 200 Connection established\r\n\r\n" { s.write_all(&[*b]).await.unwrap(); tokio::time::sleep(std::time::Duration::from_millis(2)).await; } }
-                else { s.write_all(b"HTTP/1.1 200 Connection established\r\n\r\n").await.unwrap(); }
+                socks5_handshake(&mut s, drip).await;
                 let mut t = acceptor.accept(s).await.unwrap();
                 let req = read_head(&mut t).await;
                 assert!(req.starts_with(&format!("GET /dns-query?name=example.com&type={ty} HTTP/1.0\r\n")), "{req}");
@@ -417,7 +462,7 @@ mod doh_tests {
         let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner()); clear();
         let probe = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let pxy = probe.local_addr().unwrap(); drop(probe);
-        std::env::set_var("RJ_PROXY", format!("http://{pxy}"));
+        std::env::set_var("RJ_PROXY", format!("socks5h://{pxy}"));
         std::env::set_var("RJ_DOH_IP", "9.9.9.9"); std::env::set_var("RJ_DOH_HOST", "dns.test");
         let server = tls_doh_fixture(pxy, "93.184.216.34").await;
         let v = super::resolve_host("Example.COM.").await.unwrap();
@@ -432,7 +477,7 @@ mod doh_tests {
         let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner()); clear();
         let probe = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let pxy = probe.local_addr().unwrap(); drop(probe);
-        std::env::set_var("RJ_PROXY", format!("http://{pxy}"));
+        std::env::set_var("RJ_PROXY", format!("socks5h://{pxy}"));
         std::env::set_var("RJ_DOH_IP", "9.9.9.9"); std::env::set_var("RJ_DOH_HOST", "dns.test");
         let server = tls_doh_fixture(pxy, "127.0.0.1").await;
         let r = super::safe_lookup("example.com").await;
@@ -442,18 +487,23 @@ mod doh_tests {
     }
 
     async fn raw_proxy_fixture(script: u8) -> std::net::SocketAddr {
-        use tokio::io::AsyncWriteExt;
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let pxy = listener.local_addr().unwrap();
         tokio::spawn(async move {
             let (mut s, _) = listener.accept().await.unwrap();
+            let mut g = [0u8; 3];
             match script {
-                0 => { let _ = read_head(&mut s).await; let _ = s.write_all(b"HTTP/1.1 403 Forbidden\r\n\r\n").await; }
-                4 => { let _ = read_head(&mut s).await; let _ = s.write_all(b"HTTP/1.1 407 Proxy Authentication Required\r\nProxy-Authenticate: Basic\r\n\r\n").await; }
-                5 => { let _ = read_head(&mut s).await; let mut h = String::from("HTTP/1.1 200 Connection established\r\n"); while h.len() < 9000 { h.push_str("X-Pad: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\r\n"); } h.push_str("\r\n"); let _ = s.write_all(h.as_bytes()).await; }
-                1 => { }
-                2 => { let _ = read_head(&mut s).await; let _ = s.write_all(b"HTTP/1.1 200 Connection established\r\n\r\n").await; let _ = s.write_all(b"definitely not a tls handshake").await; }
-                _ => { let _ = read_head(&mut s).await; let _ = s.write_all(b"HTTP/1.1 200 Connection established\r\n\r\n").await; tokio::time::sleep(std::time::Duration::from_secs(8)).await; }
+                0 => { let _ = s.read_exact(&mut g).await; let _ = s.write_all(&[5u8, 255]).await; } // no acceptable auth method
+                5 => { let _ = s.read_exact(&mut g).await; let _ = s.write_all(&[4u8, 0]).await; }   // wrong version
+                1 => { }                                                                            // immediate close
+                4 => {                                                                              // CONNECT refused rep=5
+                    let _ = s.read_exact(&mut g).await; let _ = s.write_all(&[5u8, 0]).await;
+                    let mut rq = [0u8; 10]; let _ = s.read_exact(&mut rq).await;
+                    let _ = s.write_all(&[5u8, 5, 0, 1, 0, 0, 0, 0, 0, 0]).await;
+                }
+                2 => { socks5_handshake(&mut s, false).await; let _ = s.write_all(b"definitely not a tls handshake").await; }
+                _ => { socks5_handshake(&mut s, false).await; tokio::time::sleep(std::time::Duration::from_secs(8)).await; } // stall after grant
             }
         });
         pxy
@@ -465,7 +515,7 @@ mod doh_tests {
         for script in [0u8, 1, 2, 3, 4, 5] {
             clear();
             let pxy = raw_proxy_fixture(script).await;
-            std::env::set_var("RJ_PROXY", format!("http://{pxy}"));
+            std::env::set_var("RJ_PROXY", format!("socks5h://{pxy}"));
             std::env::set_var("RJ_DOH_IP", "9.9.9.9"); std::env::set_var("RJ_DOH_HOST", "dns.test");
             let r = super::resolve_host("example.com").await;
             assert!(r.is_err(), "script {script} must fail closed");
@@ -474,7 +524,7 @@ mod doh_tests {
         // connection refused: proxy port with no listener
         let probe = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let dead = probe.local_addr().unwrap(); drop(probe);
-        std::env::set_var("RJ_PROXY", format!("http://{dead}"));
+        std::env::set_var("RJ_PROXY", format!("socks5h://{dead}"));
         std::env::set_var("RJ_DOH_IP", "9.9.9.9"); std::env::set_var("RJ_DOH_HOST", "dns.test");
         assert!(super::resolve_host("example.com").await.is_err(), "refused proxy must fail closed");
         clear();
@@ -485,7 +535,7 @@ mod doh_tests {
         let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner()); clear();
         let probe = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let pxy = probe.local_addr().unwrap(); drop(probe);
-        std::env::set_var("RJ_PROXY", format!("http://{pxy}"));
+        std::env::set_var("RJ_PROXY", format!("socks5h://{pxy}"));
         std::env::set_var("RJ_DOH_IP", "9.9.9.9"); std::env::set_var("RJ_DOH_HOST", "dns.test");
         let server = tls_doh_fixture_drip(pxy, "93.184.216.34", true).await;
         let v = super::resolve_host("example.com").await.unwrap();
