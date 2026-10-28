@@ -540,3 +540,22 @@ b\u{0}c\u{e9}d");
         let _ = ad;
     }
 }
+
+#[cfg(test)]
+mod doh_callsite_tests {
+    // connect_lookup over the DoH path: public answer passes the hairpin+v4 gate,
+    // a screened answer stays a 502 refusal, resolver failure stays a 502 ENOTFOUND (no fallback).
+    #[tokio::test]
+    async fn connect_lookup_doh_result_shapes() {
+        let _g = crate::lite::ssrf::doh_tests::SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+        crate::lite::ssrf::doh_tests::inject(Some(Ok(vec!["93.184.216.34".parse().unwrap()])));
+        assert!(super::connect_lookup("example.com").await.is_ok(), "public DoH answer passes the gate");
+        crate::lite::ssrf::doh_tests::inject(Some(Ok(vec!["10.0.0.1".parse().unwrap()])));
+        let e = super::connect_lookup("example.com").await.unwrap_err();
+        assert_eq!(e.status(), axum::http::StatusCode::BAD_GATEWAY, "blocked DoH answer still screened");
+        crate::lite::ssrf::doh_tests::inject(Some(Err("doh timeout".to_string())));
+        let e = super::connect_lookup("example.com").await.unwrap_err();
+        assert_eq!(e.status(), axum::http::StatusCode::BAD_GATEWAY, "DoH failure surfaces as 502, no system-DNS fallback");
+        crate::lite::ssrf::doh_tests::inject(None);
+    }
+}
