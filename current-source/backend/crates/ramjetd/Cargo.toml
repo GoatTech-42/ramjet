@@ -52,3 +52,6 @@ webpki-roots = "=1.0.9"
 
 default = []
 qa-hooks = []
+
+[dev-dependencies]
+tokio = { version = "1", features = ["full", "test-util"] }
