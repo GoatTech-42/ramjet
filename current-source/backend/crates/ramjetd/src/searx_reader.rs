@@ -20,7 +20,7 @@ impl Failure {
     fn copy(self) -> &'static str { match self {
         Self::Blocked => "this address can't open in reader.", Self::Unavailable => "reader isn't available right now.",
         Self::Load => "this page couldn't load.", Self::Redirects => "this page couldn't open in reader.",
-        Self::Status(429) => "slow down a bit.", Self::Status(403) => "this device can't do that",
+        Self::Status(429) => "slow down a bit.", Self::Status(403) => "this site blocked the request.",
         Self::Status(408 | 500 | 502 | 504) => "this page couldn't load.", Self::Status(_) => "this page isn't available right now.",
         Self::NotHtml => "this file can't open in reader.", Self::TooLarge => "this page is too large for reader.",
         Self::Extraction => "no article text found.", Self::Unknown => "this page couldn't open in reader.",
@@ -610,6 +610,8 @@ mod tests {
         for f in [Failure::Status(429), Failure::Status(403), Failure::Unavailable, Failure::Extraction, Failure::Unknown] {
             assert!(!failure_page(f, None, "https://ok.test", "dark").contains(">try again<"));
         }
+        let forbidden = failure_page(Failure::Status(403), None, "https://ok.test", "dark");
+        assert!(forbidden.contains("this site blocked the request.") && !forbidden.contains("this device"), "403 copy blames the origin, not the device");
     }
 
 
