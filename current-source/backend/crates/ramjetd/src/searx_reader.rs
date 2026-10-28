@@ -28,15 +28,22 @@ impl Failure {
     fn retry(self) -> bool { matches!(self, Self::Load | Self::Status(408 | 500 | 502 | 504)) }
 }
 
+// Remaining budget to a std-anchored deadline. Async waits must arm
+// tokio::time::timeout with this instead of converting the deadline onto
+// tokio's clock: that conversion compares instants from two different clocks
+// and misfires as soon as they drift apart (for example once a paused test
+// clock has advanced past the real one).
+fn remaining(deadline: Instant) -> Duration { deadline.saturating_duration_since(Instant::now()) }
+
 async fn fetch_page(st: &AppState, target: &str, deadline: Instant) -> Result<(String, String), Failure> {
     let mut t = ssrf::check_url(target).map_err(|_| Failure::Blocked)?;
     for hops in 0..=4 {
         let host = t.host_str().ok_or(Failure::Blocked)?;
                                                                                        
                                                                                        
-        tokio::time::timeout_at(tokio::time::Instant::from_std(deadline), ssrf::pin(host)).await.map_err(|_| Failure::Load)?.map_err(|_| Failure::Blocked)?;
+        tokio::time::timeout(remaining(deadline), ssrf::pin(host)).await.map_err(|_| Failure::Load)?.map_err(|_| Failure::Blocked)?;
         let eg = st.egress_client.as_ref().ok_or(Failure::Unavailable)?;
-        let response = tokio::time::timeout_at(tokio::time::Instant::from_std(deadline), eg.get(t.as_str())
+        let response = tokio::time::timeout(remaining(deadline), eg.get(t.as_str())
             .header("accept", "text/html,application/xhtml+xml").header("accept-encoding", "gzip, br")
             .header("user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124 Safari/537.36")
             .timeout(Duration::from_secs(12)).send()).await.map_err(|_| Failure::Load)?.map_err(|e| if e.is_timeout() || e.is_connect() { Failure::Load } else { Failure::Unknown })?;
@@ -52,7 +59,7 @@ async fn fetch_page(st: &AppState, target: &str, deadline: Instant) -> Result<(S
         if !ct.to_ascii_lowercase().contains("html") { return Err(Failure::NotHtml); }
         let mut response = response; let mut bytes = Vec::new();
         loop {
-            let chunk = tokio::time::timeout_at(tokio::time::Instant::from_std(deadline), response.chunk()).await.map_err(|_| Failure::Load)?.map_err(|_| Failure::Load)?;
+            let chunk = tokio::time::timeout(remaining(deadline), response.chunk()).await.map_err(|_| Failure::Load)?.map_err(|_| Failure::Load)?;
             let Some(chunk) = chunk else { break; };
             if chunk.len() > MAX - bytes.len() { return Err(Failure::TooLarge); }
             bytes.extend_from_slice(&chunk);
@@ -349,12 +356,12 @@ pub async fn reader_page_skin(st: &AppState, target: &str, skin: &str) -> String
         Err(f) => return failure_page(f, None, target, skin),
     };
     let fetch_permit=permit;
-    let permit=match tokio::time::timeout_at(tokio::time::Instant::from_std(deadline),slots().clone().acquire_owned()).await{Ok(Ok(p))=>p,_=>return failure_page(Failure::Unavailable,Some(&page_url),target,skin)};
+    let permit=match tokio::time::timeout(remaining(deadline),slots().clone().acquire_owned()).await{Ok(Ok(p))=>p,_=>return failure_page(Failure::Unavailable,Some(&page_url),target,skin)};
     drop(fetch_permit);
     if !crate::apps::browse_render::memory_ok(&st.data_dir){return failure_page(Failure::Unavailable,Some(&page_url),target,skin)}
     let pu = page_url.clone();
     let job = tokio::task::spawn_blocking(move || { let _permit = permit; extract_skin(&html, &pu, deadline, skin) });
-    match tokio::time::timeout_at(tokio::time::Instant::from_std(deadline + Duration::from_secs(2)), job).await {
+    match tokio::time::timeout(remaining(deadline + Duration::from_secs(2)), job).await {
         Ok(Ok(Ok(page))) => page,
         Ok(Ok(Err(f))) => failure_page(f, Some(&page_url), target, skin),
         Ok(Err(_)) => failure_page(Failure::Unknown, Some(&page_url), target, skin),
@@ -604,4 +611,21 @@ mod tests {
             assert!(!failure_page(f, None, "https://ok.test", "dark").contains(">try again<"));
         }
     }
-}
+
+
+    // A deadline anchored on the real clock must keep its remaining budget
+    // when armed on tokio's clock, even after virtual time has raced ahead of
+    // the real clock, and must fire once virtual time passes it. Guards the
+    // remaining()/timeout() pairing used at every async wait above; the old
+    // std-to-tokio Instant conversion failed the first assertion immediately.
+    #[tokio::test(start_paused = true)]
+    async fn armed_deadline_keeps_budget_and_fires_on_virtual_time() {
+        use futures::FutureExt;
+        tokio::time::advance(Duration::from_secs(3600)).await;
+        let deadline = Instant::now() + Duration::from_secs(20);
+        let mut fut = Box::pin(tokio::time::timeout(remaining(deadline), std::future::pending::<()>()));
+        assert!(fut.as_mut().now_or_never().is_none(), "freshly armed deadline must keep its remaining budget");
+        tokio::time::advance(Duration::from_secs(25)).await;
+        assert!(matches!(fut.as_mut().now_or_never(), Some(Err(_))), "virtual time past the deadline must fire the timeout");
+    }
+          }
