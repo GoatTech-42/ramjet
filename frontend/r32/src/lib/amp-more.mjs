@@ -3,8 +3,12 @@
 // the generation decides whether a late answer still belongs to the list on screen: every new
 // search and every view change bumps it, so a page requested before can never land after.
 // the same query re-minting the same cursor (au:12 after au:12) does not reopen the window.
-export function makeMore() { return { gen: 0, cursor: null }; }
-export function moreBump(m) { m.gen++; m.cursor = null; }
+// automatic viewport-fill has a per-search page budget; manual scrolling past it still loads more.
+export const AUTO_PAGE_BUDGET = 3;
+export function makeMore() { return { gen: 0, cursor: null, auto: 0 }; }
+export function moreBump(m) { m.gen++; m.cursor = null; m.auto = 0; }
+export function moreAutoOk(m) { return m.auto < AUTO_PAGE_BUDGET; }
+export function moreAutoSpend(m) { m.auto++; }
 export function moreFirstPage(m, next) { m.cursor = (next && next.audius) || null; }
 export function moreCapture(m) { return { gen: m.gen, cursor: m.cursor }; }
 // what a continuation answer means for the list:

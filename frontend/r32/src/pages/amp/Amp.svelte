@@ -8,7 +8,7 @@
   import { buildAlbumPage, albumQuery } from '../../lib/album.js';
   import { buildArtistPage, primaryArtist } from '../../lib/artist.js';
 import { whyStopped as probeWhy, handleTrackError } from '../../lib/amp-error-logic.mjs';
-  import { makeMore, moreBump, moreFirstPage, moreCapture, moreApply } from '../../lib/amp-more.mjs';
+  import { makeMore, moreBump, moreFirstPage, moreCapture, moreApply, moreAutoOk, moreAutoSpend } from '../../lib/amp-more.mjs';
   let qf = $state(false);
   import '../../tokens.css';
   import { onMount, tick } from 'svelte';
@@ -414,7 +414,7 @@ import { whyStopped as probeWhy, handleTrackError } from '../../lib/amp-error-lo
   // after results land, and continue only while the last page added new rows or a real scroll happens.
   async function recheckMore() {
     await tick();
-    if (searched && view === 'search' && more.cursor && !auBusy && window.innerHeight + window.scrollY > document.documentElement.scrollHeight - 900) moreAudius();
+    if (searched && view === 'search' && more.cursor && !auBusy && moreAutoOk(more) && window.innerHeight + window.scrollY > document.documentElement.scrollHeight - 900) { moreAutoSpend(more); moreAudius(); }
   }
 
   // more songs: continue audius only. a cursored answer carries just audius rows; a short or empty page ends the cursor (next.audius null).

@@ -2,7 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { makeMore, moreBump, moreFirstPage, moreCapture, moreApply } from './amp-more.mjs';
+import { makeMore, moreBump, moreFirstPage, moreCapture, moreApply, moreAutoOk, moreAutoSpend, AUTO_PAGE_BUDGET } from './amp-more.mjs';
 import { errCopy } from './api.js';
 const rd = (p) => readFileSync(new URL(p, import.meta.url), 'utf8');
 
@@ -54,8 +54,23 @@ test('400/502 copy is the reviewed fallback, never the server envelope', () => {
 });
 test('viewport recheck + narrow-list guards: bounded, view-checked after await', () => {
   const s = rd('../pages/amp/Amp.svelte');
-  assert.match(s, /await tick\(\);\n    if \(searched && view === 'search' && more\.cursor && !auBusy && window\.innerHeight \+ window\.scrollY > document\.documentElement\.scrollHeight - 900\) moreAudius\(\);/);
+  assert.match(s, /await tick\(\);\n    if \(searched && view === 'search' && more\.cursor && !auBusy && moreAutoOk\(more\) && window\.innerHeight \+ window\.scrollY > document\.documentElement\.scrollHeight - 900\) \{ moreAutoSpend\(more\); moreAudius\(\); \}/);
   assert.match(s, /moreFirstPage\(more, r\.data\.next\);[^\n]*\n    recheckMore\(\);/);
   assert.match(s, /auBusy = false;\n    if \(view !== 'search'\) return;/);
   assert.match(s, /if \(add\.length\) \{ sections = \[\.\.\.sections, \.\.\.add\]; recheckMore\(\); \}/);
+});
+
+test('autofill budget: three automatic pages per search, then the chain stops; a new search refills it', () => {
+  const m = makeMore();
+  for (let i = 0; i < AUTO_PAGE_BUDGET; i++) { assert.ok(moreAutoOk(m), 'page ' + i + ' inside budget'); moreAutoSpend(m); }
+  assert.equal(moreAutoOk(m), false);
+  moreBump(m);
+  assert.ok(moreAutoOk(m));
+});
+test('manual scroll path stays unbudgeted: onScroll calls moreAudius directly, only recheckMore spends', () => {
+  const s = rd('../pages/amp/Amp.svelte');
+  const onScroll = /const onScroll = \(\) => \{[^}]*\}/.exec(s)[0];
+  assert.doesNotMatch(onScroll, /moreAuto|recheckMore/);
+  assert.match(onScroll, /moreAudius\(\)/);
+  assert.match(s, /\{ moreAutoSpend\(more\); moreAudius\(\); \}/);
 });
