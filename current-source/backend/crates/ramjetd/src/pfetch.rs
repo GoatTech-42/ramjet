@@ -237,8 +237,8 @@ async fn connect_lookup(host: &str) -> Result<(), Response> {
         if crate::lite::ssrf::blocked_ip(ip) || hairpin().ip_hit(ip) { return Err(fail(StatusCode::BAD_GATEWAY, "blocked address")); }
         return Ok(());
     }
-    match tokio::net::lookup_host(format!("{h}:0")).await {
-        Ok(list) => v4_gate(list.map(|s| s.ip()).filter(|a| a.is_ipv4()).collect(), h),
+    match crate::lite::ssrf::resolve_host(h).await {
+        Ok(list) => v4_gate(list.into_iter().filter(|a| a.is_ipv4()).collect(), h),
         Err(_) => Err(fail(StatusCode::BAD_GATEWAY, &format!("getaddrinfo ENOTFOUND {h}"))),
     }
 }
@@ -538,5 +538,24 @@ b\u{0}c\u{e9}d");
         assert_eq!(r.headers()["cache-control"], "no-store");
         assert!(axum::body::to_bytes(r.into_body(), 100).await.unwrap().is_empty());
         let _ = ad;
+    }
+}
+
+#[cfg(test)]
+mod doh_callsite_tests {
+    // connect_lookup over the DoH path: public answer passes the hairpin+v4 gate,
+    // a screened answer stays a 502 refusal, resolver failure stays a 502 ENOTFOUND (no fallback).
+    #[tokio::test]
+    async fn connect_lookup_doh_result_shapes() {
+        let _g = crate::lite::ssrf::doh_tests::SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+        crate::lite::ssrf::doh_tests::inject(Some(Ok(vec!["93.184.216.34".parse().unwrap()])));
+        assert!(super::connect_lookup("example.com").await.is_ok(), "public DoH answer passes the gate");
+        crate::lite::ssrf::doh_tests::inject(Some(Ok(vec!["10.0.0.1".parse().unwrap()])));
+        let e = super::connect_lookup("example.com").await.unwrap_err();
+        assert_eq!(e.status(), axum::http::StatusCode::BAD_GATEWAY, "blocked DoH answer still screened");
+        crate::lite::ssrf::doh_tests::inject(Some(Err("doh timeout".to_string())));
+        let e = super::connect_lookup("example.com").await.unwrap_err();
+        assert_eq!(e.status(), axum::http::StatusCode::BAD_GATEWAY, "DoH failure surfaces as 502, no system-DNS fallback");
+        crate::lite::ssrf::doh_tests::inject(None);
     }
 }

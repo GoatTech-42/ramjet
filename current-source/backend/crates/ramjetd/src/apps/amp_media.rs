@@ -88,8 +88,7 @@ pub fn check_hop(u: &url::Url) -> Result<String, &'static str> {
 }
 async fn validate_resolved(host: &str) -> Result<(), &'static str> {
     if host.parse::<IpAddr>().is_ok() { return Ok(()); }
-    let l = match tokio::time::timeout(Duration::from_secs(5), tokio::net::lookup_host(format!("{host}:443"))).await { Ok(Ok(l)) => l, _ => return Err("upstream error") };                                                          
-    let v: Vec<IpAddr> = l.map(|s| s.ip()).collect();
+    let v: Vec<IpAddr> = match tokio::time::timeout(Duration::from_secs(5), crate::lite::ssrf::resolve_host(host)).await { Ok(Ok(v)) => v, _ => return Err("upstream error") };                                                          
     if v.is_empty() || v.iter().any(|a| !is_public_global(*a)) { return Err("bad url"); }
     Ok(())
 }
@@ -1988,5 +1987,38 @@ mod r13_tests {
         let body = block_walk(total, blk(YT_BLOCK as usize, 9), fetch, track);
         assert!(axum::body::to_bytes(body, (4 * YT_BLOCK) as usize).await.is_err(),
             "a failed mid-stream block must error the body, never pad it");
+    }
+}
+
+#[cfg(test)]
+mod doh_callsite_tests {
+    // validate_resolved over the DoH path: non-global answers stay refused, and its outer
+    // 5s cap truncates the serial A+AAAA exchange path (which alone can run 10s).
+    #[tokio::test]
+    async fn validate_resolved_doh_blocked_answer_bad_url() {
+        let _g = crate::lite::ssrf::doh_tests::SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+        crate::lite::ssrf::doh_tests::inject(Some(Ok(vec!["10.0.0.1".parse().unwrap()])));
+        assert_eq!(super::validate_resolved("example.com").await, Err("bad url"), "non-global DoH answer refused");
+        crate::lite::ssrf::doh_tests::inject(Some(Ok(vec!["93.184.216.34".parse().unwrap()])));
+        assert!(super::validate_resolved("example.com").await.is_ok(), "public DoH answer accepted");
+        crate::lite::ssrf::doh_tests::inject(None);
+    }
+
+    #[tokio::test]
+    async fn validate_resolved_outer_cap_truncates_serial_doh_exchanges() {
+        let _g = crate::lite::ssrf::doh_tests::SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+        for k in ["RJ_DOH_IP", "RJ_DOH_HOST", "RJ_DOH_PORT", "RJ_PROXY"] { std::env::remove_var(k); }
+        let probe = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let pxy = probe.local_addr().unwrap(); drop(probe);
+        std::env::set_var("RJ_PROXY", format!("socks5h://{pxy}"));
+        std::env::set_var("RJ_DOH_IP", "9.9.9.9"); std::env::set_var("RJ_DOH_HOST", "dns.test");
+        let server = crate::lite::ssrf::doh_tests::tls_doh_fixture_scripted(pxy, crate::lite::ssrf::doh_tests::Exch::Delay(3, "93.184.216.34".into()), crate::lite::ssrf::doh_tests::Exch::Stall).await;
+        let t0 = std::time::Instant::now();
+        let r = super::validate_resolved("example.com").await;
+        let el = t0.elapsed();
+        assert_eq!(r, Err("upstream error"));
+        assert!(el >= std::time::Duration::from_secs(4) && el < std::time::Duration::from_secs(7), "outer 5s cap must truncate the 3s+stall serial exchange path, took {el:?}");
+        server.abort();
+        for k in ["RJ_DOH_IP", "RJ_DOH_HOST", "RJ_DOH_PORT", "RJ_PROXY"] { std::env::remove_var(k); }
     }
 }
