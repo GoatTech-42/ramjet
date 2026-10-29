@@ -30,6 +30,10 @@ async fn main() {
     let auth_db=ramjetd::auth_api::store::AuthStore::open(std::path::Path::new(&db_path)).expect("auth DB unavailable");
     let dist = PathBuf::from(std::env::var("RJ_DIST").unwrap_or_else(|_| "./web/dist".into()));
     let searx_url = std::env::var("SEARXNG_URL").unwrap_or_else(|_| "http://127.0.0.1:8888".into());
+    let searx_pin = match lite::ssrf::guard_searx_url(&searx_url).await {
+        Ok(p) => p,
+        Err(e) => { tracing::error!("{e} - REFUSING TO BOOT"); std::process::exit(1); }
+    };
     let ytdlp = PathBuf::from(std::env::var("YTDLP").unwrap_or_else(|_| "./bin/yt-dlp".into()));
     let proxy_url = std::env::var("RJ_PROXY").unwrap_or_default();
 
@@ -69,7 +73,7 @@ async fn main() {
         pfetch_client,
         adblock,
         started: std::time::Instant::now(),
-        local_http: egress::local_client(),
+        local_http: egress::local_client_searx(&searx_pin.host, &searx_pin.addrs),
         searx_url,
         ytdlp,
         proxy_url,
