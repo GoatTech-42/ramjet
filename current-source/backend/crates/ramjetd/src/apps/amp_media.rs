@@ -373,8 +373,12 @@ pub fn combine(q: &str, yt: Result<Vec<Value>, ()>, sc: Result<Vec<Value>, ()>, 
     ])
 }
 
+/// The exact upstream URL a first or cursored Audius page is fetched from; pinned by test.
+pub fn au_search_url(q: &str, offset: u32) -> String {
+    format!("{AU_HOST}/v1/tracks/search?query={}&app_name={AU_APP}&limit={AU_PAGE}&offset={offset}", urlenc(q))
+}
 async fn src_audius(st: &AppState, q: &str, offset: u32) -> Result<Vec<Value>, ()> {
-    let u = format!("{AU_HOST}/v1/tracks/search?query={}&app_name={AU_APP}&limit={AU_PAGE}&offset={offset}", urlenc(q));
+    let u = au_search_url(q, offset);
     get_json(st, &u, &[("user-agent", WEB_UA.into()), ("accept", "application/json".into())], None).await.map_err(|_| ()).and_then(|v| parse_audius(&v))
 }
 
