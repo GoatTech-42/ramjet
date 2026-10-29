@@ -238,7 +238,7 @@ fn id_str(t: &ONode) -> String { if t.has("id") { t.get("id").js_str() } else { 
 
 pub fn parse_audius(v: &ONode) -> Result<Vec<Value>, ()> {
     let rows = array_or_throw(v.get("data"))?;
-    rows.iter().take(12).map(|t| {
+    rows.iter().take(AU_PAGE).map(|t| {
         if matches!(t, ONode::Null) { return Err(()); }                              
         Ok({
         let art_url = if t.get("artwork").get("480x480").truthy() { t.get("artwork").get("480x480").js_str() }
@@ -354,8 +354,11 @@ pub fn parse_cursor(s: &str) -> Option<u32> {
 }
 
 /// The cursor for the page after `offset` when a full page came back; None at the end.
+/// Never mints past AU_MAX_OFFSET: a cursor parse_cursor would refuse is a silent dead end,
+/// so crossing the bound ends the continuation instead.
 pub fn au_next(offset: u32, rows: usize) -> Option<String> {
-    if rows >= AU_PAGE { Some(format!("au:{}", offset + rows as u32)) } else { None }
+    let next = offset.checked_add(rows as u32)?;
+    if rows >= AU_PAGE && next <= AU_MAX_OFFSET { Some(format!("au:{next}")) } else { None }
 }
 
 pub fn combine(q: &str, yt: Result<Vec<Value>, ()>, sc: Result<Vec<Value>, ()>, au: Result<Vec<Value>, ()>, next_au: Option<String>) -> Response {

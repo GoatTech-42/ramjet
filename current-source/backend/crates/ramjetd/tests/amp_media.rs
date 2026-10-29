@@ -88,6 +88,9 @@ async fn body(r: axum::response::Response) -> (u16, String) {
     assert_eq!(au_next(12, AU_PAGE).as_deref(), Some("au:24"), "second full page continues at 24");
     assert_eq!(au_next(12, 5), None, "a short page is the end");
     assert_eq!(au_next(0, 0), None, "an empty page is the end");
+    assert_eq!(au_next(9984, AU_PAGE).as_deref(), Some("au:9996"), "a full page inside the bound continues");
+    assert_eq!(au_next(9996, AU_PAGE), None, "minting past AU_MAX_OFFSET ends instead of dead-ending on a refused cursor");
+    assert_eq!(au_next(u32::MAX - 4, AU_PAGE), None, "offset overflow ends, never wraps");
 }
 #[tokio::test] async fn next_cursor_envelope() {
     // first page with a full audius page: only audius continues, yt/sc never guessed
