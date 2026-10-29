@@ -55,3 +55,53 @@ test('search pager: a 429 or 403 is marked noRetry, an ordinary failure is not',
     assert.ok(v.err);
   }
 });
+
+test('sw: a controller-prefixed navigation with no live controller is held and revived, never sent to the network', async () => {
+  const src = rd('../public/browse-sw.js');
+  // same extraction style as the marker test: evaluate the tail block with stubbed globals
+  const fn = /const CONTROLLER_PREFIX[\s\S]*$/.exec(src)[0];
+  const calls = { serve: 0, err: 0, posted: [] };
+  let registryLive = false;
+  const $scramjetController = { shouldRoute: () => registryLive, route: async () => new Response('SW-SERVED') };
+  const stubClients = { matchAll: async () => [{ postMessage: (m) => calls.posted.push(m) }] };
+  const serve = async () => { calls.serve++; return new Response('SW-SERVED'); };
+  const errPage = () => { calls.err++; return new Response('honest error', { status: 502 }); };
+  const location = new URL('https://ramjet.test/a/player-boot.js');
+  const { isControllerNav, reviveThenRoute } = new Function(
+    '$scramjetController', 'clients', 'serve', 'errPage', 'location',
+    fn + '; return { isControllerNav, reviveThenRoute };'
+  )($scramjetController, stubClients, serve, errPage, location);
+
+  // gate precision: only same-origin controller-prefixed navigations are held
+  const mk = (url, init = {}) => ({ request: { url, mode: 'navigate', destination: 'iframe', ...init } });
+  assert.equal(isControllerNav(mk('https://ramjet.test/a/r/c1/abc')), true);
+  assert.equal(isControllerNav(mk('https://ramjet.test/a/r/c1/abc', { mode: 'no-cors', destination: 'image' })), false);
+  assert.equal(isControllerNav(mk('https://ramjet.test/browse')), false);
+  assert.equal(isControllerNav(mk('https://evil.test/a/r/c1/abc')), false);
+
+  // revive arrives mid-wait: the held navigation is served by the controller, revive was broadcast
+  setTimeout(() => { registryLive = true; }, 150);
+  const r1 = await reviveThenRoute(mk('https://ramjet.test/a/r/c1/abc'));
+  assert.equal(await r1.text(), 'SW-SERVED');
+  assert.equal(calls.serve, 1);
+  assert.equal(calls.err, 0);
+  assert.ok(calls.posted.some((m) => m && m.$controller$swrevive));
+
+  // no revive in time: finite honest error, still never the network
+  const t0 = Date.now();
+  registryLive = false;
+  const r2 = await reviveThenRoute(mk('https://ramjet.test/a/r/c1/def'));
+  const elapsed = Date.now() - t0;
+  assert.equal(r2.status, 502);
+  assert.equal(calls.serve, 1, 'serve not called again');
+  assert.equal(calls.err, 1);
+  assert.ok(elapsed >= 1900 && elapsed < 3000, 'bounded wait, was ' + elapsed + 'ms');
+  // the budget is taken before the broadcast round-trip, so the wait - not just the poll - is bounded
+  const body = src.slice(src.indexOf('async function reviveThenRoute'));
+  assert.ok(body.indexOf('const until = Date.now() + REVIVE_WAIT_MS;') < body.indexOf('clients.matchAll'));
+
+  // the fetch handler still gates on shouldRoute first and routes everything else through serve
+  assert.ok(src.indexOf('if (!isControllerNav(e)) return;') > src.indexOf('if (!$scramjetController.shouldRoute(e))'));
+  assert.match(src, /e\.respondWith\(reviveThenRoute\(e\)\)/);
+  assert.match(src, /e\.respondWith\(serve\(e\)\)/);
+});

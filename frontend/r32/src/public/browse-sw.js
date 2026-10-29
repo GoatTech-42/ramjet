@@ -9,25 +9,15 @@ addEventListener("activate", (e) => { e.waitUntil(clients.claim()); });
 // rust debug output. swap those for a page that reads like ramjet made
 // it - only for real page loads, and only when the body is the marker.
 addEventListener("fetch", (e) => {
-  if (!$scramjetController.shouldRoute(e)) return;
-  e.respondWith((async () => {
-    let r;
-    try {
-      r = await $scramjetController.route(e);
-    } catch (err) {
-      return errPage();
-    }
-    // marker check carries the precision - a real site never says this. only for page loads, and only the first few bytes are read
-    // (never the whole body: a huge or endless 500 must not hold the response back).
-    if (r.status >= 500 && (e.request.mode === "navigate" || e.request.destination === "document" || e.request.destination === "iframe")) {
-      try {
-        if (await startsWithMarker(r.clone())) return errPage();
-      } catch { /* fall through to the original response */ }
-    }
-    const dl = dlInfo(e, r);
-    if (dl) { try { return trackDownload(r, dl); } catch { return r; } }
-    return r;
-  })());
+  if (!$scramjetController.shouldRoute(e)) {
+    // a controller url with no live controller means this worker restarted and
+    // the page has not re-registered yet. falling through to the network would
+    // render the backend's 404 as the frame document, so hold it and revive.
+    if (!isControllerNav(e)) return;
+    e.respondWith(reviveThenRoute(e));
+    return;
+  }
+  e.respondWith(serve(e));
 });
 
 // downloads: a navigation answered with an attachment (or a file the page
@@ -126,4 +116,58 @@ async function startsWithMarker(resp) {
     }
   } finally { clearTimeout(timer); try { rd.cancel(); } catch {} }
   return got.startsWith(MARKER);
+}
+
+async function serve(e) {
+  let r;
+  try {
+    r = await $scramjetController.route(e);
+  } catch (err) {
+    return errPage();
+  }
+  // marker check carries the precision - a real site never says this. only for page loads, and only the first few bytes are read
+  // (never the whole body: a huge or endless 500 must not hold the response back).
+  if (r.status >= 500 && (e.request.mode === "navigate" || e.request.destination === "document" || e.request.destination === "iframe")) {
+    try {
+      if (await startsWithMarker(r.clone())) return errPage();
+    } catch { /* fall through to the original response */ }
+  }
+  const dl = dlInfo(e, r);
+  if (dl) { try { return trackDownload(r, dl); } catch { return r; } }
+  return r;
+}
+
+// a restart wipes the scramjet controller registry: it lives only in this
+// worker's memory and is re-filled when the page answers $controller$swrevive
+// with a fresh $controller$init. a navigation that lands inside that window
+// must never reach the network - the backend has no route for the prefix, and
+// its 404 would load as the frame's document with no error anywhere. only
+// navigations are held: subresources heal via the same revive moments later,
+// and everything outside the prefix keeps its old fall-through exactly.
+const CONTROLLER_PREFIX = "/a/r/"; // engine.js hands the controller this prefix; change together
+const REVIVE_WAIT_MS = 2000;
+function isControllerNav(e) {
+  try {
+    const u = new URL(e.request.url);
+    if (u.origin !== location.origin || !u.pathname.startsWith(CONTROLLER_PREFIX)) return false;
+  } catch { return false; }
+  return e.request.mode === "navigate" || e.request.destination === "document" || e.request.destination === "iframe";
+}
+async function reviveThenRoute(e) {
+  // a 2s polling budget, started before client enumeration so a slow
+  // matchAll eats into the budget instead of extending it. not a hard
+  // deadline: a hung enumeration or a stalled worker scheduler can still
+  // outlast it, and after a revive the request takes the normal route
+  // path with its own timings. a restart inside a page controller's first
+  // 5s ignores the revive there, so that case ends at the honest error.
+  const until = Date.now() + REVIVE_WAIT_MS;
+  try {
+    for (const c of await clients.matchAll({ type: "window", includeUncontrolled: true })) c.postMessage({ $controller$swrevive: {} });
+  } catch {}
+  while (Date.now() < until) {
+    if ($scramjetController.shouldRoute(e)) return serve(e);
+    await new Promise((r) => setTimeout(r, 50));
+  }
+  // no page re-registered inside the window - fail honest, never silently to the network
+  return errPage();
 }
