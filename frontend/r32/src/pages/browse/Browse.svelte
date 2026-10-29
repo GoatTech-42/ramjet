@@ -236,7 +236,7 @@
         newTab();
         boot = '';
       } catch (e) {
-        if (!cancelled && attempts < 2) { // one automatic retry, then give up loudly
+        if (!cancelled && attempts < 2 && !(e && e.noRetry)) { // one automatic retry for retryable errors, then give up loudly
           attempts += 1;
           boot = 'retrying...';
           await new Promise((r) => setTimeout(r, 2500));

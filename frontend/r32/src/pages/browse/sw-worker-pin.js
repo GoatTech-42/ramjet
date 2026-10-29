@@ -30,12 +30,18 @@ export function pinControllerWorker(controller, reg) {
   // registry keeps the latest same-id init, but that is an observation, not
   // concurrent-rpc safety - a replaced port may interrupt an in-flight
   // request, and concurrent-rpc behavior is not established here.
-  navigator.serviceWorker.addEventListener('message', (e) => {
+  const onRevive = (e) => {
     if (!e.data || !e.data.$controller$swrevive) return;
     if (!controller.guardServiceWorkerRevive) return; // guard off: the vendored path handles it
     const w = liveActive();
     if (!w || w === controller.serviceWorkerController) return;
     controller.serviceWorkerController = w;
     origSetup();
-  });
+  };
+  navigator.serviceWorker.addEventListener('message', onRevive);
+  // teardown for a boot that fails after pinning: drop the listener, restore the vendored setup
+  return () => {
+    navigator.serviceWorker.removeEventListener('message', onRevive);
+    controller.setupMessagePort = origSetup;
+  };
 }

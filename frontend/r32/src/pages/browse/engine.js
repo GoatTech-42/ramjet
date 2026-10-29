@@ -1,4 +1,5 @@
 import { pinControllerWorker } from './sw-worker-pin.js';
+import { mintTicketUrl } from './tickets.mjs';
 
   function makeUrlCodec(keyHex) {
     const body =
@@ -25,20 +26,166 @@ import { pinControllerWorker } from './sw-worker-pin.js';
     return { encode, decode };
   }
 
-  async function makeTransport(Epoxy, wisp, getAdOk) {
+  async function makeTransport(Epoxy, bridgeBase, getAdOk) {
+    // tickets are single-use and every mint fails closed - connecting on a burned or unticketed url
+    // only hides the real error behind a refusal. the ws transport mints per socket open; curl and
+    // epoxy modes mint once at construction and their internal reconnects reuse that url, so a
+    // dropped underlying socket in those modes needs a reload.
+    const mint = async () => {
+      const m = await mintTicketUrl(fetch, bridgeBase, localStorage.getItem('rj-adblock') !== 'off');
+      if (m.fail) {
+        // keep the classification: a 401 stays no-retry through the throw
+        const e = new TypeError(m.fail);
+        e.noRetry = !!m.noRetry;
+        throw e;
+      }
+      return m.url;
+    };
+    // mints after boot (socket open, proxied connect) get their own bound, so a stalled
+    // ticket endpoint cannot hang a page load forever
+    const boundedMint = () => Promise.race([mint(), new Promise((_, rej) => setTimeout(() => rej(new TypeError("the tunnel couldn't be reserved - try again")), 12000))]);
+    // close() is terminal and shared by both branches that vend sockets: an in-flight mint never
+    // publishes, a socket that opens late is shut instead of going live, and every proxied client
+    // this transport handed out is closed with it.
+    const state = { closed: false, proxied: new Set() };
+    // per-socket terminal handling, centralized and idempotent. one record per connect,
+    // registered the moment the tuple is handed out; one state: connecting -> terminal.
+    // exactly-once rules: the handshake settles once (vendor onopen, or onerror - the vendored
+    // connect rpc awaits one of those two and cannot settle on onclose alone); the page onclose
+    // fires once; the vendor close runs once. late vendor open/message/close/error after
+    // terminal are suppressed.
+    const closeVendor = (ps, code, reason) => {
+      if (ps.vendorClosed || !ps.tuple) return;
+      ps.vendorClosed = true;
+      // the vendored close is async (it awaits the handshake socket): consume both a
+      // synchronous throw and a rejection of the promise it returns, or either escapes
+      try { Promise.resolve(ps.tuple[1](code, reason)).catch(() => {}); } catch {}
+    };
+    const terminate = (ps, code, reason) => {
+      if (ps.phase === 'terminal') return;
+      ps.phase = 'terminal';
+      state.proxied.delete(ps);
+      if (!ps.settled) {
+        // settle the handshake the vendored rpc is awaiting, then the close event the page needs
+        ps.settled = true;
+        try { ps.onerrorCb('connection dropped'); } catch {}
+      }
+      closeVendor(ps, code, reason);
+      try { ps.pageClose(code, reason); } catch {}
+    };
+    const closeProxied = () => { for (const ps of [...state.proxied]) terminate(ps, 1000, ''); };
+    const proxiedConnect = (url, protocols, requestHeaders, onopen, onmessage, onclose, onerror) => {
+      // the vendored controller destructures [send, close] from this return WITHOUT awaiting
+      // it, so the tuple must come back synchronously. a ticket is single-use and epoxy binds
+      // its url at init, so each proxied connect mints its own ticketed client behind the
+      // closures - the same idiom the vendored epoxy transport uses for its own socket.
+      if (state.closed) {
+        try { onerror('connection dropped'); } catch {}
+        try { onclose(1006, ''); } catch {}
+        return [async () => { throw new TypeError('connection dropped'); }, async () => {}];
+      }
+      const ps = { phase: 'connecting', settled: false, vendorClosed: false, tuple: null, pageClose: onclose, onerrorCb: onerror };
+      const dead = () => state.closed || ps.phase === 'terminal';
+      state.proxied.add(ps); // registered at first call: a transport close owes this socket its settlement even while the mint pends
+      const inner = (async () => {
+        const wisp = await boundedMint();
+        if (dead()) return null;
+        const e = new Epoxy({ wisp });
+        await e.init();
+        if (dead()) return null;
+        return e.connect(
+          url, protocols, requestHeaders,
+          (...a) => { if (dead()) return; ps.settled = true; onopen(...a); },
+          (...a) => { if (!dead()) onmessage(...a); },
+          (code, reason) => {
+            // a vendor-initiated close is a terminal event; mid-handshake it also settles the rpc
+            if (ps.phase === 'terminal') return;
+            ps.phase = 'terminal';
+            state.proxied.delete(ps);
+            if (!ps.settled) { ps.settled = true; try { onerror('connection dropped'); } catch {} }
+            try { onclose(code, reason); } catch {}
+          },
+          (...a) => {
+            if (dead()) return;
+            const unsettled = !ps.settled;
+            ps.settled = true;
+            if (unsettled) {
+              // ownership ends BEFORE any external callback: a consumer reentering close from
+              // its onerror finds a terminal record and cannot double-notify. the failed
+              // handshake's socket is closed here too - owned, not assumed of the vendor
+              ps.phase = 'terminal';
+              state.proxied.delete(ps);
+              closeVendor(ps, 1000, ''); // 1006 is reserved and not sendable on the wire; the page event below keeps it
+            }
+            try { onerror(...a); } catch {}
+            // a failed handshake is followed by the close event - from us if the vendor sends none
+            if (unsettled) { try { onclose(1006, ''); } catch {} }
+          }
+        );
+      })();
+      inner.then((t) => {
+        if (!t) return;
+        ps.tuple = t;
+        // terminated while the vendor was still connecting: close its socket quietly - the
+        // settlement and page close already happened
+        if (dead()) closeVendor(ps, 1000, '');
+      }, () => {});
+      inner.catch((err) => {
+        // initialization failed: settle the handshake, then the close event - never an
+        // unhandled rejection, never a lost notification
+        if (ps.phase === 'terminal') return;
+        ps.phase = 'terminal';
+        state.proxied.delete(ps);
+        ps.settled = true;
+        try { onerror(String((err && err.message) || err)); } catch {}
+        try { onclose(1006, ''); } catch {}
+      });
+      return [
+        async (data) => {
+          if (dead()) throw new TypeError('connection dropped');
+          const t = await inner.catch(() => null);
+          if (!t || dead()) throw new TypeError('connection dropped');
+          return t[0](data);
+        },
+        async (code, reason) => {
+          // never rejects: the vendored consumer ignores this promise, so the terminal
+          // notification must not depend on initialization succeeding. terminate first so a
+          // pending mint or init aborts instead of constructing a socket nobody wants
+          terminate(ps, code, reason);
+          const t = await inner.catch(() => null);
+          if (t) { if (!ps.tuple) ps.tuple = t; closeVendor(ps, code, reason); }
+        },
+      ];
+    };
+    // curl and default-epoxy modes hand their socket to a vendored client with no close api.
+    // the wrapper gates NEW work after close; the underlying vendored socket lives until it
+    // drops or the page unloads - honest limitation, flagged for review.
+    const gated = (inner) => ({
+      ready: false,
+      async init() { await inner.init(); this.ready = true; },
+      meta: () => inner.meta?.(),
+      connect: (...a) => { if (state.closed) throw new TypeError('connection dropped'); return inner.connect(...a); },
+      request: async (...a) => { if (state.closed) throw new TypeError('connection dropped'); return inner.request(...a); },
+      close() { state.closed = true; closeProxied(); },
+    });
     if ((localStorage.getItem('rj-transport') || 'ws') === 'ws') {
-      const epoxy = new Epoxy({ wisp });
+      const epoxy = new Epoxy({ wisp: bridgeBase });
       const ab = localStorage.getItem('rj-adblock') !== 'off';
-      const pwsUrl = wisp;
       const toB64 = (buf) => { let s = ''; const u = new Uint8Array(buf); for (let i = 0; i < u.length; i += 0x8000) s += String.fromCharCode.apply(null, u.subarray(i, i + 0x8000)); return btoa(s); };
-      let sock = null, opening = null, nextId = 1;
+      let sock = null, opening = null, openingRej = null, pendingSock = null, nextId = 1;
       const pend = new Map();
-      const freshUrl = async () => { try { const r = await fetch('/api/media-bridge/ticket' + (ab ? '' : '?ab=0'), { method: 'POST', headers: { 'X-Ramjet-JS': '1' } }); const j = await r.json(); if (j && j.ticket) return pwsUrl.replace(/\/api\/media-bridge\/[a-f0-9]+/, '/api/media-bridge/' + j.ticket); } catch {} return pwsUrl; };
-      const open = () => sock && sock.readyState === 1 ? Promise.resolve(sock) : opening || (opening = freshUrl().then((url) => new Promise((res, rej) => {
-        const w = new WebSocket(url); w.binaryType = 'arraybuffer';
-        w.onopen = () => { sock = w; opening = null; res(w); };
-        w.onerror = () => { opening = null; rej(new TypeError('connection failed')); };
-        w.onclose = () => { sock = null; for (const [, p] of pend) p.fail('connection dropped'); pend.clear(); };
+      // the box tickets every socket open; a fresh ticket per open also spreads load across bridge backends
+      const freshUrl = boundedMint;
+      const open = () => {
+        if (state.closed) return Promise.reject(new TypeError('connection dropped'));
+        return sock && sock.readyState === 1 ? Promise.resolve(sock) : opening || (opening = freshUrl().then((url) => {
+        if (state.closed) throw new TypeError('connection dropped'); // closed while the ticket minted: never open the socket
+        return new Promise((res, rej) => {
+        openingRej = rej; // close() rejects the opening request itself - no reliance on a late onopen
+        const w = pendingSock = new WebSocket(url); w.binaryType = 'arraybuffer';
+        w.onopen = () => { if (state.closed) { opening = null; openingRej = null; pendingSock = null; try { w.close(); } catch {} rej(new TypeError('connection dropped')); return; } pendingSock = null; openingRej = null; sock = w; opening = null; res(w); };
+        w.onerror = () => { opening = null; openingRej = null; pendingSock = null; rej(new TypeError('connection failed')); };
+        w.onclose = () => { sock = null; if (pendingSock === w) pendingSock = null; for (const [, p] of pend) p.fail('connection dropped'); pend.clear(); };
         w.onmessage = (ev) => {
           const dv = new DataView(ev.data); const id = dv.getUint32(0); const type = dv.getUint8(4); const p = pend.get(id);
           if (!p) return;
@@ -47,12 +194,14 @@ import { pinControllerWorker } from './sw-worker-pin.js';
           else if (type === 2) { pend.delete(id); try { p.ctl?.close(); } catch {} }
           else { pend.delete(id); p.fail(new TextDecoder().decode(new Uint8Array(ev.data, 5))); }
         };
-      })).catch((e) => { opening = null; throw e; }));
+        });
+        }).catch((e) => { opening = null; throw e; }));
+      };
       return {
         ready: false,
         async init() { await epoxy.init(); this.ready = true; },
         meta: () => epoxy.meta?.(),
-        connect: (...a) => epoxy.connect(...a),
+        connect: proxiedConnect,
         async request(remote, method, body, headers, signal) {
           let b = null;
           if (body != null) {
@@ -74,37 +223,49 @@ import { pinControllerWorker } from './sw-worker-pin.js';
             w.send(JSON.stringify({ id, url: remote.href, method, headers, body: b, ab: ab && !getAdOk() }));
           });
         },
+        close() {
+          state.closed = true;
+          try { sock && sock.close(); } catch {}
+          try { pendingSock && pendingSock.close(); } catch {}
+          sock = null; pendingSock = null;
+          if (openingRej) { const r = openingRej; openingRej = null; opening = null; r(new TypeError('connection dropped')); }
+          for (const [, p] of pend) p.fail('connection dropped');
+          pend.clear();
+          closeProxied();
+        },
       };
     }
     if (localStorage.getItem('rj-transport') === 'curl') {
       const url = '/assets/net2/index.mjs';
       const m = await import(/* @vite-ignore */ url);
-      return new m.default({ wisp });
+      return gated(new m.default({ wisp: await mint() }));
     }
     if (localStorage.getItem('rj-transport') === 'server') {
-      const epoxy = new Epoxy({ wisp });
+      const epoxy = new Epoxy({ wisp: bridgeBase });
       const ab = localStorage.getItem('rj-adblock') !== 'off';
       const toB64 = (buf) => { let s = ''; const u = new Uint8Array(buf); for (let i = 0; i < u.length; i += 0x8000) s += String.fromCharCode.apply(null, u.subarray(i, i + 0x8000)); return btoa(s); };
       return {
         ready: false,
         async init() { await epoxy.init(); this.ready = true; },
         meta: () => epoxy.meta?.(),
-        connect: (...a) => epoxy.connect(...a),
+        connect: proxiedConnect,
         async request(remote, method, body, headers, signal) {
           let b = null;
           if (body != null) {
             if (typeof body === 'string') b = btoa(unescape(encodeURIComponent(body)));
             else b = toB64(body instanceof Blob ? await body.arrayBuffer() : body instanceof ArrayBuffer ? body : await new Response(body).arrayBuffer());
           }
+          if (state.closed) throw new TypeError('connection dropped');
           const r = await fetch('/api/pfetch', { method: 'POST', signal, body: JSON.stringify({ url: remote.href, method, headers, body: b, ab }) });
           const st = r.headers.get('x-rj-status');
           if (!st) throw new TypeError('page failed to load: ' + (r.headers.get('x-rj-error') || r.status));
           const raw = JSON.parse(atob(r.headers.get('x-rj-headers') || 'W10='));
           return { body: r.body, headers: raw, status: +st, statusText: decodeURIComponent(r.headers.get('x-rj-text') || '') };
         },
+        close() { state.closed = true; closeProxied(); },
       };
     }
-    return new Epoxy({ wisp });
+    return gated(new Epoxy({ wisp: await mint() }));
   }
 
   const loadScript = (src) => new Promise((res, rej) => {
@@ -115,20 +276,28 @@ import { pinControllerWorker } from './sw-worker-pin.js';
 
 export async function connect({ setBoot, cancelled, getAdOk }) {
         if (!('serviceWorker' in navigator)) return { fail: 'this browser is too old for browse' };
+        // one total budget across everything below - assets, transport code, worker, ticket, probe,
+        // warmup - not four separate clocks. every stage is raced against what is left, and when the
+        // budget is spent an in-flight probe is closed so nothing keeps loading after the failure.
+        const bootDeadline = Date.now() + 12000;
+        const within = (p) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error('that took too long - reload to try again')), Math.max(1, bootDeadline - Date.now())))]);
+        let abandonProbe = null;
+        const kill = setTimeout(() => { try { abandonProbe && abandonProbe(); } catch {} }, 12000);
         setBoot('loading...');
         if (!globalThis.$scramjetController) {
-          await loadScript('/assets/codec/codec.js');
-          await loadScript('/assets/player/api.js');
+          await within(loadScript('/assets/codec/codec.js'));
+          await within(loadScript('/assets/player/api.js'));
         }
         const { Controller } = globalThis.$scramjetController || {};
-        const EpoxyTransport = (await import(/* @vite-ignore */ '/assets/net/index.mjs')).default;
+        const EpoxyTransport = (await within(import(/* @vite-ignore */ '/assets/net/index.mjs'))).default;
         if (!Controller || !EpoxyTransport) return { fail: 'some files did not load - check your connection and reload' };
         setBoot('starting...');
         // the worker, the tunnel ticket and the url key are independent, so
         // they load together instead of one after another.
         // some browsers (iOS Safari) withhold cookies on websocket upgrades,
-        // so the tunnel authenticates with a short-lived ticket instead.
-        const tkP = fetch('/api/media-bridge/ticket' + (localStorage.getItem('rj-adblock') === 'off' ? '?ab=0' : ''), { method: 'POST', headers: { 'X-Ramjet-JS': '1' } }).then((r) => r.json()).catch(() => ({}));
+        // so the tunnel authenticates with a short-lived single-use ticket instead.
+        const bridgeBase = (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/api/media-bridge/';
+        const t1P = mintTicketUrl(fetch, bridgeBase, localStorage.getItem('rj-adblock') !== 'off');
         const kkP = fetch('/api/apps/browse/urlkey').then((r) => r.json()).catch(() => ({}));
         const swP = (async () => {
           const reg = await navigator.serviceWorker.register('/a/player-boot.js');
@@ -147,30 +316,48 @@ export async function connect({ setBoot, cancelled, getAdOk }) {
             check(); // it may have activated before the listener attached
           });
         })();
-        const [swR, tk, kk] = await Promise.all([swP, tkP, kkP]);
+        const [swR, t1, kk] = await within(Promise.all([swP, t1P, kkP]));
         const sw = swR.worker;
         if (cancelled()) return {};
+        if (t1.fail) { clearTimeout(kill); return { fail: t1.fail, noRetry: !!t1.noRetry }; }
         setBoot('connecting...');
         const urlCodec = kk.key ? makeUrlCodec(kk.key) : undefined;
-        const wispBase = (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host;
-        const wispUrl = tk.ticket ? `${wispBase}/api/media-bridge/${tk.ticket}/` : `${wispBase}/api/media-bridge/`;
-        await new Promise((res, rej) => {
-          const probe = new WebSocket(wispUrl);
+        await within(new Promise((res, rej) => {
+          const probe = new WebSocket(t1.url);
           const t = setTimeout(() => { try { probe.close(); } catch {} ; rej(new Error('connection timed out - this network may be blocking it')); }, 15000);
+          abandonProbe = () => { clearTimeout(t); try { probe.close(); } catch {} };
           probe.onopen = () => { clearTimeout(t); probe.close(); res(); };
           probe.onerror = () => { /* onclose carries the detail */ };
           probe.onclose = (ev) => { clearTimeout(t); rej(new Error(`connection refused (code ${ev.code || 'none'})`)); };
-        });
+        }));
+        abandonProbe = null;
         if (cancelled()) return {};
         setBoot('warming up...');
-        const controller = new Controller({ serviceworker: sw, transport: await makeTransport(EpoxyTransport, wispUrl, getAdOk), config: { prefix: '/a/r/', ...(urlCodec ? { codec: urlCodec } : {}) } });
+        // ticket 2: the probe burned ticket 1 - the transport mints its own.
+        const transport = await within(makeTransport(EpoxyTransport, bridgeBase, getAdOk));
+        const controller = new Controller({ serviceworker: sw, transport, config: { prefix: '/a/r/', ...(urlCodec ? { codec: urlCodec } : {}) } });
         // an update replaces the worker object captured above; keep the
         // controller registering with the live worker of this registration.
-        pinControllerWorker(controller, swR.reg);
-        await Promise.race([
-          controller.wait(),
-          new Promise((_, rej) => setTimeout(() => rej(new Error('that took too long - reload to try again')), 15000)),
-        ]);
-        if (cancelled()) return {};
+        const unpin = pinControllerWorker(controller, swR.reg);
+        try {
+          await within(Promise.race([
+            controller.wait(),
+            new Promise((_, rej) => setTimeout(() => rej(new Error('that took too long - reload to try again')), 15000)),
+          ]));
+        } catch (e) {
+          // teardown for a failed or expired warmup: unpin (our added listener off), neuter the
+          // vendored port setup so a late revive lands on a no-op, and close the transport, so the
+          // next boot attempt does not overlap live work from this one. residual, flagged for
+          // review rather than claimed gone: the vendored controller has no destroy api - its
+          // anonymous sw message listener stays registered and its message ports stay open until
+          // the page unloads, but the revive path now points at a no-op and the ui never
+          // references this controller (ctrl is only set on success).
+          unpin();
+          try { controller.setupMessagePort = () => {}; } catch {}
+          try { transport.close && transport.close(); } catch {}
+          throw e;
+        }
+        if (cancelled()) { clearTimeout(kill); unpin(); try { controller.setupMessagePort = () => {}; } catch {} try { transport.close && transport.close(); } catch {} return {}; }
+  clearTimeout(kill);
   return { controller };
 }

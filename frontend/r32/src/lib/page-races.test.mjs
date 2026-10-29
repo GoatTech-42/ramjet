@@ -15,11 +15,33 @@ test('amp: the resume seek is one-shot, url-checked and removed when another son
   assert.match(s, /if \(seekH && el\) \{ el\.removeEventListener\('loadedmetadata', seekH\)/);
 });
 test('browse: tickets fail closed, probe and transport get separate tickets, boot has a total deadline', () => {
-  const s = rd('../pages/browse/Browse.svelte');
-  assert.doesNotMatch(s, /return pwsUrl;/);
-  assert.match(s, /ticket 2: the probe burned ticket 1/);
-  assert.match(s, /bootDeadline - 12000/);
-  assert.match(s, /noRetry: r\.status === 401/);
+  // the ticket logic lives in engine.js/tickets.mjs - assert where the code is, not a sibling file
+  const eng = rd('../pages/browse/engine.js');
+  const tk = rd('../pages/browse/tickets.mjs');
+  assert.doesNotMatch(eng, /return pwsUrl;/);
+  assert.match(eng, /ticket 2: the probe burned ticket 1/);
+  assert.match(eng, /bootDeadline = Date\.now\(\) \+ 12000/);
+  assert.match(eng, /bootDeadline - Date\.now\(\)/);
+  assert.match(eng, /return \{ fail: t1\.fail, noRetry: !!t1\.noRetry \}/);
+  assert.match(tk, /noRetry: r\.status === 401/);
+});
+test('browse tickets: a failed mint fails closed, a 401 is noRetry, and a good mint builds the url', async () => {
+  const { mintTicketUrl } = await import('../pages/browse/tickets.mjs');
+  const base = 'ws://host/api/media-bridge/';
+  const good = await mintTicketUrl(async () => new Response(JSON.stringify({ ticket: 'ab'.repeat(24) }), { status: 200 }), base, true);
+  assert.equal(good.url, base + 'ab'.repeat(24) + '/');
+  const s401 = await mintTicketUrl(async () => new Response(JSON.stringify({ error: 'not signed in' }), { status: 401 }), base, true);
+  assert.ok(s401.fail.includes('session ended'));
+  assert.equal(s401.noRetry, true);
+  assert.equal(s401.url, undefined);
+  const s500 = await mintTicketUrl(async () => new Response('oops', { status: 500 }), base, true);
+  assert.ok(s500.fail);
+  assert.equal(s500.url, undefined);
+  const net = await mintTicketUrl(async () => { throw new Error('offline'); }, base, true);
+  assert.ok(net.fail.includes('check your connection'));
+  let seen;
+  await mintTicketUrl(async (u) => { seen = u; return new Response(JSON.stringify({ ticket: 'ab'.repeat(24) })); }, base, false);
+  assert.ok(seen.endsWith('?ab=0'));
 });
 test('sw: only the first bytes of a 5xx page load are read for the marker', async () => {
   const src = rd('../public/browse-sw.js');
