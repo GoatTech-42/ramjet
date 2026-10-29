@@ -24,6 +24,10 @@ import { whyStopped as probeWhy, handleTrackError } from '../../lib/amp-error-lo
   let soft = $state(''); // an honest 'still rebuilding' empty state, not an error banner
   let artBad = $state({}); // art urls that failed or answered 204: keep the placeholder
   let searched = $state(false);
+  let searchedQ = $state('');
+  let auNext = $state(null); // audius continuation cursor from the last search - the only source with a real cursor shape (au:offset). youtube music and soundcloud stay first-page until the backend holds a verified continuation.
+  let auBusy = $state(false);
+  let auNote = $state('');
 
   // the queue is whatever was below the tapped row - tap a song and the
   // rest of the list plays after it, like dropping a needle on a list
@@ -67,7 +71,10 @@ import { whyStopped as probeWhy, handleTrackError } from '../../lib/amp-error-lo
     const onHide = () => { syncUi(); persist(); };
     document.addEventListener('visibilitychange', onVis);
     window.addEventListener('pagehide', onHide);
-    return () => { window.removeEventListener('keydown', onKey); document.removeEventListener('visibilitychange', onVis); window.removeEventListener('pagehide', onHide); };
+    // infinite scroll: near the list end, continue audius - the only source with a real cursor. first-page-only sources simply end.
+    const onScroll = () => { if (searched && view === 'search' && auNext && !auBusy && window.innerHeight + window.scrollY > document.documentElement.scrollHeight - 900) moreAudius(); };
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => { window.removeEventListener('keydown', onKey); document.removeEventListener('visibilitychange', onVis); window.removeEventListener('pagehide', onHide); window.removeEventListener('scroll', onScroll); };
   });
 
   function note(msg) {
@@ -382,6 +389,7 @@ import { whyStopped as probeWhy, handleTrackError } from '../../lib/amp-error-lo
     plGen++;   // a playlist open still in flight must not reopen over this search
     recentQ = addSearch('amp-searches', q);
     busy = true; error = ''; soft = ''; srcEmpty = []; searched = false; sections = [];
+    searchedQ = q.trim(); auNext = null; auNote = '';
     view = 'search'; plId = ''; plName = ''; artistPage = null; albumPage = null;
     const r = await api(`/api/apps/amp/search?q=${encodeURIComponent(q.trim())}`);
     busy = false; searched = true;
@@ -394,6 +402,23 @@ import { whyStopped as probeWhy, handleTrackError } from '../../lib/amp-error-lo
     }
     sections = flat;
     srcEmpty = ['youtube', 'soundcloud', 'audius'].filter((k) => !(d[k] || []).length);
+    auNext = (r.data.next || {}).audius || null;   // yt/sc cursors are null by contract - nothing to continue for them
+  }
+
+  // more songs: continue audius only. a cursored answer carries just audius rows; a short or empty page ends the cursor (next.audius null).
+  async function moreAudius() {
+    if (busy || auBusy || !auNext || !searched || view !== 'search') return;
+    const cq = searchedQ, cc = auNext;
+    auBusy = true; auNote = '';
+    const r = await api(`/api/apps/amp/search?q=${encodeURIComponent(cq)}&cursor=${encodeURIComponent(cc)}`);
+    auBusy = false;
+    if (auNext !== cc || searchedQ !== cq) return;   // a newer search or continuation moved on - drop the stale page
+    if (!r.ok) { auNote = errCopy(r, "couldn't load more songs."); return; }
+    const d = r.data.results || {};
+    const have = new Set(sections.map((it) => it.key));
+    const add = (d.audius || []).filter((it) => !have.has(it.key));
+    if (add.length) sections = [...sections, ...add];
+    auNext = (r.data.next || {}).audius || null;
   }
 
   function chip(c) { q = c; search(); }
@@ -688,6 +713,10 @@ import { whyStopped as probeWhy, handleTrackError } from '../../lib/amp-error-lo
           onmove={(d) => movePl(i, d)} onremove={() => removeFromPlaylist(i)} onart={(u) => { artBad[u] = true; }} />
       {/each}
     </div>
+    {#if view === 'search' && searched}
+      {#if auBusy}<p class="dim" data-testid="amp-more-loading">loading more songs...</p>{/if}
+      {#if auNote}<p class="dim" data-testid="amp-more-note">{auNote} <button class="retrylink" data-testid="amp-more-retry" onclick={moreAudius}>try again</button></p>{/if}
+    {/if}
   </main>
 
   {#if saveTarget}
