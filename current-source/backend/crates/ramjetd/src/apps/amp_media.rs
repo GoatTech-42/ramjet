@@ -339,17 +339,39 @@ pub fn parse_ytmusic(v: &ONode) -> Vec<Value> {
 }
 
                                             
-pub fn combine(q: &str, yt: Result<Vec<Value>, ()>, sc: Result<Vec<Value>, ()>, au: Result<Vec<Value>, ()>) -> Response {
+/// Rows kept from one Audius page; parse_audius caps at the same count.
+pub const AU_PAGE: usize = 12;
+/// Deepest Audius offset a cursor may ask for; deeper paging is refused, not clamped.
+pub const AU_MAX_OFFSET: u32 = 10_000;
+
+/// The only continuation this build forms truthfully: an Audius offset, "au:<offset>".
+/// YouTube Music and SoundCloud continuation shapes are unverified, so no cursor is
+/// ever minted or accepted for them rather than guessed.
+pub fn parse_cursor(s: &str) -> Option<u32> {
+    let n = s.strip_prefix("au:")?.parse::<u32>().ok()?;
+    if n > AU_MAX_OFFSET { return None; }
+    Some(n)
+}
+
+/// The cursor for the page after `offset` when a full page came back; None at the end.
+pub fn au_next(offset: u32, rows: usize) -> Option<String> {
+    if rows >= AU_PAGE { Some(format!("au:{}", offset + rows as u32)) } else { None }
+}
+
+pub fn combine(q: &str, yt: Result<Vec<Value>, ()>, sc: Result<Vec<Value>, ()>, au: Result<Vec<Value>, ()>, next_au: Option<String>) -> Response {
     if yt.is_err() && sc.is_err() && au.is_err() { return json_err(StatusCode::BAD_GATEWAY, ALL_FAILED); }
     let arr = |r: Result<Vec<Value>, ()>| OJ::Arr(r.unwrap_or_default().into_iter().map(|v| OJ::Raw(v.as_str().unwrap_or("{}").to_string())).collect());
     json_ord(StatusCode::OK, vec![
         ("ok", OJ::Bool(true)), ("q", OJ::Str(q.to_string())),
         ("results", OJ::Obj(vec![("youtube".into(), arr(yt)), ("soundcloud".into(), arr(sc)), ("audius".into(), arr(au))])),
+        // youtube/soundcloud stay null until a real upstream continuation shape is held; audius is the offset cursor or null.
+        ("next", OJ::Obj(vec![("youtube".into(), OJ::Null), ("soundcloud".into(), OJ::Null),
+                              ("audius".into(), match next_au { Some(c) => OJ::Str(c), None => OJ::Null })])),
     ])
 }
 
-async fn src_audius(st: &AppState, q: &str) -> Result<Vec<Value>, ()> {
-    let u = format!("{AU_HOST}/v1/tracks/search?query={}&app_name={AU_APP}", urlenc(q));
+async fn src_audius(st: &AppState, q: &str, offset: u32) -> Result<Vec<Value>, ()> {
+    let u = format!("{AU_HOST}/v1/tracks/search?query={}&app_name={AU_APP}&limit={AU_PAGE}&offset={offset}", urlenc(q));
     get_json(st, &u, &[("user-agent", WEB_UA.into()), ("accept", "application/json".into())], None).await.map_err(|_| ()).and_then(|v| parse_audius(&v))
 }
 
@@ -420,12 +442,32 @@ async fn src_ytmusic(st: &AppState, q: &str) -> Result<Vec<Value>, ()> {
     get_json(st, "https://music.youtube.com/youtubei/v1/search?prettyPrint=false", &[("user-agent", WEB_UA.into())], Some(body)).await.map_err(|_| ()).map(|v| parse_ytmusic(&v))
 }
 
-pub async fn search(st: &AppState, track: &Track, q: &str) -> Response {
+pub async fn search(st: &AppState, track: &Track, q: &str, cursor: Option<&str>) -> Response {
     if let Some(r) = search_validate(q) { return r; }
     let q = super::js_trim(q);
-    let (y, c, a) = futures::join!(src_ytmusic(st, q), src_soundcloud(st, q), src_audius(st, q));
-    track(8192);
-    combine(q, y, c, a)
+    match cursor {
+        None => {
+            let (y, c, a) = futures::join!(src_ytmusic(st, q), src_soundcloud(st, q), src_audius(st, q, 0));
+            track(8192);
+            let next = a.as_ref().ok().and_then(|rows| au_next(0, rows.len()));
+            combine(q, y, c, a, next)
+        }
+        // A cursored request continues only the source the cursor belongs to.
+        Some(c) => {
+            let Some(offset) = parse_cursor(c) else {
+                return json_err(StatusCode::BAD_REQUEST, "that cursor is not understood - only audius pages continue");
+            };
+            let a = src_audius(st, q, offset).await;
+            track(8192);
+            match a {
+                Err(()) => json_err(StatusCode::BAD_GATEWAY, "the catalog timed out - try again"),
+                Ok(rows) => {
+                    let next = au_next(offset, rows.len());
+                    combine(q, Ok(vec![]), Ok(vec![]), Ok(rows), next)
+                }
+            }
+        }
+    }
 }
 
                                          
