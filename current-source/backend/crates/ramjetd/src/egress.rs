@@ -152,3 +152,53 @@ pub fn local_client() -> reqwest::Client {
         .no_proxy()
         .timeout(Duration::from_secs(15)), ca_active)
 }
+
+// The searx client: identical policy to local_client (direct, no proxy, no redirect
+// follows) plus a DNS override pinning the searx host to the boot-validated
+// addresses. Connect-time dialing uses ONLY these addresses; DNS is never consulted
+// again for this host. The URL host is unchanged, so the HTTP Host header and TLS
+// SNI/verification identity are preserved exactly.
+pub fn local_client_searx(host: &str, addrs: &[std::net::SocketAddr]) -> reqwest::Client {
+    let (ca, ca_active) = extra_ca();
+    let mut b = reqwest::Client::builder();
+    for c in ca { b = b.add_root_certificate(c); }
+    finish_build(b
+        .user_agent(UA)
+        .redirect(reqwest::redirect::Policy::none())
+        .no_proxy()
+        .timeout(Duration::from_secs(15))
+        .resolve_to_addrs(host, addrs), ca_active)
+}
+
+#[cfg(test)]
+mod searx_pin_tests {
+    // Positive control for the producer->connection contract both searx callers share:
+    // a client pinned to a loopback test server must reach it for a hostname that does
+    // NOT resolve in DNS at all. If connect-time resolution ever fell back to DNS this
+    // test could not pass, so it proves the pin binds dialing, not the boot check alone.
+    #[tokio::test]
+    async fn pinned_client_dials_validated_addrs_not_dns() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = l.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            let (mut s, _) = l.accept().await.unwrap();
+            let mut buf = vec![0u8; 4096];
+            let mut head = Vec::new();
+            while !head.ends_with(b"\r\n\r\n") {
+                let n = s.read(&mut buf).await.unwrap();
+                if n == 0 { break; }
+                head.extend_from_slice(&buf[..n]);
+                assert!(head.len() < 8192);
+            }
+            // Host header must carry the original URL host, not the pinned address.
+            let head = String::from_utf8_lossy(&head).to_lowercase();
+            assert!(head.contains("host: searx.test.invalid"), "{head}");
+            s.write_all(b"HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: 2\r\nconnection: close\r\n\r\n{}").await.unwrap();
+        });
+        let client = super::local_client_searx("searx.test.invalid", &[std::net::SocketAddr::new("127.0.0.1".parse().unwrap(), port)]);
+        let r = client.get("http://searx.test.invalid/search?q=x&format=json").send().await.unwrap();
+        assert!(r.status().is_success());
+        assert_eq!(r.text().await.unwrap(), "{}");
+    }
+}

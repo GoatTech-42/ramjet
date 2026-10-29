@@ -142,12 +142,6 @@ pub fn doh_cfg() -> Option<Result<DohCfg, String>> {
 // The DoH leg reaches the proxy as a raw SOCKS5 client, so the scheme's h-variant is moot
 // (we always CONNECT to an IP literal). The proxy must be numeric local infrastructure:
 // loopback or private/link-local/ULA - a public proxy would carry the leg off-box.
-fn local_infra_ip(ip: IpAddr) -> bool {
-    match ip {
-        IpAddr::V4(v) => { let o = v.octets(); o[0] == 127 || o[0] == 10 || (o[0] == 172 && (16..=31).contains(&o[1])) || (o[0] == 192 && o[1] == 168) || (o[0] == 169 && o[1] == 254) }
-        IpAddr::V6(v) => v.is_loopback() || (v.segments()[0] & 0xfe00) == 0xfc00 || (v.segments()[0] & 0xffc0) == 0xfe80,
-    }
-}
 
 fn doh_proxy_addr() -> Result<std::net::SocketAddr, String> {
     let p = std::env::var("RJ_PROXY").map_err(|_| "no RJ_PROXY".to_string())?;
@@ -621,3 +615,83 @@ pub(crate) mod doh_tests {
 }
 #[cfg(test)]mod compatible_v6_test{#[test]fn blocks_compatible(){for a in ["::127.0.0.1","::10.0.0.1","::192.168.1.1"]{assert!(super::blocked_ip(a.parse().unwrap()));}}}
 #[cfg(test)]mod gap_ranges_test{#[test]fn blocks_doc_and_relay_ranges(){for a in ["192.0.0.1","192.0.2.1","192.88.99.1","198.18.0.1","198.19.255.1","198.51.100.1","203.0.113.1"]{assert!(super::blocked_ip(a.parse().unwrap()),"{a}");} for ok in ["192.0.3.1","192.88.100.1","198.20.0.1","203.0.114.1"]{assert!(!super::blocked_ip(ok.parse().unwrap()),"{ok}");}}}
+
+// SEARXNG_URL is fetched through local_http, a client built with .no_proxy() - it never
+// crosses RJ_PROXY. The upstream must therefore be local infrastructure, decided on the
+// RESOLVED addresses (never lexically, so a dotless name expanded through DNS search
+// domains cannot slip past). Loopback, RFC1918, link-local and ULA only; anything else -
+// including NAT64-synthesised or v4-mapped publics, which blocked_ip alone would wave
+// through here - is a silent direct-egress path and refuses boot.
+fn local_infra_ip(ip: IpAddr) -> bool {
+    match ip {
+        IpAddr::V4(v) => { let o = v.octets(); o[0] == 127 || o[0] == 10 || (o[0] == 172 && (16..=31).contains(&o[1])) || (o[0] == 192 && o[1] == 168) || (o[0] == 169 && o[1] == 254) }
+        IpAddr::V6(v) => v.is_loopback() || (v.segments()[0] & 0xfe00) == 0xfc00 || (v.segments()[0] & 0xffc0) == 0xfe80,
+    }
+}
+
+pub fn searx_host_ok(ips: &[IpAddr]) -> Result<(), String> {
+    if ips.is_empty() { return Err("SEARXNG_URL host resolves to no addresses".into()); }
+    if ips.iter().any(|ip| !local_infra_ip(*ip)) { return Err("SEARXNG_URL resolves to a non-local address - direct unproxied fetch would bypass RJ_PROXY".into()); }
+    Ok(())
+}
+
+// A validated searx endpoint: the host as written in SEARXNG_URL (kept for the HTTP
+// Host header and TLS identity) plus every validated address with the URL's port.
+// The pin is installed on the searx client via a DNS override, so request-time
+// connections dial THESE addresses - DNS is never consulted again for the host.
+pub struct SearxPin { pub host: String, pub addrs: Vec<std::net::SocketAddr> }
+
+// Explicit refresh semantics: the pin is fixed at boot and never re-resolved at
+// runtime. If the upstream later moves to a different address (container restart),
+// connects fail and the existing sx_fetch failure path reports searx down until
+// ramjetd restarts - deliberate fail-closed behavior, no silent DNS fallback.
+pub async fn guard_searx_url(raw: &str) -> Result<SearxPin, String> {
+    let t = url::Url::parse(raw.trim()).map_err(|_| "SEARXNG_URL is not a URL".to_string())?;
+    if t.scheme() != "http" && t.scheme() != "https" { return Err("SEARXNG_URL scheme must be http or https".into()); }
+    let host = t.host_str().ok_or("SEARXNG_URL has no host")?.trim_start_matches('[').trim_end_matches(']').to_string();
+    if host.is_empty() || host.len() > 253 { return Err("SEARXNG_URL bad host".into()); }
+    let port = t.port().unwrap_or(if t.scheme() == "https" { 443 } else { 80 });
+    let ips: Vec<IpAddr> = if let Ok(ip) = host.parse::<IpAddr>() {
+        vec![ip]
+    } else {
+        tokio::net::lookup_host(format!("{host}:0")).await.map_err(|_| "SEARXNG_URL host does not resolve".to_string())?.map(|s| s.ip()).collect()
+    };
+    searx_host_ok(&ips)?;
+    Ok(SearxPin { host, addrs: ips.into_iter().map(|ip| std::net::SocketAddr::new(ip, port)).collect() })
+}
+
+#[cfg(test)]mod searx_guard_tests{
+    #[test]fn infra_ip_table(){
+        for ok in ["127.0.0.1","10.0.0.5","172.16.0.1","172.31.255.1","192.168.1.1","169.254.1.1","::1","fd00::1","fe80::1"]{assert!(super::local_infra_ip(ok.parse().unwrap()),"{ok}");}
+        for no in ["8.8.8.8","1.1.1.1","172.32.0.1","192.167.0.1","100.64.0.1","198.51.100.1","203.0.113.1","169.255.0.1","2606:4700:4700::1111","64:ff9b::808:808","::ffff:8.8.8.8"]{assert!(!super::local_infra_ip(no.parse().unwrap()),"{no}");}
+    }
+    #[test]fn host_ok_set_rules(){
+        assert!(super::searx_host_ok(&["127.0.0.1".parse().unwrap()]).is_ok());
+        assert!(super::searx_host_ok(&["10.1.1.1".parse().unwrap(),"::1".parse().unwrap()]).is_ok());
+        assert!(super::searx_host_ok(&[]).is_err());
+        assert!(super::searx_host_ok(&["8.8.8.8".parse().unwrap()]).is_err());
+        assert!(super::searx_host_ok(&["127.0.0.1".parse().unwrap(),"8.8.8.8".parse().unwrap()]).is_err());
+    }
+    #[tokio::test]async fn guard_url_offline_cases(){
+        assert!(super::guard_searx_url("http://127.0.0.1:8888").await.is_ok());
+        assert!(super::guard_searx_url("http://[::1]:8888").await.is_ok());
+        assert!(super::guard_searx_url("http://localhost:8888").await.is_ok());
+        assert!(super::guard_searx_url("http://127.0.0.1:8888/").await.is_ok());
+        assert!(super::guard_searx_url("http://8.8.8.8:8888").await.is_err());
+        assert!(super::guard_searx_url("ftp://127.0.0.1").await.is_err());
+        assert!(super::guard_searx_url("not a url").await.is_err());
+    }
+    #[tokio::test]async fn guard_returns_usable_pin(){
+        let p = super::guard_searx_url("http://127.0.0.1:8888").await.unwrap();
+        assert_eq!(p.host, "127.0.0.1");
+        assert_eq!(p.addrs, vec![std::net::SocketAddr::new("127.0.0.1".parse().unwrap(), 8888)]);
+        let p = super::guard_searx_url("http://[::1]").await.unwrap();
+        assert_eq!(p.addrs, vec![std::net::SocketAddr::new("::1".parse().unwrap(), 80)]);
+        let p = super::guard_searx_url("https://127.0.0.1").await.unwrap();
+        assert_eq!(p.addrs, vec![std::net::SocketAddr::new("127.0.0.1".parse().unwrap(), 443)]);
+        let p = super::guard_searx_url("http://localhost:8888").await.unwrap();
+        assert_eq!(p.host, "localhost");
+        assert!(p.addrs.iter().all(|a| super::local_infra_ip(a.ip()) && a.port() == 8888));
+        assert!(!p.addrs.is_empty());
+    }
+}
