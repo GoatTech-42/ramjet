@@ -8,6 +8,7 @@
   import { buildAlbumPage, albumQuery } from '../../lib/album.js';
   import { buildArtistPage, primaryArtist } from '../../lib/artist.js';
 import { whyStopped as probeWhy, handleTrackError } from '../../lib/amp-error-logic.mjs';
+  import { makeMore, moreBump, moreFirstPage, moreCapture, moreApply } from '../../lib/amp-more.mjs';
   let qf = $state(false);
   import '../../tokens.css';
   import { onMount, tick } from 'svelte';
@@ -25,9 +26,10 @@ import { whyStopped as probeWhy, handleTrackError } from '../../lib/amp-error-lo
   let artBad = $state({}); // art urls that failed or answered 204: keep the placeholder
   let searched = $state(false);
   let searchedQ = $state('');
-  let auNext = $state(null); // audius continuation cursor from the last search - the only source with a real cursor shape (au:offset). youtube music and soundcloud stay first-page until the backend holds a verified continuation.
+  const more = makeMore(); // continuation { gen, cursor }: a late page applies only if the generation is unchanged
   let auBusy = $state(false);
   let auNote = $state('');
+  let auRetry = $state(false);
 
   // the queue is whatever was below the tapped row - tap a song and the
   // rest of the list plays after it, like dropping a needle on a list
@@ -72,7 +74,7 @@ import { whyStopped as probeWhy, handleTrackError } from '../../lib/amp-error-lo
     document.addEventListener('visibilitychange', onVis);
     window.addEventListener('pagehide', onHide);
     // infinite scroll: near the list end, continue audius - the only source with a real cursor. first-page-only sources simply end.
-    const onScroll = () => { if (searched && view === 'search' && auNext && !auBusy && window.innerHeight + window.scrollY > document.documentElement.scrollHeight - 900) moreAudius(); };
+    const onScroll = () => { if (searched && view === 'search' && more.cursor && !auBusy && window.innerHeight + window.scrollY > document.documentElement.scrollHeight - 900) moreAudius(); };
     window.addEventListener('scroll', onScroll, { passive: true });
     return () => { window.removeEventListener('keydown', onKey); document.removeEventListener('visibilitychange', onVis); window.removeEventListener('pagehide', onHide); window.removeEventListener('scroll', onScroll); };
   });
@@ -123,6 +125,7 @@ import { whyStopped as probeWhy, handleTrackError } from '../../lib/amp-error-lo
   let plGen = 0; // bumped on every playlist open and on leaving: only the newest response may apply
   async function openPlaylist(p) {
     const g = ++plGen;
+    moreBump(more);   // a late continuation page must never land on the playlist's list
     const r = await api('/api/apps/amp/playlists/tracks?id=' + encodeURIComponent(p.id));
     if (g !== plGen) return;
     if (!r.ok) { note(errCopy(r, "playlist couldn't open.")); return; }
@@ -133,6 +136,7 @@ import { whyStopped as probeWhy, handleTrackError } from '../../lib/amp-error-lo
 
   function backHome() {
     plGen++;
+    moreBump(more);
     view = 'search'; plId = ''; plName = ''; artistPage = null; albumPage = null;
     sections = []; searched = false; error = '';
     loadPlaylists();
@@ -389,7 +393,7 @@ import { whyStopped as probeWhy, handleTrackError } from '../../lib/amp-error-lo
     plGen++;   // a playlist open still in flight must not reopen over this search
     recentQ = addSearch('amp-searches', q);
     busy = true; error = ''; soft = ''; srcEmpty = []; searched = false; sections = [];
-    searchedQ = q.trim(); auNext = null; auNote = '';
+    searchedQ = q.trim(); moreBump(more); auNote = ''; auRetry = false;
     view = 'search'; plId = ''; plName = ''; artistPage = null; albumPage = null;
     const r = await api(`/api/apps/amp/search?q=${encodeURIComponent(q.trim())}`);
     busy = false; searched = true;
@@ -402,23 +406,23 @@ import { whyStopped as probeWhy, handleTrackError } from '../../lib/amp-error-lo
     }
     sections = flat;
     srcEmpty = ['youtube', 'soundcloud', 'audius'].filter((k) => !(d[k] || []).length);
-    auNext = (r.data.next || {}).audius || null;   // yt/sc cursors are null by contract - nothing to continue for them
+    moreFirstPage(more, r.data.next);   // yt/sc cursors are null by contract - nothing to continue for them
   }
 
   // more songs: continue audius only. a cursored answer carries just audius rows; a short or empty page ends the cursor (next.audius null).
   async function moreAudius() {
-    if (busy || auBusy || !auNext || !searched || view !== 'search') return;
-    const cq = searchedQ, cc = auNext;
-    auBusy = true; auNote = '';
-    const r = await api(`/api/apps/amp/search?q=${encodeURIComponent(cq)}&cursor=${encodeURIComponent(cc)}`);
+    if (busy || auBusy || !more.cursor || !searched || view !== 'search') return;
+    const cq = searchedQ, cap = moreCapture(more);
+    auBusy = true; auNote = ''; auRetry = false;
+    const r = await api(`/api/apps/amp/search?q=${encodeURIComponent(cq)}&cursor=${encodeURIComponent(cap.cursor)}`);
     auBusy = false;
-    if (auNext !== cc || searchedQ !== cq) return;   // a newer search or continuation moved on - drop the stale page
-    if (!r.ok) { auNote = errCopy(r, "couldn't load more songs."); return; }
-    const d = r.data.results || {};
+    const d = moreApply(more, cap, r.status, r.data);
+    if (d.type === 'stale') return;   // a newer search or view moved on - drop the late page, even when the same query re-minted the same cursor
+    if (d.type === 'end') { auNote = errCopy(r, 'those results stopped answering.'); return; }   // no retry: an unrecognized cursor fails identically
+    if (d.type === 'error') { auNote = errCopy(r, "couldn't load more songs."); auRetry = true; return; }
     const have = new Set(sections.map((it) => it.key));
-    const add = (d.audius || []).filter((it) => !have.has(it.key));
+    const add = d.rows.filter((it) => !have.has(it.key));
     if (add.length) sections = [...sections, ...add];
-    auNext = (r.data.next || {}).audius || null;
   }
 
   function chip(c) { q = c; search(); }
@@ -715,7 +719,7 @@ import { whyStopped as probeWhy, handleTrackError } from '../../lib/amp-error-lo
     </div>
     {#if view === 'search' && searched}
       {#if auBusy}<p class="dim" data-testid="amp-more-loading">loading more songs...</p>{/if}
-      {#if auNote}<p class="dim" data-testid="amp-more-note">{auNote} <button class="retrylink" data-testid="amp-more-retry" onclick={moreAudius}>try again</button></p>{/if}
+      {#if auNote}<p class="dim" data-testid="amp-more-note">{auNote} {#if auRetry}<button class="retrylink" data-testid="amp-more-retry" onclick={moreAudius}>try again</button>{/if}</p>{/if}
     {/if}
   </main>
 
