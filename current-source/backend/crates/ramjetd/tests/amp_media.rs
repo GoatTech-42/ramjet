@@ -66,10 +66,97 @@ async fn body(r: axum::response::Response) -> (u16, String) {
     (s, String::from_utf8(axum::body::to_bytes(r.into_body(), 1 << 20).await.unwrap().to_vec()).unwrap())
 }
 #[tokio::test] async fn fanout_envelopes() {
-    let (s, b) = body(combine("q", Err(()), Err(()), Err(()))).await;
+    let (s, b) = body(combine("q", Err(()), Err(()), Err(()), None)).await;
     assert_eq!(s, 502); assert_eq!(b, r#"{"ok":false,"error":"every catalog timed out - try again"}"#);
-    let (s, b) = body(combine("q", Err(()), Ok(vec![]), Err(()))).await;
-    assert_eq!(s, 200); assert_eq!(b, r#"{"ok":true,"q":"q","results":{"youtube":[],"soundcloud":[],"audius":[]}}"#);
+    let (s, b) = body(combine("q", Err(()), Ok(vec![]), Err(()), None)).await;
+    assert_eq!(s, 200); assert_eq!(b, r#"{"ok":true,"q":"q","results":{"youtube":[],"soundcloud":[],"audius":[]},"next":{"youtube":null,"soundcloud":null,"audius":null}}"#);
+}
+#[test] fn cursor_parsing() {
+    assert_eq!(parse_cursor("au:0"), Some(0));
+    assert_eq!(parse_cursor("au:12"), Some(12));
+    assert_eq!(parse_cursor("au:"), None);
+    assert_eq!(parse_cursor("au:abc"), None);
+    assert_eq!(parse_cursor("au:12x"), None);
+    assert_eq!(parse_cursor("yt:anything"), None);
+    assert_eq!(parse_cursor("sc:anything"), None);
+    assert_eq!(parse_cursor(""), None);
+    assert_eq!(parse_cursor("au:10001"), None, "past the deepest allowed offset");
+    assert_eq!(parse_cursor(&format!("au:{}", u64::from(u32::MAX) + 1)), None, "overflow is refused");
+}
+#[test] fn au_next_page() {
+    assert_eq!(au_next(0, AU_PAGE).as_deref(), Some("au:12"), "first full page continues at 12");
+    assert_eq!(au_next(12, AU_PAGE).as_deref(), Some("au:24"), "second full page continues at 24");
+    assert_eq!(au_next(12, 5), None, "a short page is the end");
+    assert_eq!(au_next(0, 0), None, "an empty page is the end");
+    assert_eq!(au_next(9984, AU_PAGE).as_deref(), Some("au:9996"), "a full page inside the bound continues");
+    assert_eq!(au_next(9996, AU_PAGE), None, "minting past AU_MAX_OFFSET ends instead of dead-ending on a refused cursor");
+    assert_eq!(au_next(u32::MAX - 4, AU_PAGE), None, "offset overflow ends, never wraps");
+}
+use ramjetd::AppState;
+
+fn fixture_state() -> Arc<AppState> {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = std::env::temp_dir().join(format!("amp-cursor-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let db = dir.join("auth.db");
+    std::fs::write(&db, b"").unwrap();
+    std::fs::set_permissions(&db, std::fs::Permissions::from_mode(0o600)).unwrap();
+    Arc::new(AppState {
+        data_dir: dir.clone(),
+        auth_db: ramjetd::auth_api::store::AuthStore::open(&db).unwrap(),
+        tickets: Default::default(),
+        guard: Arc::new(ramjetd::guard::Guard::load(&dir.to_string_lossy())),
+        rates: Default::default(),
+        egress_client: None,
+        pfetch_client: None,
+        adblock: ramjetd::adblock::Adblock::load(&dir),
+        started: std::time::Instant::now(),
+        local_http: reqwest::Client::new(),
+        searx_url: "http://127.0.0.1:1".into(),
+        ytdlp: "/bin/false".into(),
+        proxy_url: String::new(),
+        lite: ramjetd::lite::LiteState::new(),
+        jetstream_js: ramjetd::apps::jetstream_up::Js::new(),
+    })
+}
+fn no_track() -> Track { Arc::new(|_| {}) }
+
+#[test] fn au_search_url_shape() {
+    let u = au_search_url("a b", 24);
+    assert!(u.starts_with("https://discoveryprovider.audius.co/v1/tracks/search?query="), "{u}");
+    assert!(u.contains("app_name=ramjet-amp"), "{u}");
+    assert!(u.contains("limit=12"), "{u}");
+    assert!(u.contains("offset=24"), "{u}");
+}
+
+#[tokio::test] async fn cursor_rejected_before_any_fetch() {
+    // a cursor parse_cursor refuses is a 400 with the honest copy - no upstream fetch happens on this path
+    let st = fixture_state();
+    let tr = no_track();
+    for bad in ["bogus", "yt:abc", "sc:9", "au:", "au:12x", "au:10001"] {
+        let (s, b) = body(search(&st, &tr, "hello", Some(bad)).await).await;
+        assert_eq!(s, 400, "{bad}");
+        assert!(b.contains("that cursor is not understood"), "{b}");
+    }
+}
+
+#[tokio::test] async fn cursor_envelope_ends_at_cap() {
+    // a full page fetched at the deepest in-bound offset ends truthfully: no cursor is minted past the cap
+    let (s, b) = body(combine("q", Ok(vec![]), Ok(vec![]), Ok(vec![serde_json::json!({"k":1})]), au_next(9996, AU_PAGE))).await;
+    assert_eq!(s, 200);
+    assert!(b.contains(r#""next":{"youtube":null,"soundcloud":null,"audius":null}"#), "{b}");
+}
+
+#[tokio::test] async fn next_cursor_envelope() {
+    // first page with a full audius page: only audius continues, yt/sc never guessed
+    let (s, b) = body(combine("q", Ok(vec![]), Ok(vec![]), Ok(vec![]), au_next(0, AU_PAGE))).await;
+    assert_eq!(s, 200);
+    assert!(b.contains(r#""next":{"youtube":null,"soundcloud":null,"audius":"au:12"}"#), "{b}");
+    // empty page: the end, every cursor null
+    let (s, b) = body(combine("q", Ok(vec![]), Ok(vec![]), Ok(vec![]), None)).await;
+    assert_eq!(s, 200);
+    assert!(b.contains(r#""next":{"youtube":null,"soundcloud":null,"audius":null}"#), "{b}");
 }
 #[test] fn art_targets() {
     assert_eq!(art_target("yt","dQw4w9WgXcQ","").unwrap(), "https://i.ytimg.com/vi/dQw4w9WgXcQ/mqdefault.jpg");

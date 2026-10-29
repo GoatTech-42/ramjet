@@ -131,7 +131,7 @@ async fn dispatch_inner(State(shared):State<Shared>,req:Request)->Response{
   match (method.as_str(),sub){
                                                                                             
                                                                                                          
-   ("GET","/search")=>apps::amp_media::search(st,&amp_track(st,&un),query.get("q").map(String::as_str).unwrap_or("")).await,
+   ("GET","/search")=>apps::amp_media::search(st,&amp_track(st,&un),query.get("q").map(String::as_str).unwrap_or(""),query.get("cursor").map(String::as_str)).await,
    ("GET","/art")=>apps::amp_media::art(st,&amp_track(st,&un),query.get("src").map(String::as_str).unwrap_or(""),query.get("id").map(String::as_str).unwrap_or(""),query.get("u").map(String::as_str).unwrap_or("")).await,
    ("GET","/stream")|("HEAD","/stream")=>{
     let range=apps::amp_media::effective_range(h.get("range").and_then(|v|v.to_str().ok()),h.get("if-range").and_then(|v|v.to_str().ok()));
