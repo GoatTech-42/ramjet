@@ -25,7 +25,11 @@ export function pinControllerWorker(controller, reg) {
   // from the captured one); the same worker keeps the guard, and a stopped
   // same-version worker stays the right target (postMessage restarts it).
   // after the first bypass the captured field IS the live worker, so later
-  // duplicate revives dedupe themselves against it - no port-reset storms.
+  // duplicate revives into this guard-on path dedupe themselves against it.
+  // the guard-off vendored path still resets ports on every revive; the sw
+  // registry keeps the latest same-id init, but that is an observation, not
+  // concurrent-rpc safety - a replaced port may interrupt an in-flight
+  // request, and concurrent-rpc behavior is not established here.
   navigator.serviceWorker.addEventListener('message', (e) => {
     if (!e.data || !e.data.$controller$swrevive) return;
     if (!controller.guardServiceWorkerRevive) return; // guard off: the vendored path handles it

@@ -159,7 +159,10 @@ async function reviveThenRoute(e) {
   // deadline: a hung enumeration or a stalled worker scheduler can still
   // outlast it, and after a revive the request takes the normal route
   // path with its own timings. a restart inside a page controller's first
-  // 5s ignores the revive there, so that case ends at the honest error.
+  // 5s is ignored by the vendored guard there; with the worker-pin a
+  // verified replacement still recovers, so this ends at the honest error
+  // only when no re-init ever lands (pin absent, suspended page, dropped
+  // message).
   const until = Date.now() + REVIVE_WAIT_MS;
   try {
     for (const c of await clients.matchAll({ type: "window", includeUncontrolled: true })) c.postMessage({ $controller$swrevive: {} });

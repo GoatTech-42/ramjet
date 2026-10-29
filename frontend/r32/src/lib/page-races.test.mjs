@@ -96,7 +96,7 @@ test('sw: a controller-prefixed navigation with no live controller is held and r
   assert.equal(calls.serve, 1, 'serve not called again');
   assert.equal(calls.err, 1);
   assert.ok(elapsed >= 1900 && elapsed < 3000, 'bounded wait, was ' + elapsed + 'ms');
-  // the budget is taken before the broadcast round-trip, so the wait - not just the poll - is bounded
+  // the budget starts before the broadcast round-trip, so a slow enumeration eats into the budget instead of extending it (a hung enumeration still outlasts it - not a hard deadline)
   const body = src.slice(src.indexOf('async function reviveThenRoute'));
   assert.ok(body.indexOf('const until = Date.now() + REVIVE_WAIT_MS;') < body.indexOf('clients.matchAll'));
 
