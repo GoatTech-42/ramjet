@@ -1,0 +1,1 @@
+console.log("fixture-app-js-ok");document.body.dataset.fixtureJs="ran";
