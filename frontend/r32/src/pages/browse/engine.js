@@ -1,3 +1,5 @@
+import { pinControllerWorker } from './sw-worker-pin.js';
+
   function makeUrlCodec(keyHex) {
     const body =
       'var KH="' + keyHex + '";var K=[];for(var i=0;i<KH.length;i+=2)K.push(parseInt(KH.slice(i,i+2),16));' +
@@ -132,20 +134,21 @@ export async function connect({ setBoot, cancelled, getAdOk }) {
           const reg = await navigator.serviceWorker.register('/a/player-boot.js');
           // the page sits outside the worker's /a/ scope, so serviceWorker.ready never settles here:
           // wait on this registration's own worker instead, with a timeout and a plain retryable error.
-          if (reg.active && reg.active.state === 'activated') return reg.active;
+          if (reg.active && reg.active.state === 'activated') return { reg, worker: reg.active };
           return await new Promise((res, rej) => {
             const w = reg.installing || reg.waiting || reg.active;
             if (!w) return rej(new Error('worker did not start - reload to try again'));
             const t = setTimeout(() => rej(new Error('worker did not start in time - reload to try again')), 12000);
             const check = () => {
-              if (w.state === 'activated') { clearTimeout(t); res(w); }
+              if (w.state === 'activated') { clearTimeout(t); res({ reg, worker: w }); }
               else if (w.state === 'redundant') { clearTimeout(t); rej(new Error('worker failed - reload to try again')); }
             };
             w.addEventListener('statechange', check);
             check(); // it may have activated before the listener attached
           });
         })();
-        const [sw, tk, kk] = await Promise.all([swP, tkP, kkP]);
+        const [swR, tk, kk] = await Promise.all([swP, tkP, kkP]);
+        const sw = swR.worker;
         if (cancelled()) return {};
         setBoot('connecting...');
         const urlCodec = kk.key ? makeUrlCodec(kk.key) : undefined;
@@ -161,6 +164,9 @@ export async function connect({ setBoot, cancelled, getAdOk }) {
         if (cancelled()) return {};
         setBoot('warming up...');
         const controller = new Controller({ serviceworker: sw, transport: await makeTransport(EpoxyTransport, wispUrl, getAdOk), config: { prefix: '/a/r/', ...(urlCodec ? { codec: urlCodec } : {}) } });
+        // an update replaces the worker object captured above; keep the
+        // controller registering with the live worker of this registration.
+        pinControllerWorker(controller, swR.reg);
         await Promise.race([
           controller.wait(),
           new Promise((_, rej) => setTimeout(() => rej(new Error('that took too long - reload to try again')), 15000)),

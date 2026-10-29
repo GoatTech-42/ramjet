@@ -105,3 +105,78 @@ test('sw: a controller-prefixed navigation with no live controller is held and r
   assert.match(src, /e\.respondWith\(reviveThenRoute\(e\)\)/);
   assert.match(src, /e\.respondWith\(serve\(e\)\)/);
 });
+
+test('browse: pinControllerWorker keeps the controller registering with the live worker of the same registration', async () => {
+  // fakes stand in for the vendored controller + the Registration object
+  const oldW = { state: 'redundant' };
+  const newW = { state: 'activated' };
+  const activating = { state: 'activating' };
+  const mk = () => {
+    const posts = [];
+    const controller = {
+      guardServiceWorkerRevive: true,
+      serviceWorkerController: oldW,
+      setupMessagePort() { posts.push(this.serviceWorkerController); },
+    };
+    return { controller, posts };
+  };
+  const listeners = [];
+  const navDesc = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+  Object.defineProperty(globalThis, 'navigator', { configurable: true, value: { serviceWorker: { addEventListener: (t, f) => t === 'message' && listeners.push(f) } } });
+  try {
+    const { pinControllerWorker } = await import('../pages/browse/sw-worker-pin.js');
+
+    // every setupMessagePort re-resolves the live worker before delegating
+    {
+      const { controller, posts } = mk();
+      pinControllerWorker(controller, { active: newW });
+      controller.setupMessagePort();
+      assert.equal(posts[0], newW, 'init goes to the live worker, not the captured one');
+      assert.equal(controller.serviceWorkerController, newW);
+    }
+    // a non-activated worker is not a target; the captured one is kept
+    {
+      const { controller, posts } = mk();
+      pinControllerWorker(controller, { active: activating });
+      controller.setupMessagePort();
+      assert.equal(posts[0], oldW);
+    }
+    // guard on + verified replacement: the revive bypass fires exactly once (second revive dedupes)
+    {
+      const { controller, posts } = mk();
+      pinControllerWorker(controller, { active: newW });
+      for (const f of listeners) f({ data: { $controller$swrevive: {} } });
+      for (const f of listeners) f({ data: { $controller$swrevive: {} } });
+      assert.equal(posts.length, 1, 'one re-init across duplicate revives');
+      assert.equal(posts[0], newW);
+    }
+    // guard on + same worker: guard retained, no bypass (a stopped same-version worker stays the target)
+    {
+      const { controller, posts } = mk();
+      pinControllerWorker(controller, { active: oldW });
+      for (const f of listeners) f({ data: { $controller$swrevive: {} } });
+      assert.equal(posts.length, 0);
+    }
+    // guard off: no app-side bypass at all - the vendored path owns revive
+    {
+      const { controller, posts } = mk();
+      controller.guardServiceWorkerRevive = false;
+      pinControllerWorker(controller, { active: newW });
+      for (const f of listeners) f({ data: { $controller$swrevive: {} } });
+      assert.equal(posts.length, 0);
+      // but the vendored path's own setupMessagePort call still re-resolves
+      controller.setupMessagePort();
+      assert.equal(posts[0], newW);
+    }
+    listeners.length = 0;
+  } finally { Object.defineProperty(globalThis, 'navigator', navDesc); }
+
+  // the integration and the vendored assumptions it pins
+  const eng = rd('../pages/browse/engine.js');
+  assert.match(eng, /import \{ pinControllerWorker \} from '\.\/sw-worker-pin\.js';/);
+  assert.ok(eng.indexOf('pinControllerWorker(controller, swR.reg);') > eng.indexOf('new Controller({'));
+  const api = rd('../public/controller/controller.api.js');
+  assert.match(api, /guardServiceWorkerRevive/);
+  assert.match(api, /serviceWorkerController=t\.serviceworker/);
+  assert.match(api, /\$controller\$init/);
+});
