@@ -7,9 +7,13 @@ use ramjetd::auth_api::store::{AuthStore, Login};
 use ramjetd::{AppState, Shared};
 use std::sync::Arc;
 
+static FIXTURE_SEQ: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
 fn fixture(user: &str) -> Arc<AppState> {
     use std::os::unix::fs::PermissionsExt;
-    let dir = std::env::temp_dir().join(format!("amp-route-{}-{}", user, std::process::id()));
+    // unique per test: cargo runs tests in parallel threads and each fixture rm -rf's its dir
+    let seq = FIXTURE_SEQ.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    let dir = std::env::temp_dir().join(format!("amp-route-{}-{}-{}", user, std::process::id(), seq));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     let db = dir.join("auth.db");
