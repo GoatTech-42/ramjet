@@ -407,6 +407,14 @@ import { whyStopped as probeWhy, handleTrackError } from '../../lib/amp-error-lo
     sections = flat;
     srcEmpty = ['youtube', 'soundcloud', 'audius'].filter((k) => !(d[k] || []).length);
     moreFirstPage(more, r.data.next);   // yt/sc cursors are null by contract - nothing to continue for them
+    recheckMore();   // a first page that does not fill the viewport fires no scroll event - check once, bounded
+  }
+
+  // short pages can leave the viewport unfilled, so no scroll event ever fires: re-check near-bottom
+  // after results land, and continue only while the last page added new rows or a real scroll happens.
+  async function recheckMore() {
+    await tick();
+    if (searched && view === 'search' && more.cursor && !auBusy && window.innerHeight + window.scrollY > document.documentElement.scrollHeight - 900) moreAudius();
   }
 
   // more songs: continue audius only. a cursored answer carries just audius rows; a short or empty page ends the cursor (next.audius null).
@@ -416,13 +424,14 @@ import { whyStopped as probeWhy, handleTrackError } from '../../lib/amp-error-lo
     auBusy = true; auNote = ''; auRetry = false;
     const r = await api(`/api/apps/amp/search?q=${encodeURIComponent(cq)}&cursor=${encodeURIComponent(cap.cursor)}`);
     auBusy = false;
+    if (view !== 'search') return;   // the list was replaced (artist/album/playlist) while the page was in flight - never append onto it
     const d = moreApply(more, cap, r.status, r.data);
     if (d.type === 'stale') return;   // a newer search or view moved on - drop the late page, even when the same query re-minted the same cursor
     if (d.type === 'end') { auNote = errCopy(r, 'those results stopped answering.'); return; }   // no retry: an unrecognized cursor fails identically
     if (d.type === 'error') { auNote = errCopy(r, "couldn't load more songs."); auRetry = true; return; }
     const have = new Set(sections.map((it) => it.key));
     const add = d.rows.filter((it) => !have.has(it.key));
-    if (add.length) sections = [...sections, ...add];
+    if (add.length) { sections = [...sections, ...add]; recheckMore(); }   // keep filling only while pages actually grow the list - no request loop
   }
 
   function chip(c) { q = c; search(); }

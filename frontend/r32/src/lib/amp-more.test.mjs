@@ -3,6 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { makeMore, moreBump, moreFirstPage, moreCapture, moreApply } from './amp-more.mjs';
+import { errCopy } from './api.js';
 const rd = (p) => readFileSync(new URL(p, import.meta.url), 'utf8');
 
 test('ABA: a same-query re-search re-minting the same cursor still rejects the late page', () => {
@@ -45,4 +46,16 @@ test('component wiring: gen bumped on search, back-home and playlist open; no yt
   assert.match(s, /if \(d\.type === 'stale'\) return;/);
   assert.match(s, /if \(d\.type === 'end'\)/);
   assert.doesNotMatch(s, /cursor=yt|cursor=sc|next\.youtube|next\.soundcloud/);
+});
+
+test('400/502 copy is the reviewed fallback, never the server envelope', () => {
+  assert.equal(errCopy({ ok: false, status: 400, data: { error: 'that cursor is not understood - only audius pages continue' } }, 'those results stopped answering.'), 'those results stopped answering.');
+  assert.equal(errCopy({ ok: false, status: 502, data: { error: 'the catalog timed out - try again' } }, "couldn't load more songs."), "couldn't load more songs.");
+});
+test('viewport recheck + narrow-list guards: bounded, view-checked after await', () => {
+  const s = rd('../pages/amp/Amp.svelte');
+  assert.match(s, /await tick\(\);\n    if \(searched && view === 'search' && more\.cursor && !auBusy && window\.innerHeight \+ window\.scrollY > document\.documentElement\.scrollHeight - 900\) moreAudius\(\);/);
+  assert.match(s, /moreFirstPage\(more, r\.data\.next\);[^\n]*\n    recheckMore\(\);/);
+  assert.match(s, /auBusy = false;\n    if \(view !== 'search'\) return;/);
+  assert.match(s, /if \(add\.length\) \{ sections = \[\.\.\.sections, \.\.\.add\]; recheckMore\(\); \}/);
 });
