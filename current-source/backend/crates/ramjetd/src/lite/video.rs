@@ -269,6 +269,7 @@ async fn make_video(st: &std::sync::Arc<crate::AppState>, id: &str, q: u32, entr
             if agg_cap > 0 && nv + na + size > agg_cap { rm(true); return Err("too big".into()); }                                     
             std::fs::rename(&tmpo, &out).map_err(|e| e.to_string())?;
             let _ = std::fs::remove_file(&tmpv); let _ = std::fs::remove_file(&tmpa);
+            let _ = enforce_cache_budget(st, &dir, cache_budget_bytes());
             Ok(out)
         }
         Err(e) if e == "mux stalled" || e == "server disk ran low mid-mux" => { rm(true); Err(e) }
@@ -300,7 +301,7 @@ async fn stream_file(path: std::path::PathBuf, delete_after: bool) -> Result<(u6
 fn sweep_partials(st: &crate::AppState, dir: &std::path::Path) {
     let re = regex::Regex::new(r"^([A-Za-z0-9_-]{11}\.lite(?:360|480|720|1080))[vao]\.part$").unwrap();                            
     let cutoff = std::time::SystemTime::now() - std::time::Duration::from_secs(1800);
-    let owned: std::collections::HashSet<String> = st.lite.video_jobs.lock().map(|j| j.clone()).unwrap_or_default();
+    let owned: std::collections::HashSet<String> = st.lite.video_jobs.lock().map(|j| j.keys().cloned().collect()).unwrap_or_default();
     if let Ok(rd) = std::fs::read_dir(dir) {
         for e in rd.flatten() {
             let name = e.file_name();
@@ -318,18 +319,138 @@ fn sweep_partials(st: &crate::AppState, dir: &std::path::Path) {
                                                                                    
                                                                                 
                                                                       
+// Completed-file cache budget: a best-effort trim, not a bound.
+// Disabled unless RJ_STREAM_CACHE_MAX_BYTES is a positive integer byte count;
+// unset, zero, or unparseable preserves the historical unbounded-cache behavior
+// exactly. When enabled, one enforcement pass runs at each successful render
+// completion (the cache's only growth point): completed files strictly matching
+// {id}.lite{q} are evicted oldest-mtime-first until the completed total fits
+// the budget or only protected files remain.
+//
+// Ownership contract (causal ordering, not open-FD-lifetime reasoning):
+// - st.lite.video_serving is the single ordering lock. The GET serve path
+//   inserts a claim for {id}.lite{q} BEFORE the hit-check/make_video and holds
+//   it until the response body fd is OPEN; a pass holds the serving lock across
+//   its whole scan+delete. So a serve either claims first (file skipped, then
+//   opened) or the pass deletes first (the later open fails NotFound and the
+//   caller falls back through make_video's exists check into a re-render).
+//   There is no ready-then-failed-open window.
+// - Prefixes in video_jobs (in-progress renders, counted per guard) and
+//   video_serving (in-flight serves, counted per claim) are never selected for
+//   eviction. The pass holds BOTH locks across scan+delete (order serving ->
+//   jobs; RenderGuard::new only takes jobs, so registration either precedes the
+//   snapshot or blocks until after the pass, and its rename is then never in
+//   the scanned candidate list). PRE-EXISTING and NOT fixed here: two
+//   concurrent renders of one prefix share the same .part temp paths and their
+//   downloads interleave; the counted guard only keeps the eviction contract
+//   honest, it does not dedupe the renders.
+// - Fail closed: a poisoned lock or an unreadable cache dir aborts the pass
+//   with nothing deleted (returns None). Serve claims instead recover a
+//   poisoned serving lock: the set contents are still valid claims and
+//   refusing video serves would be a self-inflicted outage.
+//
+// Honest limits - no numeric bound is claimed:
+// - Only completions trigger a pass. Protected bytes, persistent remove
+//   errors, or an aborted pass can leave the total above budget indefinitely
+//   until a later completion re-runs a pass; there is no background trim.
+// - The direct (non-spawn) make_video path is not serialized by video_busy, so
+//   concurrent completions can each add a full render before the next pass,
+//   and admin long renders can exceed LITE_MAX_BYTES (their max_bytes comes
+//   from admit()'s free-disk headroom, agg_cap = peak estimate).
+// - .part and .neg files are never touched (sweep_partials owns stale .part).
+// - Once a serve's fd is open, unlinking the file cannot break that stream
+//   (the daemon already does delete-after-open admin plays); the claim
+//   contract protects the pre-open window and keeps hot files cached.
+fn parse_budget_bytes(v: Option<&str>) -> u64 {
+    v.and_then(|s| s.trim().parse::<u64>().ok()).unwrap_or(0)
+}
+
+fn cache_budget_bytes() -> u64 {
+    parse_budget_bytes(std::env::var("RJ_STREAM_CACHE_MAX_BYTES").ok().as_deref())
+}
+
+// Claims are counted per prefix: N concurrent readers of the same file hold N
+// claims, and protection ends only when the LAST reader's claim drops. A plain
+// set would let one reader's drop unprotect another reader's pre-open window.
+struct ServeClaim { st: std::sync::Arc<crate::AppState>, prefix: String }
+impl ServeClaim {
+    fn new(st: &std::sync::Arc<crate::AppState>, prefix: String) -> Self {
+        let mut s = st.lite.video_serving.lock().unwrap_or_else(|e| e.into_inner());
+        *s.entry(prefix.clone()).or_insert(0) += 1;
+        drop(s);
+        ServeClaim { st: st.clone(), prefix }
+    }
+}
+impl Drop for ServeClaim {
+    fn drop(&mut self) {
+        let mut s = self.st.lite.video_serving.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(c) = s.get_mut(&self.prefix) {
+            *c -= 1;
+            if *c == 0 { s.remove(&self.prefix); }
+        }
+    }
+}
+
+// Returns None when the pass did not run (disabled, lock poisoned, or dir
+// unreadable) with nothing deleted; Some((before, evicted, after)) when it ran.
+fn enforce_cache_budget(st: &crate::AppState, dir: &std::path::Path, budget: u64) -> Option<(u64, u64, u64)> {
+    if budget == 0 { return None; }
+    // Lock order is serving -> jobs and both are held across the whole
+    // scan+delete. RenderGuard::new only takes jobs, so a render registration
+    // either lands before this snapshot (prefix protected) or blocks until the
+    // pass is done and its rename happens after the scan (never a candidate).
+    // No path takes jobs -> serving, so the order cannot invert.
+    let serving = st.lite.video_serving.lock().ok()?;
+    let jobs = st.lite.video_jobs.lock().ok()?;
+    let rd = std::fs::read_dir(dir).ok()?;
+    let re = regex::Regex::new(r"^([A-Za-z0-9_-]{11}\.lite(?:360|480|720|1080))$").unwrap();
+    let mut cands: Vec<(std::path::PathBuf, u64, std::time::SystemTime, bool)> = Vec::new();
+    let mut total: u64 = 0;
+    for e in rd.flatten() {
+        let name = e.file_name();
+        let Some(n) = name.to_str() else { continue };
+        if re.captures(n).is_none() { continue; }
+        let Ok(meta) = e.metadata() else { continue };
+        if !meta.is_file() { continue; }
+        let mtime = meta.modified().unwrap_or(std::time::UNIX_EPOCH);
+        // Protected files still count toward the on-disk total; they are only
+        // skipped at selection time, so the reported after-bytes are honest.
+        let protected = jobs.contains_key(n) || serving.contains_key(n);
+        cands.push((e.path(), meta.len(), mtime, protected));
+        total += meta.len();
+    }
+    if total <= budget { return Some((total, 0, total)); }
+    cands.sort_by(|a, b| a.2.cmp(&b.2).then_with(|| a.0.cmp(&b.0)));
+    let mut evicted: u64 = 0;
+    for (path, size, _, protected) in cands {
+        if total.saturating_sub(evicted) <= budget { break; }
+        if protected { continue; }
+        match std::fs::remove_file(&path) {
+            Ok(()) => evicted += size,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => evicted += size,
+            Err(_) => {}
+        }
+    }
+    Some((total, evicted, total - evicted))
+}
+
 struct RenderGuard { st: std::sync::Arc<crate::AppState>, bytes: u64, prefix: String }
 impl RenderGuard {
     fn new(st: &std::sync::Arc<crate::AppState>, bytes: u64, prefix: String) -> Self {
         st.lite.video_reserved.fetch_add(bytes, std::sync::atomic::Ordering::SeqCst);
-        if let Ok(mut j) = st.lite.video_jobs.lock() { j.insert(prefix.clone()); }
+        // Counted: two concurrent same-prefix renders (reachable via the ungated
+        // direct make_video path) hold two registrations; protection for the
+        // prefix ends only when the LAST live guard drops.
+        if let Ok(mut j) = st.lite.video_jobs.lock() { *j.entry(prefix.clone()).or_insert(0) += 1; }
         RenderGuard { st: st.clone(), bytes, prefix }
     }
 }
 impl Drop for RenderGuard {
     fn drop(&mut self) {
         self.st.lite.video_reserved.fetch_sub(self.bytes, std::sync::atomic::Ordering::SeqCst);
-        if let Ok(mut j) = self.st.lite.video_jobs.lock() { j.remove(&self.prefix); }
+        if let Ok(mut j) = self.st.lite.video_jobs.lock() {
+            if let Some(c) = j.get_mut(&self.prefix) { *c -= 1; if *c == 0 { j.remove(&self.prefix); } }
+        }
                                                                                    
                                                                                     
                                                                                     
@@ -565,6 +686,7 @@ pub async fn handler(State((st, _)): State<Shared>, method: Method, headers: Hea
             }
         }
     }
+    let _serve_claim = ServeClaim::new(&st, format!("{id}.lite{q}"));
     let file = if admin && long && !std::path::Path::new(&st.data_dir.join("stream-cache").join(format!("{id}.lite{q}"))).exists() {
                                                                               
                                                                                   
@@ -734,7 +856,7 @@ mod tests {
         let old = std::time::SystemTime::now() - std::time::Duration::from_secs(3600);
         for f in [&stale, &otherq, &unrelated, &other, &active] { std::fs::File::options().write(true).open(f).unwrap().set_modified(old).unwrap(); }
         let st = crate::auth_api::devices::tests::fixture("sweep-own");
-        st.lite.video_jobs.lock().unwrap().insert("CCCCCCCCCCC.lite480".to_string());                                      
+        st.lite.video_jobs.lock().unwrap().insert("CCCCCCCCCCC.lite480".to_string(), 1);                                      
         super::sweep_partials(&st, &dir);
         assert!(!stale.exists(), "stale unowned partial removed");
         assert!(active.exists(), "stale-looking but job-owned partial kept");
@@ -744,17 +866,297 @@ mod tests {
         assert!(other.exists(), "unrelated file untouched");
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    #[test]
+    fn budget_parse_accepts_only_positive_integers() {
+        assert_eq!(super::parse_budget_bytes(None), 0);
+        assert_eq!(super::parse_budget_bytes(Some("")), 0);
+        assert_eq!(super::parse_budget_bytes(Some("abc")), 0);
+        assert_eq!(super::parse_budget_bytes(Some("-5")), 0);
+        assert_eq!(super::parse_budget_bytes(Some("1.5")), 0);
+        assert_eq!(super::parse_budget_bytes(Some("0")), 0);
+        assert_eq!(super::parse_budget_bytes(Some(" 1048576 ")), 1048576);
+    }
+    #[test]
+    fn budget_zero_disables_enforcement() {
+        let dir = std::env::temp_dir().join(format!("bud0-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let f = dir.join("ABCDEFGHIJK.lite360");
+        std::fs::write(&f, vec![0u8; 4096]).unwrap();
+        let st = crate::auth_api::devices::tests::fixture("bud-zero");
+        assert_eq!(super::enforce_cache_budget(&st, &dir, 0), None, "disabled pass does not run");
+        assert!(f.exists(), "disabled budget never evicts");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+    #[test]
+    fn budget_evicts_oldest_qualified_completed_only() {
+        let dir = std::env::temp_dir().join(format!("bud1-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let oldest = dir.join("AAAAAAAAAAA.lite360");
+        let mid = dir.join("BBBBBBBBBBB.lite480");
+        let newest = dir.join("CCCCCCCCCCC.lite720");
+        let part = dir.join("AAAAAAAAAAA.lite360v.part");
+        let neg = dir.join("BBBBBBBBBBB.lite480.neg");
+        let nonq = dir.join("DDDDDDDDDDD.lite999");
+        let short = dir.join("ABC.lite360");
+        let unrelated = dir.join("notes.txt");
+        for f in [&oldest, &mid, &newest] { std::fs::write(f, vec![0u8; 1000]).unwrap(); }
+        for f in [&part, &neg, &nonq, &short, &unrelated] { std::fs::write(f, b"x").unwrap(); }
+        let now = std::time::SystemTime::now();
+        std::fs::File::options().write(true).open(&oldest).unwrap().set_modified(now - std::time::Duration::from_secs(300)).unwrap();
+        std::fs::File::options().write(true).open(&mid).unwrap().set_modified(now - std::time::Duration::from_secs(200)).unwrap();
+        std::fs::File::options().write(true).open(&newest).unwrap().set_modified(now - std::time::Duration::from_secs(100)).unwrap();
+        let st = crate::auth_api::devices::tests::fixture("bud-evict");
+        assert_eq!(super::enforce_cache_budget(&st, &dir, 1500), Some((3000, 2000, 1000)));
+        assert!(!oldest.exists(), "oldest completed evicted first");
+        assert!(!mid.exists(), "next-oldest evicted until under budget");
+        assert!(newest.exists(), "newest completed kept");
+        assert!(part.exists(), "partial never touched");
+        assert!(neg.exists(), "neg marker never touched");
+        assert!(nonq.exists(), "non-Q_SET name untouched");
+        assert!(short.exists(), "short-id name untouched");
+        assert!(unrelated.exists(), "unrelated file untouched");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+    #[test]
+    fn budget_protects_active_render_prefix_and_tolerates_over_budget_protected() {
+        let dir = std::env::temp_dir().join(format!("bud2-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let act = dir.join("AAAAAAAAAAA.lite360");
+        let mid = dir.join("BBBBBBBBBBB.lite480");
+        let newest = dir.join("CCCCCCCCCCC.lite720");
+        for f in [&act, &mid, &newest] { std::fs::write(f, vec![0u8; 1000]).unwrap(); }
+        let now = std::time::SystemTime::now();
+        std::fs::File::options().write(true).open(&act).unwrap().set_modified(now - std::time::Duration::from_secs(300)).unwrap();
+        std::fs::File::options().write(true).open(&mid).unwrap().set_modified(now - std::time::Duration::from_secs(200)).unwrap();
+        std::fs::File::options().write(true).open(&newest).unwrap().set_modified(now - std::time::Duration::from_secs(100)).unwrap();
+        let st = crate::auth_api::devices::tests::fixture("bud-prot");
+        st.lite.video_jobs.lock().unwrap().insert("AAAAAAAAAAA.lite360".to_string(), 1);
+        assert_eq!(super::enforce_cache_budget(&st, &dir, 500), Some((3000, 2000, 1000)));
+        assert!(act.exists(), "active render prefix kept even though oldest and over budget");
+        assert!(!mid.exists());
+        assert!(!newest.exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+    #[test]
+    fn budget_missing_dir_and_rerun_are_soft() {
+        let st = crate::auth_api::devices::tests::fixture("bud-soft");
+        let missing = std::env::temp_dir().join(format!("bud-missing-{}", std::process::id()));
+        assert_eq!(super::enforce_cache_budget(&st, &missing, 1024), None, "unreadable dir aborts, nothing deleted");
+        let dir = std::env::temp_dir().join(format!("bud3-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let f = dir.join("ABCDEFGHIJK.lite1080");
+        std::fs::write(&f, vec![0u8; 2048]).unwrap();
+        assert_eq!(super::enforce_cache_budget(&st, &dir, 1024), Some((2048, 2048, 0)));
+        assert!(!f.exists());
+        assert_eq!(super::enforce_cache_budget(&st, &dir, 1024), Some((0, 0, 0)), "rerun after eviction is a no-op");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+    #[test]
+    fn budget_skips_serving_claims_until_claim_drop() {
+        let dir = std::env::temp_dir().join(format!("bud4-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let hot = dir.join("AAAAAAAAAAA.lite360");
+        let mid = dir.join("BBBBBBBBBBB.lite480");
+        let newest = dir.join("CCCCCCCCCCC.lite720");
+        for f in [&hot, &mid, &newest] { std::fs::write(f, vec![0u8; 1000]).unwrap(); }
+        let now = std::time::SystemTime::now();
+        std::fs::File::options().write(true).open(&hot).unwrap().set_modified(now - std::time::Duration::from_secs(300)).unwrap();
+        std::fs::File::options().write(true).open(&mid).unwrap().set_modified(now - std::time::Duration::from_secs(200)).unwrap();
+        std::fs::File::options().write(true).open(&newest).unwrap().set_modified(now - std::time::Duration::from_secs(100)).unwrap();
+        let st = std::sync::Arc::new(crate::auth_api::devices::tests::fixture("bud-claim"));
+        let claim = super::ServeClaim::new(&st, "AAAAAAAAAAA.lite360".to_string());
+        assert_eq!(super::enforce_cache_budget(&st, &dir, 500), Some((3000, 2000, 1000)));
+        assert!(hot.exists(), "claimed (being served) file skipped even though oldest");
+        assert!(!mid.exists());
+        assert!(!newest.exists());
+        drop(claim);
+        assert!(st.lite.video_serving.lock().unwrap().get("AAAAAAAAAAA.lite360").is_none(), "claim released on drop");
+        assert_eq!(super::enforce_cache_budget(&st, &dir, 500), Some((1000, 1000, 0)));
+        assert!(!hot.exists(), "after claim drop the file is evictable");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+    #[test]
+    fn budget_fail_closed_on_poisoned_locks() {
+        let dir = std::env::temp_dir().join(format!("bud5-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let f = dir.join("ABCDEFGHIJK.lite360");
+        std::fs::write(&f, vec![0u8; 2048]).unwrap();
+        let st = std::sync::Arc::new(crate::auth_api::devices::tests::fixture("bud-poison-jobs"));
+        let st2 = st.clone();
+        let _ = std::thread::spawn(move || { let _g = st2.lite.video_jobs.lock().unwrap(); panic!("poison jobs"); }).join();
+        assert_eq!(super::enforce_cache_budget(&st, &dir, 1024), None, "poisoned video_jobs aborts the pass");
+        assert!(f.exists(), "fail closed: nothing deleted on poisoned video_jobs");
+        let stb = std::sync::Arc::new(crate::auth_api::devices::tests::fixture("bud-poison-serving"));
+        let stb2 = stb.clone();
+        let _ = std::thread::spawn(move || { let _g = stb2.lite.video_serving.lock().unwrap(); panic!("poison serving"); }).join();
+        assert_eq!(super::enforce_cache_budget(&stb, &dir, 1024), None, "poisoned video_serving aborts the pass");
+        assert!(f.exists(), "fail closed: nothing deleted on poisoned video_serving");
+        let _claim = super::ServeClaim::new(&stb, "ABCDEFGHIJK.lite360".to_string());
+        assert!(stb.lite.video_serving.lock().unwrap_or_else(|e| e.into_inner()).contains_key("ABCDEFGHIJK.lite360"), "serves recover a poisoned lock instead of failing");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+    #[test]
+    fn serve_claims_are_counted_per_reader() {
+        let dir = std::env::temp_dir().join(format!("bud7-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let f = dir.join("ABCDEFGHIJK.lite360");
+        std::fs::write(&f, vec![0u8; 2048]).unwrap();
+        let st = std::sync::Arc::new(crate::auth_api::devices::tests::fixture("bud-refcount"));
+        let c1 = super::ServeClaim::new(&st, "ABCDEFGHIJK.lite360".to_string());
+        let c2 = super::ServeClaim::new(&st, "ABCDEFGHIJK.lite360".to_string());
+        assert_eq!(st.lite.video_serving.lock().unwrap().get("ABCDEFGHIJK.lite360").copied(), Some(2), "two readers hold two claims");
+        drop(c1);
+        assert_eq!(super::enforce_cache_budget(&st, &dir, 1024), Some((2048, 0, 2048)), "one reader still holds the file protected");
+        assert!(f.exists());
+        drop(c2);
+        assert!(st.lite.video_serving.lock().unwrap().get("ABCDEFGHIJK.lite360").is_none(), "last drop releases the prefix");
+        assert_eq!(super::enforce_cache_budget(&st, &dir, 1024), Some((2048, 2048, 0)), "evictable only after the last reader drops");
+        assert!(!f.exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+    #[test]
+    fn render_registering_concurrently_with_a_pass_never_loses_its_output() {
+        // Race: pass snapshot vs RenderGuard::new registration + output write. The
+        // guard stays ALIVE until the pass has finished (second barrier), so the
+        // output is protected in every interleaving: either the registration
+        // precedes the snapshot (prefix protected) or it blocks until the pass
+        // releases the jobs lock (write happens after the scan).
+        let st = std::sync::Arc::new(crate::auth_api::devices::tests::fixture("bud-race"));
+        for i in 0..12 {
+            let dir = std::env::temp_dir().join(format!("bud8-{}-{}", std::process::id(), i));
+            std::fs::create_dir_all(&dir).unwrap();
+            for (n, sz) in [("AAAAAAAAAAA.lite360", 1500u64), ("BBBBBBBBBBB.lite480", 1500), ("CCCCCCCCCCC.lite720", 1500)] {
+                std::fs::write(dir.join(n), vec![0u8; sz as usize]).unwrap();
+            }
+            let start = std::sync::Arc::new(std::sync::Barrier::new(2));
+            let pass_done = std::sync::Arc::new(std::sync::Barrier::new(2));
+            let (st2, dir2, s2, d2) = (st.clone(), dir.clone(), start.clone(), pass_done.clone());
+            let renderer = std::thread::spawn(move || {
+                s2.wait();
+                let _g = super::RenderGuard::new(&st2, 10, "DDDDDDDDDDD.lite1080".to_string());
+                std::fs::write(dir2.join("DDDDDDDDDDD.lite1080"), vec![0u8; 900]).unwrap();
+                d2.wait(); // guard still live until the pass is done
+            });
+            start.wait();
+            let _ = super::enforce_cache_budget(&st, &dir, 1024);
+            pass_done.wait();
+            renderer.join().unwrap();
+            assert!(dir.join("DDDDDDDDDDD.lite1080").exists(), "iteration {i}: active render output survived the concurrent pass");
+            let _ = std::fs::remove_dir_all(&dir);
+        }
+    }
+    #[test]
+    fn render_registration_blocks_until_pass_releases_jobs_lock() {
+        // Deterministic half of the contract: with the jobs lock held (as a pass
+        // holds it across scan+delete), RenderGuard::new cannot register; once
+        // released, it registers exactly once.
+        let st = std::sync::Arc::new(crate::auth_api::devices::tests::fixture("bud-block"));
+        let jobs = st.lite.video_jobs.lock().unwrap();
+        let (tx, rx) = std::sync::mpsc::channel();
+        let st2 = st.clone();
+        let h = std::thread::spawn(move || {
+            let g = super::RenderGuard::new(&st2, 10, "EEEEEEEEEEE.lite360".to_string());
+            tx.send(()).unwrap();
+            g
+        });
+        std::thread::sleep(std::time::Duration::from_millis(200));
+        assert!(rx.try_recv().is_err(), "registration must block while the pass holds the jobs lock");
+        drop(jobs);
+        rx.recv_timeout(std::time::Duration::from_secs(5)).unwrap();
+        let g = h.join().unwrap();
+        assert_eq!(st.lite.video_jobs.lock().unwrap().get("EEEEEEEEEEE.lite360").copied(), Some(1), "registered exactly once after the pass released the lock");
+        drop(g);
+        assert!(st.lite.video_jobs.lock().unwrap().get("EEEEEEEEEEE.lite360").is_none());
+    }
+    #[test]
+    fn two_same_prefix_render_guards_keep_output_protected_until_last_drop() {
+        // Reviewer repro (fails on a23da3a2): two live guards for one prefix
+        // collapse to one HashSet entry; the first drop strips protection.
+        let st = std::sync::Arc::new(crate::auth_api::devices::tests::fixture("bud-same-render"));
+        let dir = st.data_dir.join("stream-cache");
+        std::fs::create_dir_all(&dir).unwrap();
+        let prefix = "ABCDEFGHIJK.lite360".to_string();
+        let g1 = super::RenderGuard::new(&st, 10, prefix.clone());
+        let g2 = super::RenderGuard::new(&st, 10, prefix.clone());
+        let out = dir.join(&prefix);
+        std::fs::write(&out, vec![0u8; 2048]).unwrap();
+        drop(g1);
+        assert_eq!(super::enforce_cache_budget(&st, &dir, 1024), Some((2048, 0, 2048)), "second render guard still owns this prefix");
+        assert!(out.exists());
+        drop(g2);
+        assert!(st.lite.video_jobs.lock().unwrap().get(&prefix).is_none(), "last drop releases the prefix");
+        assert_eq!(super::enforce_cache_budget(&st, &dir, 1024), Some((2048, 2048, 0)), "evictable after the last guard drops");
+        assert!(!out.exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+    #[tokio::test]
+    async fn evicted_hit_falls_back_to_render_path_not_stale_serve() {
+        // Handler-level contract at the exact predicate make_video uses: an
+        // existing file is served from cache (Ok, no render); once a pass has
+        // evicted it, the same call enters the render path (here it fails on the
+        // unreachable stub URL - proof it attempted a re-render, not a stale serve).
+        let st = std::sync::Arc::new(crate::auth_api::devices::tests::fixture("bud-fallback"));
+        let dir = st.data_dir.join("stream-cache");
+        std::fs::create_dir_all(&dir).unwrap();
+        let out = dir.join("ABCDEFGHIJK.lite360");
+        std::fs::write(&out, vec![0u8; 2048]).unwrap();
+        let entry = super::Entry {
+            lite_v: vec![super::LiteV { h: 360, fps: 30.0, size: Some(1000), tbr: 100.0, url: "http://127.0.0.1:1/unreachable".to_string() }],
+            lite_a: vec![super::LiteA { abr: 64.0, size: Some(1000), url: "http://127.0.0.1:1/unreachable".to_string() }],
+            duration: 1.0,
+        };
+        let hit = super::make_video(&st, "ABCDEFGHIJK", 360, &entry, 1 << 20, 0, 0).await;
+        assert_eq!(hit.as_deref().ok(), Some(out.as_path()), "warm file serves from cache without rendering");
+        assert_eq!(super::enforce_cache_budget(&st, &dir, 1024), Some((2048, 2048, 0)));
+        assert!(!out.exists(), "the exact hit predicate (out.exists) is now false");
+        let miss = super::make_video(&st, "ABCDEFGHIJK", 360, &entry, 1 << 20, 0, 0).await;
+        assert!(miss.is_err(), "after eviction the render path is entered (fails on the unreachable URL here, succeeds upstream in production)");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+    #[test]
+    fn serve_claim_orders_before_evict_and_evict_orders_before_open() {
+        let st = std::sync::Arc::new(crate::auth_api::devices::tests::fixture("bud-causal"));
+        let dir = std::env::temp_dir().join(format!("bud6a-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let f = dir.join("ABCDEFGHIJK.lite360");
+        std::fs::write(&f, vec![0u8; 2048]).unwrap();
+        // Causal order 1: claim happens-before the pass -> file skipped, open after the pass succeeds.
+        let bar = std::sync::Arc::new(std::sync::Barrier::new(2));
+        let (stc, dirc, barc) = (st.clone(), dir.clone(), bar.clone());
+        let passer = std::thread::spawn(move || {
+            barc.wait();
+            let r = super::enforce_cache_budget(&stc, &dirc, 1024);
+            barc.wait();
+            r
+        });
+        let _claim = super::ServeClaim::new(&st, "ABCDEFGHIJK.lite360".to_string());
+        bar.wait();
+        bar.wait();
+        assert_eq!(passer.join().unwrap(), Some((2048, 0, 2048)), "pass under a live claim deletes nothing");
+        assert!(std::fs::File::open(&f).is_ok(), "open after the pass succeeds for a claimed file");
+        drop(_claim);
+        // Causal order 2: the pass happens-before the open -> file gone, open fails NotFound.
+        let dir2 = std::env::temp_dir().join(format!("bud6b-{}", std::process::id()));
+        std::fs::create_dir_all(&dir2).unwrap();
+        let f2 = dir2.join("ABCDEFGHIJK.lite360");
+        std::fs::write(&f2, vec![0u8; 2048]).unwrap();
+        assert_eq!(super::enforce_cache_budget(&st, &dir2, 1024), Some((2048, 2048, 0)));
+        assert_eq!(std::fs::File::open(&f2).unwrap_err().kind(), std::io::ErrorKind::NotFound, "open after the pass sees the eviction");
+        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::remove_dir_all(&dir2);
+    }
     #[test]
     fn reserve_guard_releases_on_drop() {
         let st = std::sync::Arc::new(crate::auth_api::devices::tests::fixture("resv-drop"));
         let g1 = super::RenderGuard::new(&st, 500, "AAAAAAAAAAA.lite720".into());
         let g = super::RenderGuard::new(&st, 700, "BBBBBBBBBBB.lite360".into());
         assert_eq!(st.lite.video_reserved.load(std::sync::atomic::Ordering::SeqCst), 1200);
-        assert!(st.lite.video_jobs.lock().unwrap().contains("AAAAAAAAAAA.lite720"));
-        assert!(st.lite.video_jobs.lock().unwrap().contains("BBBBBBBBBBB.lite360"));
+        assert!(st.lite.video_jobs.lock().unwrap().contains_key("AAAAAAAAAAA.lite720"));
+        assert!(st.lite.video_jobs.lock().unwrap().contains_key("BBBBBBBBBBB.lite360"));
         drop(g);
         assert_eq!(st.lite.video_reserved.load(std::sync::atomic::Ordering::SeqCst), 500);
-        assert!(!st.lite.video_jobs.lock().unwrap().contains("BBBBBBBBBBB.lite360"));
+        assert!(!st.lite.video_jobs.lock().unwrap().contains_key("BBBBBBBBBBB.lite360"));
         drop(g1);
         assert_eq!(st.lite.video_reserved.load(std::sync::atomic::Ordering::SeqCst), 0);
         assert!(st.lite.video_jobs.lock().unwrap().is_empty());
