@@ -159,17 +159,51 @@ test('boot: a hanging probe is abandoned at the total deadline, and a late probe
   assert.equal(FakeController.instances.length, 0, 'no late controller construction');
 });
 
-test('boot: a stalled transport mint inside boot is cut by the deadline (epoxy mode)', async (t) => {
+test('fail-fast: experimental and unrecognized transport selections are refused before any mint or socket', async (t) => {
+  // regression: epoxy/curl and any unknown value used to open a stock-wisp socket the backend never answers (0 frames, hang).
+  reset(); t.mock.timers.enable({ apis: ['Date', 'setTimeout'] });
+  for (const mode of ['epoxy', 'curl', 'auto']) {
+    const { makeTransport } = loadEngine(() => {}, { default: FakeEpoxy });
+    const mints = { count: 0 };
+    setup(t, { WS: LiveWS, ls: { 'rj-transport': mode }, fetch: goodMint(mints) });
+    FakeEpoxy.instances.length = 0;
+    let err = null;
+    await makeTransport(FakeEpoxy, BRIDGE, () => true).then(() => { throw new Error('should have failed fast'); }, (e) => { err = e; });
+    assert.ok(err instanceof TypeError, mode + ': TypeError');
+    assert.match(err.message, /isn't supported by this tunnel/, mode + ': clear unsupported message');
+    assert.equal(err.noRetry, true, mode + ': no automatic retry for a deterministic refusal');
+    assert.equal(mints.count, 0, mode + ': no ticket minted');
+    assert.equal(FakeEpoxy.instances.length, 0, mode + ': no vendored client constructed');
+    reset();
+  }
+});
+
+test('fail-fast: normalization - missing and empty rj-transport still mean ws, and server is untouched', async (t) => {
+  reset(); t.mock.timers.enable({ apis: ['Date', 'setTimeout'] });
+  for (const ls of [{}, { 'rj-transport': '' }]) {
+    const { makeTransport } = loadEngine(() => {}, { default: FakeEpoxy });
+    const mints = { count: 0 };
+    setup(t, { WS: LiveWS, ls, fetch: goodMint(mints) });
+    FakeEpoxy.instances.length = 0;
+    const tr = await makeTransport(FakeEpoxy, BRIDGE, () => true);
+    assert.ok(tr, JSON.stringify(ls) + ': ws transport built');
+    assert.equal(FakeEpoxy.instances.length, 1, JSON.stringify(ls) + ': ws mode constructs its unticketed helper');
+    assert.equal(mints.count, 0, JSON.stringify(ls) + ': ws mode mints no ticket at construction');
+    reset();
+  }
+});
+
+test('fail-fast: epoxy mode boot surfaces the refusal, and only the probe mint happened', async (t) => {
   reset(); t.mock.timers.enable({ apis: ['Date', 'setTimeout'] });
   const { connect } = loadEngine(() => {}, { default: FakeEpoxy });
   let n = 0;
-  setup(t, { WS: LiveWS, ls: { 'rj-transport': 'epoxy' }, fetch: ticketFetch(() => ++n === 2 ? new Promise(() => {}) : new Response(JSON.stringify({ ticket: T1 }), { status: 200 })) });
-  const p = connect(boot);
-  const settled = { v: false }; p.then(() => settled.v = true, () => settled.v = true);
-  await flush();
-  assert.equal(n, 2, 'construction mint is in flight');
-  t.mock.timers.tick(12001);
-  await assert.rejects(p, /that took too long/);
+  setup(t, { WS: LiveWS, ls: { 'rj-transport': 'epoxy' }, fetch: ticketFetch(() => (++n, new Response(JSON.stringify({ ticket: T1 }), { status: 200 }))) });
+  let err = null;
+  await connect(boot).then(() => { throw new Error('should have failed fast'); }, (e) => { err = e; });
+  assert.match(err && err.message, /isn't supported by this tunnel/);
+  assert.equal(err.noRetry, true);
+  assert.equal(n, 1, 'the boot probe minted its ticket; the transport never minted');
+  assert.equal(LiveWS.sockets.length, 1, 'only the probe socket was opened');
 });
 
 test('reconnect: a dropped transport socket mints a fresh ticket on the next request', async (t) => {
@@ -444,19 +478,6 @@ test('server mode: request after close rejects instead of fetching', async (t) =
   assert.equal(pfetch, 0, 'no pfetch call went out after close');
 });
 
-test('epoxy mode: the gated wrapper stops new work after close', async (t) => {
-  reset(); t.mock.timers.enable({ apis: ['Date', 'setTimeout'] });
-  const { makeTransport } = loadEngine(() => {}, { default: FakeEpoxy });
-  const mints = { count: 0 };
-  setup(t, { WS: LiveWS, ls: { 'rj-transport': 'epoxy' }, fetch: goodMint(mints) });
-  const tr = await makeTransport(FakeEpoxy, BRIDGE, () => true);
-  assert.equal(FakeEpoxy.instances[0].opts.wisp, BRIDGE + T1 + '/', 'construction minted its own ticket');
-  await tr.init();
-  await tr.request(new URL('https://example.com/'), 'GET', null, {}, undefined);
-  tr.close();
-  await assert.rejects(tr.request(new URL('https://example.com/'), 'GET', null, {}, undefined), /connection dropped/);
-  assert.throws(() => tr.connect(new URL('wss://x/'), [], [], () => {}, () => {}, () => {}, () => {}), /connection dropped/);
-});
 
 test('close tears down live proxied clients, and a proxied connect after close fails fast', async (t) => {
   reset(); t.mock.timers.enable({ apis: ['Date', 'setTimeout'] });

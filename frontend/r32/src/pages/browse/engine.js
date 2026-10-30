@@ -157,18 +157,21 @@ import { mintTicketUrl } from './tickets.mjs';
         },
       ];
     };
-    // curl and default-epoxy modes hand their socket to a vendored client with no close api.
-    // the wrapper gates NEW work after close; the underlying vendored socket lives until it
-    // drops or the page unloads - honest limitation, flagged for review.
-    const gated = (inner) => ({
-      ready: false,
-      async init() { await inner.init(); this.ready = true; },
-      meta: () => inner.meta?.(),
-      connect: (...a) => { if (state.closed) throw new TypeError('connection dropped'); return inner.connect(...a); },
-      request: async (...a) => { if (state.closed) throw new TypeError('connection dropped'); return inner.request(...a); },
-      close() { state.closed = true; closeProxied(); },
-    });
-    if ((localStorage.getItem('rj-transport') || 'ws') === 'ws') {
+    // supported selections: 'ws' (the default) multiplexes pws frames over the ticketed bridge
+    // socket, and 'server' relays through /api/pfetch - the two contracts the backend bridge
+    // this page dials implements. it offers no stock wisp endpoint, so the vendored epoxy and
+    // libcurl experiments, and any unrecognized value, would dial a socket that never answers.
+    // fail closed with a clear message: no mint, no socket, and never silently substitute ws
+    // for an explicit choice.
+    const selectedTransport = localStorage.getItem('rj-transport');
+    if (selectedTransport && selectedTransport !== 'ws' && selectedTransport !== 'server') {
+      const e = new TypeError(
+        `the '${selectedTransport === 'curl' ? 'libcurl' : selectedTransport}' transport selection isn't supported by this tunnel - its media bridge speaks only the multiplexed pws relay protocol, with no stock wisp endpoint to reach. set rj-transport back to 'ws' and reload`
+      );
+      e.noRetry = true;
+      throw e;
+    }
+    if ((selectedTransport || 'ws') === 'ws') {
       const epoxy = new Epoxy({ wisp: bridgeBase });
       const ab = localStorage.getItem('rj-adblock') !== 'off';
       const toB64 = (buf) => { let s = ''; const u = new Uint8Array(buf); for (let i = 0; i < u.length; i += 0x8000) s += String.fromCharCode.apply(null, u.subarray(i, i + 0x8000)); return btoa(s); };
@@ -235,12 +238,7 @@ import { mintTicketUrl } from './tickets.mjs';
         },
       };
     }
-    if (localStorage.getItem('rj-transport') === 'curl') {
-      const url = '/assets/net2/index.mjs';
-      const m = await import(/* @vite-ignore */ url);
-      return gated(new m.default({ wisp: await mint() }));
-    }
-    if (localStorage.getItem('rj-transport') === 'server') {
+    if (selectedTransport === 'server') {
       const epoxy = new Epoxy({ wisp: bridgeBase });
       const ab = localStorage.getItem('rj-adblock') !== 'off';
       const toB64 = (buf) => { let s = ''; const u = new Uint8Array(buf); for (let i = 0; i < u.length; i += 0x8000) s += String.fromCharCode.apply(null, u.subarray(i, i + 0x8000)); return btoa(s); };
@@ -265,7 +263,6 @@ import { mintTicketUrl } from './tickets.mjs';
         close() { state.closed = true; closeProxied(); },
       };
     }
-    return gated(new Epoxy({ wisp: await mint() }));
   }
 
   const loadScript = (src) => new Promise((res, rej) => {
