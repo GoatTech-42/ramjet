@@ -8,8 +8,9 @@
 //!  - PID-1 semantics (kernel drops handlerless signals for a PID-namespace
 //!    init) were verified on the live host by Box. The pid1 tests below
 //!    reproduce them off-host inside a user+PID namespace, gated on unshare
-//!    availability. RAMJETD_OLD_BIN (a pre-shutdown binary, bit-identical to
-//!    the live ELF) drives the contrast case; skipped when unset.
+//!    availability. RAMJETD_OLD_BIN drives the contrast case; it must be a
+//!    handlerless pre-shutdown build (any caefa2e-family build qualifies;
+//!    the live-ELF bit-exactness binding is a separate arch-owned claim).
 
 use std::io::{Read as _, Write as _};
 use std::os::unix::fs::PermissionsExt as _;
@@ -51,7 +52,9 @@ impl Fixture {
             .env("RJ_PROXY", "")
             .env("SEARXNG_URL", "http://127.0.0.1:1")
             .env("YTDLP", "/bin/false")
-            .stdout(Stdio::null()).stderr(Stdio::null());
+            // tracing_subscriber::fmt writes to stdout by default
+            .stdout(Stdio::from(std::fs::File::create(self.dir.join("stderr.log")).unwrap()))
+            .stderr(Stdio::from(std::fs::File::create(self.dir.join("stderr.log")).unwrap()));
         self.child = Some(c.spawn().unwrap());
     }
 
@@ -130,23 +133,47 @@ fn sigterm_clean_exit_fast_when_idle() {
 }
 
 #[test]
+fn sigterm_deadline_abandons_slow_response_with_exit_70() {
+    // Causal deadline test: a stock static GET whose 16MB response the client
+    // never reads stays in-flight through the signal (kernel send buffers
+    // fill), so drain cannot complete and the armed deadline must be what
+    // ends the process. Exit 70 + the warn line distinguish abandonment from
+    // a fully-drained exit(0).
+    let mut fx = Fixture::new("deadline");
+    let assets = fx.dir.join("dist").join("assets");
+    std::fs::create_dir_all(&assets).unwrap();
+    std::fs::write(assets.join("big.bin"), vec![7u8; 16 * 1024 * 1024]).unwrap();
+    fx.spawn(env!("CARGO_BIN_EXE_ramjetd"), 2, false);
+    assert!(wait_health(fx.port, Duration::from_secs(30)), "server did not come up");
+    let mut s = std::net::TcpStream::connect(("127.0.0.1", fx.port)).unwrap();
+    s.set_read_timeout(Some(Duration::from_secs(5))).ok();
+    s.write_all(b"GET /assets/big.bin HTTP/1.1\r\nHost: x\r\n\r\n").unwrap();
+    let mut buf = [0u8; 1024];
+    let n = s.read(&mut buf).unwrap();
+    assert!(n > 0 && buf[..n].windows(6).any(|w| w == b"200 OK"), "expected streaming 200, got {n} bytes");
+    let t0 = Instant::now();
+    fx.signal(libc::SIGTERM);
+    let st = fx.wait_exit(Duration::from_secs(15));
+    let el = t0.elapsed();
+    assert_eq!(st.code(), Some(70), "deadline abandonment must exit 70, got {st:?}");
+    assert!(el >= Duration::from_secs(2) && el < Duration::from_secs(12),
+        "deadline (~2s) should govern the exit, took {el:?}");
+    let log = std::fs::read_to_string(fx.dir.join("stderr.log")).unwrap();
+    assert!(log.contains("drain deadline 2s reached; abandoning live connections"), "warn line missing: {log}");
+}
+
+#[test]
 fn sigterm_held_incomplete_request_still_exits_promptly() {
     // A connection held mid-request (incomplete head) must not hang shutdown:
-    // hyper drops incomplete requests at drain start, so exit is fast; the
-    // drain deadline remains the backstop for long in-flight responses and
-    // is reviewed in source (spawned sleep -> exit(0)), not exercised here
-    // because no stock endpoint streams slowly without auth/egress fixtures.
+    // hyper drops incomplete requests at drain start, so exit is fast.
     let mut fx = Fixture::new("held");
     fx.spawn(env!("CARGO_BIN_EXE_ramjetd"), 2, false);
     assert!(wait_health(fx.port, Duration::from_secs(30)), "server did not come up");
     let mut s = std::net::TcpStream::connect(("127.0.0.1", fx.port)).unwrap();
     s.write_all(b"POST /api/auth/login HTTP/1.1\r\nHost: x\r\nContent-Length: 999\r\n\r\n").unwrap();
-    let t0 = Instant::now();
     fx.signal(libc::SIGTERM);
-    let st = fx.wait_exit(Duration::from_secs(12));
-    let el = t0.elapsed();
-    assert_eq!(st.code(), Some(0), "expected clean exit(0), got {st:?}");
-    assert!(el < Duration::from_secs(12), "must not hang on a held connection, took {el:?}");
+    let st = fx.wait_exit(Duration::from_secs(10));
+    assert_eq!(st.code(), Some(0), "expected prompt clean exit(0), got {st:?}");
 }
 
 #[test]
