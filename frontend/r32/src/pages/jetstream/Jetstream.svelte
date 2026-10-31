@@ -6,7 +6,7 @@
   import '../../tokens.css';
   import { onMount, tick } from "svelte";
   import { api, errCopy } from '../../lib/api.js';
-  import { attachBridgeHls } from '../../lib/jetstream-hls.mjs';
+  import { attachBridgeHls, attemptGate } from '../../lib/jetstream-hls.mjs';
   import { createWatchTracker } from './watch-tracker.js';
   import { createWatchReporter } from './watch-reporter.js';
   import { createSearchPager, searchUrl } from './search-pager.js';
@@ -960,7 +960,7 @@
       loadingWatch = false;
       if (!watching || !autoplay) return; // closed the player while the next one was resolving
       error = ''; portrait = false; streamError = false; hdDropped = false; stalling = false;
-      dropHls(); hlsTriedFor = '';
+      dropHls(); hlsAttempt = { triedFor: '', inFlight: false };
       watching = cand; watchInfo = r.data;
       recordWatch(cand);
       loadCaps(cand.id);
@@ -979,7 +979,7 @@
       dropDeadEverywhere(v.id);
       error = errCopy(r, "can't load this one"); watching = null; return;
     }
-    dropHls(); hlsTriedFor = '';
+    dropHls(); hlsAttempt = { triedFor: '', inFlight: false };
     watchInfo = r.data;
     recordWatch(v);
     loadCaps(v.id);
@@ -1016,7 +1016,7 @@
   // "this video has no hls" - lands on the exact old 360p behavior. hls.js is
   // lazy-loaded so the page chunk stays as it was.
   let hlsHandle = null;
-  let hlsTriedFor = '';
+  let hlsAttempt = { triedFor: '', inFlight: false };
   let adaptive = $state(false); // true while the bridge manifest is what plays
   let HlsRef = null;
 
@@ -1036,23 +1036,26 @@
   }
 
   async function dropToAdaptive(at, why) {
-    if (!watchInfo || !watching || audioOnly || hlsTriedFor === watching.id) { dropTo360(at); return; }
-    hlsTriedFor = watching.id;
+    if (!watchInfo || !watching || audioOnly) { dropTo360(at); return; }
+    const g = attemptGate(hlsAttempt, watching.id);
+    if (g.action === 'wait') return; // an attempt for this video is already starting - let it settle
+    if (g.action === 'fallback') { dropTo360(at); return; } // it already settled; use the old ladder
+    hlsAttempt = { triedFor: watching.id, inFlight: true };
     const id = watching.id;
     const keep = at ?? (videoEl ? videoEl.currentTime || 0 : 0);
     const native = (() => { try { return !!videoEl?.canPlayType?.('application/vnd.apple.mpegurl'); } catch { return false; } })();
     if (!native) { try { HlsRef ??= (await import('hls.js')).default; } catch { HlsRef = null; } }
-    if (watching?.id !== id || hlsHandle || hdDropped) return; // navigated away, already attached, or a concurrent error already landed on 360p
+    if (watching?.id !== id || hlsAttempt.triedFor !== id || !hlsAttempt.inFlight || hlsHandle || hdDropped) return; // navigated away, canceled by a user-driven fallback, or already attached
     dropAudio();
     clearWatchDog();
     watchDirect = false;
     videoEl.muted = false; // the bridge manifest carries its own audio
     const h = attachBridgeHls({
       video: videoEl, id, Hls: native ? null : HlsRef, startAt: keep,
-      onReady: () => { if (watching?.id === id) { adaptive = true; hdMode = false; stalling = false; videoEl?.play?.().catch(() => {}); } },
-      onFatal: () => { if (hlsHandle === h) hlsHandle = null; if (watching?.id === id) dropTo360(keep); },
+      onReady: () => { hlsAttempt.inFlight = false; if (watching?.id === id && hlsHandle === h) { adaptive = true; hdMode = false; stalling = false; videoEl?.play?.().catch(() => {}); } },
+      onFatal: () => { hlsAttempt.inFlight = false; if (hlsHandle === h) hlsHandle = null; if (watching?.id === id) dropTo360(keep); },
     });
-    if (!h) { dropTo360(at); return; } // no hls engine here at all
+    if (!h) { hlsAttempt.inFlight = false; dropTo360(at); return; } // no hls engine here at all
     hlsHandle = h;
     api('/api/apps/jetstream/clientlog', { method: 'POST', body: { kind: 'hd-adaptive-hls', id, why: why || '', ua: navigator.userAgent } }).catch(() => {});
   }
@@ -1184,6 +1187,7 @@
 
   function startFallback() {
     if (!watchInfo || !videoEl) return;
+    hlsAttempt.inFlight = false; // a user-driven fallback cancels an in-flight attempt
     dropHls();
     dropAudio();
     watchDirect = !directDead && !!watchInfo.direct;

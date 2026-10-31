@@ -90,3 +90,15 @@ export function attachBridgeHls({ video, id, Hls = null, onFatal = () => {}, onR
   hls.attachMedia(video);
   return handle;
 }
+
+// one adaptive attempt per video. the hd pair's two halves can fail within
+// milliseconds of each other (a filtered network kills both): the first
+// failure starts the attempt, and a second while it is still starting must
+// WAIT for it - dropping to 360p there cancels the very attempt that could
+// avoid it. once the attempt has settled (playing, or failed into the old
+// ladder), a later failure falls back as before.
+export function attemptGate(st, id) {
+  if (st.triedFor !== id) return { action: 'start' };
+  if (st.inFlight) return { action: 'wait' };
+  return { action: 'fallback' };
+}

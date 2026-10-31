@@ -120,3 +120,28 @@ test('sequence: hls 404 then caller fallback runs the old ladder exactly once', 
   assert.ok(handle.destroyed !== true); // handle object itself is caller-facing; the inner hls.js instance was destroyed
   assert.ok(log.some((e) => e[0] === 'destroy'));
 });
+
+import { attemptGate } from './jetstream-hls.mjs';
+
+test('attemptGate: first failure starts, second while starting waits, settled failure falls back', () => {
+  let st = { triedFor: '', inFlight: false };
+  assert.equal(attemptGate(st, 'vidA').action, 'start');
+  st = { triedFor: 'vidA', inFlight: true };
+  assert.equal(attemptGate(st, 'vidA').action, 'wait'); // the race: second hd-half error mid-start
+  st = { triedFor: 'vidA', inFlight: false };
+  assert.equal(attemptGate(st, 'vidA').action, 'fallback');
+  assert.equal(attemptGate(st, 'vidB').action, 'start'); // a new video always gets its one attempt
+});
+
+test('sequence: simultaneous hd pair failure produces exactly one attempt and zero premature 360p drops', () => {
+  // mirrors dropToAdaptive: gate decisions for [audio-error, video-error 40ms later, settle]
+  const st = { triedFor: '', inFlight: false };
+  const ladder = [];
+  const g1 = attemptGate(st, 'vidC'); ladder.push(g1.action);
+  if (g1.action === 'start') { st.triedFor = 'vidC'; st.inFlight = true; }
+  const g2 = attemptGate(st, 'vidC'); ladder.push(g2.action);
+  if (g2.action === 'fallback') ladder.push('360p');
+  // attempt settles as failed -> the 360p drop happens exactly once, here
+  st.inFlight = false; ladder.push('360p');
+  assert.deepEqual(ladder, ['start', 'wait', '360p']);
+});
