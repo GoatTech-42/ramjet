@@ -69,7 +69,18 @@ async fn body(r: axum::response::Response) -> (u16, String) {
     let (s, b) = body(combine("q", Err(()), Err(()), Err(()))).await;
     assert_eq!(s, 502); assert_eq!(b, r#"{"ok":false,"error":"every catalog timed out - try again"}"#);
     let (s, b) = body(combine("q", Err(()), Ok(vec![]), Err(()))).await;
-    assert_eq!(s, 200); assert_eq!(b, r#"{"ok":true,"q":"q","results":{"youtube":[],"soundcloud":[],"audius":[]}}"#);
+    // a failed catalog is named in the envelope: rows stay empty (nothing to show) but the
+    // failure is not presented as a successful empty page
+    assert_eq!(s, 200); assert_eq!(b, r#"{"ok":true,"q":"q","results":{"youtube":[],"soundcloud":[],"audius":[]},"failed":["youtube","audius"]}"#);
+}
+#[tokio::test] async fn failed_envelope_names_only_failed_sources() {
+    let (s, b) = body(combine("q", Ok(vec![]), Err(()), Ok(vec![]))).await;
+    assert_eq!(s, 200);
+    assert!(b.contains(r#""failed":["soundcloud"]"#), "{b}");
+    // nothing failed: the field is present and empty, a stable shape for clients
+    let (s, b) = body(combine("q", Ok(vec![]), Ok(vec![]), Ok(vec![]))).await;
+    assert_eq!(s, 200);
+    assert!(b.contains(r#""failed":[]"#), "{b}");
 }
 #[test] fn art_targets() {
     assert_eq!(art_target("yt","dQw4w9WgXcQ","").unwrap(), "https://i.ytimg.com/vi/dQw4w9WgXcQ/mqdefault.jpg");
