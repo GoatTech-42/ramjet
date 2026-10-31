@@ -362,10 +362,16 @@ pub fn au_next(offset: u32, rows: usize) -> Option<String> {
 
 pub fn combine(q: &str, yt: Result<Vec<Value>, ()>, sc: Result<Vec<Value>, ()>, au: Result<Vec<Value>, ()>, next_au: Option<String>) -> Response {
     if yt.is_err() && sc.is_err() && au.is_err() { return json_err(StatusCode::BAD_GATEWAY, ALL_FAILED); }
+    // A failed catalog is named, never presented as a successful empty page: its rows stay empty
+    // (there is nothing to show) but the envelope says which catalogs did not answer. A source a
+    // cursored request did not fetch is absent here, not "failed" - it was not attempted.
+    let failed: Vec<OJ> = [("youtube", &yt), ("soundcloud", &sc), ("audius", &au)].into_iter()
+        .filter(|(_, r)| r.is_err()).map(|(n, _)| OJ::Str(n.to_string())).collect();
     let arr = |r: Result<Vec<Value>, ()>| OJ::Arr(r.unwrap_or_default().into_iter().map(|v| OJ::Raw(v.as_str().unwrap_or("{}").to_string())).collect());
     json_ord(StatusCode::OK, vec![
         ("ok", OJ::Bool(true)), ("q", OJ::Str(q.to_string())),
         ("results", OJ::Obj(vec![("youtube".into(), arr(yt)), ("soundcloud".into(), arr(sc)), ("audius".into(), arr(au))])),
+        ("failed", OJ::Arr(failed)),
         // youtube/soundcloud stay null until a real upstream continuation shape is held; audius is the offset cursor or null.
         ("next", OJ::Obj(vec![("youtube".into(), OJ::Null), ("soundcloud".into(), OJ::Null),
                               ("audius".into(), match next_au { Some(c) => OJ::Str(c), None => OJ::Null })])),

@@ -69,7 +69,22 @@ async fn body(r: axum::response::Response) -> (u16, String) {
     let (s, b) = body(combine("q", Err(()), Err(()), Err(()), None)).await;
     assert_eq!(s, 502); assert_eq!(b, r#"{"ok":false,"error":"every catalog timed out - try again"}"#);
     let (s, b) = body(combine("q", Err(()), Ok(vec![]), Err(()), None)).await;
-    assert_eq!(s, 200); assert_eq!(b, r#"{"ok":true,"q":"q","results":{"youtube":[],"soundcloud":[],"audius":[]},"next":{"youtube":null,"soundcloud":null,"audius":null}}"#);
+    // a failed catalog is named in the envelope: rows stay empty (nothing to show) but the
+    // failure is not presented as a successful empty page
+    assert_eq!(s, 200); assert_eq!(b, r#"{"ok":true,"q":"q","results":{"youtube":[],"soundcloud":[],"audius":[]},"failed":["youtube","audius"],"next":{"youtube":null,"soundcloud":null,"audius":null}}"#);
+}
+#[tokio::test] async fn failed_envelope_names_only_failed_sources() {
+    let (s, b) = body(combine("q", Ok(vec![]), Err(()), Ok(vec![]), None)).await;
+    assert_eq!(s, 200);
+    assert!(b.contains(r#""failed":["soundcloud"]"#), "{b}");
+    // nothing failed: the field is present and empty, a stable shape for clients
+    let (s, b) = body(combine("q", Ok(vec![]), Ok(vec![]), Ok(vec![]), None)).await;
+    assert_eq!(s, 200);
+    assert!(b.contains(r#""failed":[]"#), "{b}");
+    // a cursored page fetched only audius: yt/sc were not attempted, so nothing is "failed"
+    let (s, b) = body(combine("q", Ok(vec![]), Ok(vec![]), Ok(vec![serde_json::json!({"k":1})]), au_next(0, AU_PAGE))).await;
+    assert_eq!(s, 200);
+    assert!(b.contains(r#""failed":[]"#), "{b}");
 }
 #[test] fn cursor_parsing() {
     assert_eq!(parse_cursor("au:0"), Some(0));
