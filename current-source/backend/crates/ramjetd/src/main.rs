@@ -19,6 +19,40 @@ async fn main() {
     tracing_subscriber::fmt().with_env_filter(
         tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
     ).init();
+    // Signal handlers install FIRST: as container PID 1 the kernel ignores
+    // handlerless signals, and startup (egress probe worst case ~94s) must be
+    // interruptible too - a signal before serve exits 0 with nothing to drain.
+    use tokio::signal::unix::{signal, SignalKind};
+    let mut term = signal(SignalKind::terminate()).expect("install SIGTERM handler");
+    let mut int = signal(SignalKind::interrupt()).expect("install SIGINT handler");
+    let (sig_tx, sig_rx) = tokio::sync::watch::channel(None::<&'static str>);
+    tokio::spawn(async move {
+        tokio::select! {
+            _ = term.recv() => { let _ = sig_tx.send(Some("SIGTERM")); }
+            _ = int.recv() => { let _ = sig_tx.send(Some("SIGINT")); }
+        }
+    });
+    // The startup race is scoped to startup ONLY: after bind, serve owns the
+    // receiver and the drain/deadline contract governs (a pre-serve exit here
+    // would skip draining and mask abandonment).
+    let (listener, app, drain_secs) = tokio::select! {
+        _ = wait_signal(sig_rx.clone()) => {
+            tracing::info!("signal during startup; clean exit before serving (nothing to drain)");
+            std::process::exit(0);
+        }
+        r = startup() => r,
+    };
+    axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>())
+        .with_graceful_shutdown(shutdown_signal(sig_rx, drain_secs))
+        .await.expect("serve");
+    tracing::info!("ramjetd: all connections drained; clean exit");
+}
+
+async fn wait_signal(mut rx: tokio::sync::watch::Receiver<Option<&'static str>>) {
+    let _ = rx.changed().await;
+}
+
+async fn startup() -> (tokio::net::TcpListener, axum::Router, u64) {
     #[cfg(feature = "qa-hooks")]
     tracing::warn!("QA-HOOKS BUILD: render/CA test knobs ACTIVE - NOT FOR DEPLOYMENT");
 
@@ -166,23 +200,16 @@ async fn main() {
     if drain_secs > 9 {
         tracing::warn!("RJ_SHUTDOWN_DRAIN_SECS={drain_secs} exceeds docker's default 10s stop timeout: raise --stop-timeout accordingly or SIGKILL governs");
     }
-    axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>())
-        .with_graceful_shutdown(shutdown_signal(drain_secs))
-        .await.expect("serve");
-    tracing::info!("ramjetd: all connections drained; clean exit");
+    (listener, app, drain_secs)
 }
 
-// Exit-code contract: 0 = connections fully drained after the signal;
-// 70 (EX_SOFTWARE) = drain deadline abandoned live connections. The warn log
-// says the same thing; supervisors can alert on 70 without parsing logs.
-async fn shutdown_signal(drain_secs: u64) {
-    use tokio::signal::unix::{signal, SignalKind};
-    let mut term = signal(SignalKind::terminate()).expect("install SIGTERM handler");
-    let mut int = signal(SignalKind::interrupt()).expect("install SIGINT handler");
-    let what = tokio::select! {
-        _ = term.recv() => "SIGTERM",
-        _ = int.recv() => "SIGINT",
-    };
+// Exit-code contract: 0 = clean exit (signal during startup, or connections
+// fully drained after it); 70 (EX_SOFTWARE) = drain deadline abandoned live
+// connections. The warn log says the same thing; supervisors can alert on 70
+// without parsing logs.
+async fn shutdown_signal(mut sig_rx: tokio::sync::watch::Receiver<Option<&'static str>>, drain_secs: u64) {
+    let _ = sig_rx.changed().await;
+    let what = sig_rx.borrow().unwrap_or("signal");
     tracing::info!("{what}: graceful shutdown begin; drain deadline {drain_secs}s");
     tokio::spawn(async move {
         tokio::time::sleep(std::time::Duration::from_secs(drain_secs)).await;

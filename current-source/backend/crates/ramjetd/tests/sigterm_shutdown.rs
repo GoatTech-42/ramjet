@@ -36,6 +36,10 @@ impl Fixture {
     }
 
     fn spawn(&mut self, bin: &str, drain_secs: u64, pid_ns: bool) {
+        self.spawn_with_proxy(bin, drain_secs, pid_ns, "");
+    }
+
+    fn spawn_with_proxy(&mut self, bin: &str, drain_secs: u64, pid_ns: bool, proxy: &str) {
         let mut c = if pid_ns {
             let mut u = Command::new("unshare");
             u.args(["-U", "-r", "-p", "-f", "--kill-child", "--mount-proc"]).arg(bin);
@@ -49,7 +53,7 @@ impl Fixture {
             .env("RJ_HOST", "127.0.0.1")
             .env("RJ_PORT", self.port.to_string())
             .env("RJ_SHUTDOWN_DRAIN_SECS", drain_secs.to_string())
-            .env("RJ_PROXY", "")
+            .env("RJ_PROXY", proxy)
             .env("SEARXNG_URL", "http://127.0.0.1:1")
             .env("YTDLP", "/bin/false")
             // tracing_subscriber::fmt writes to stdout by default
@@ -204,6 +208,28 @@ fn sigterm_pid1_namespace_exits_zero() {
 /// Contrast: the pre-shutdown binary (bit-identical to the live ELF) as PID 1
 /// must IGNORE SIGTERM - this is the exact mechanism Box observed live. Gated
 /// on RAMJETD_OLD_BIN so CI without the artifact skips it.
+#[test]
+fn sigterm_during_startup_probe_exits_promptly() {
+    // Causal startup-signal test: a stall proxy accepts CONNECT and never
+    // answers, so each egress probe hits its 10s timeout and startup would
+    // otherwise sit in the probe loop for tens of seconds (3 URLs x 10s x up
+    // to 3 attempts + sleeps). A signal BEFORE serve must exit 0 promptly -
+    // the handlers install at process start, not at the serve future (the
+    // r1/r2 gap Box's operational review caught).
+    let stall = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let stall_port = stall.local_addr().unwrap().port();
+    std::thread::spawn(move || { let mut held = vec![]; for c in stall.incoming() { held.push(c); } });
+    let mut fx = Fixture::new("startup-sig");
+    fx.spawn_with_proxy(env!("CARGO_BIN_EXE_ramjetd"), 8, false, &format!("http://127.0.0.1:{stall_port}"));
+    std::thread::sleep(Duration::from_secs(3));
+    let t0 = Instant::now();
+    fx.signal(libc::SIGTERM);
+    let st = fx.wait_exit(Duration::from_secs(15));
+    let el = t0.elapsed();
+    assert_eq!(st.code(), Some(0), "signal during startup must exit 0 cleanly, got {st:?} (signal death would be None)");
+    assert!(el < Duration::from_secs(8), "must not hang through the probe loop, took {el:?}");
+}
+
 #[test]
 fn old_binary_pid1_ignores_sigterm_contrast() {
     let Ok(old) = std::env::var("RAMJETD_OLD_BIN") else {
