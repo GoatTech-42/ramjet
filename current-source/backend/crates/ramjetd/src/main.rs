@@ -155,7 +155,36 @@ async fn main() {
     let addr: SocketAddr = format!("{host}:{port}").parse().expect("bind addr");
     let listener = tokio::net::TcpListener::bind(addr).await.expect("bind");
     tracing::info!("ramjetd on {addr}");
-    axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>()).await.expect("serve");
+    // Bounded graceful shutdown: default 8s keeps SIGKILL out of the normal
+    // docker-stop path (default timeout 10s). The deadline only bounds
+    // shutdown latency - connections still open at the deadline are cut; it
+    // does NOT guarantee in-flight downloads/streams/remux work completes.
+    let drain_secs: u64 = std::env::var("RJ_SHUTDOWN_DRAIN_SECS").ok()
+        .and_then(|v| v.parse().ok()).filter(|&v| (1..=300).contains(&v)).unwrap_or(8);
+    axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>())
+        .with_graceful_shutdown(shutdown_signal(drain_secs))
+        .await.expect("serve");
+    tracing::info!("ramjetd: all connections drained; clean exit");
+}
+
+// Waits for SIGTERM/SIGINT (handler install also makes PID-1 delivery work:
+// the kernel ignores handlerless signals for PID 1), then arms the drain
+// deadline. Deadline expiry exits 0 with a warn: abandonment by design,
+// not a crash - the log line, not the exit code, records the cutoff.
+async fn shutdown_signal(drain_secs: u64) {
+    use tokio::signal::unix::{signal, SignalKind};
+    let mut term = signal(SignalKind::terminate()).expect("install SIGTERM handler");
+    let mut int = signal(SignalKind::interrupt()).expect("install SIGINT handler");
+    let what = tokio::select! {
+        _ = term.recv() => "SIGTERM",
+        _ = int.recv() => "SIGINT",
+    };
+    tracing::info!("{what}: graceful shutdown begin; drain deadline {drain_secs}s");
+    tokio::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_secs(drain_secs)).await;
+        tracing::warn!("drain deadline {drain_secs}s reached; exiting with live connections cut");
+        std::process::exit(0);
+    });
 }
 
 
