@@ -1386,6 +1386,14 @@ mod poll_order_tests {
     fn stub(id: &str, r: Result<super::Entry, String>) {
         super::RESOLVE_STUB.get_or_init(Default::default).lock().unwrap().insert(id.to_string(), r);
     }
+    // the stub map is global, so the tests that install stubs (and the two that
+    // assert the map is empty afterwards) must not interleave: hold one
+    // file-scope lock for the whole body of each stub-using test. poison is
+    // recovered so one panicking test does not wedge the rest of the run.
+    static STUB_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    fn stub_test_guard() -> std::sync::MutexGuard<'static, ()> {
+        STUB_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner())
+    }
     fn cache_dir(st: &crate::AppState) -> std::path::PathBuf { let d = st.data_dir.join("stream-cache"); std::fs::create_dir_all(&d).unwrap(); d }
 
     #[tokio::test]
@@ -1434,6 +1442,7 @@ mod poll_order_tests {
     }
     #[tokio::test]
     async fn cold_poll_resolve_failure_is_on_contract_200_and_stores_neg() {
+        let _g = stub_test_guard();
         let st = fx("po-cold"); let id = "POLLCOLD001";
         stub(id, Err("can't load this video - try another".to_string()));
         let (s, b) = vcall(&st, id, "po-cold").await;
@@ -1451,6 +1460,7 @@ mod poll_order_tests {
     }
     #[tokio::test]
     async fn cold_poll_ordinary_duration_gate_preserved() {
+        let _g = stub_test_guard();
         let st = fx("po-dur"); let id = "POLLDUR0001";
         stub(id, Ok(entry(901.0, 1000, 1000)));
         let (s, b) = vcall(&st, id, "po-dur").await;
@@ -1459,6 +1469,7 @@ mod poll_order_tests {
     }
     #[tokio::test]
     async fn cold_poll_ordinary_size_gate_preserved() {
+        let _g = stub_test_guard();
         let st = fx("po-size"); let id = "POLLSIZE001";
         stub(id, Ok(entry(100.0, 120_000_000, 40_000_000)));                           
         let (s, b) = vcall(&st, id, "po-size").await;
@@ -1467,6 +1478,7 @@ mod poll_order_tests {
     }
     #[tokio::test]
     async fn cold_poll_admin_long_starts_render_on_contract_200() {
+        let _g = stub_test_guard();
         let st = fx("luke"); let id = "POLLADMIN01";
         stub(id, Ok(entry(901.0, 1000, 1000)));
         let (s, b) = vcall(&st, id, "luke").await;
