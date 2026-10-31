@@ -1018,6 +1018,8 @@
   let hlsHandle = null;
   let hlsAttempt = { triedFor: '', inFlight: false };
   let adaptive = $state(false); // true while the bridge manifest is what plays
+  let adaptiveH = $state(0); // decoded track height while adaptive (0 = unknown/audio-only)
+  let playBlocked = $state(false); // recovery attached but the browser refused autoplay with sound
   let HlsRef = null;
 
   function dropHls() {
@@ -1025,6 +1027,8 @@
     const h = hlsHandle;
     hlsHandle = null;
     adaptive = false;
+    adaptiveH = 0;
+    playBlocked = false;
     h.destroy();
   }
 
@@ -1052,7 +1056,7 @@
     videoEl.muted = false; // the bridge manifest carries its own audio
     const h = attachBridgeHls({
       video: videoEl, id, Hls: native ? null : HlsRef, startAt: keep,
-      onReady: () => { hlsAttempt.inFlight = false; if (watching?.id === id && hlsHandle === h) { adaptive = true; hdMode = false; stalling = false; videoEl?.play?.().catch(() => {}); } },
+      onReady: () => { hlsAttempt.inFlight = false; if (watching?.id === id && hlsHandle === h) { adaptive = true; hdMode = false; stalling = false; adaptiveH = videoEl?.videoWidth ? videoEl.videoHeight : 0; videoEl?.play?.().catch(() => { playBlocked = true; }); } },
       onFatal: () => { hlsAttempt.inFlight = false; if (hlsHandle === h) hlsHandle = null; if (watching?.id === id) dropTo360(keep); },
     });
     if (!h) { hlsAttempt.inFlight = false; dropTo360(at); return; } // no hls engine here at all
@@ -1497,10 +1501,10 @@
       <div class="frame" class:portrait bind:this={frameEl}>
         {#if watchInfo}
           <video bind:this={videoEl} playsinline preload="auto" poster={thumb(watching.id)}
-            onloadedmetadata={onMeta} ontimeupdate={() => { onTime(); vTick(); }} ondurationchange={vTick} onplay={() => { onVidPlay(); vSync(); }} onpause={() => { onVidPause(); vSync(); }} onseeking={onSeeking} onseeked={onSeeked} onended={onVidEnded}
+            onloadedmetadata={(e) => { onMeta(e); if (adaptive && videoEl) adaptiveH = videoEl.videoWidth ? videoEl.videoHeight : 0; }} ontimeupdate={() => { onTime(); vTick(); }} ondurationchange={vTick} onplay={() => { playBlocked = false; onVidPlay(); vSync(); }} onpause={() => { onVidPause(); vSync(); }} onseeking={onSeeking} onseeked={onSeeked} onended={onVidEnded}
             onerror={onVidError}
             onwaiting={() => { wt?.tr.pause(); if (!streamError && videoEl && !videoEl.paused) { stalling = true; noteHdStall(); } }}
-            onplaying={() => stalling = false} oncanplay={() => stalling = false}>{#if capOn && capTrack}<track kind="subtitles" src={capTrack.src} srclang={capTrack.lang} label={capTrack.label || capTrack.lang} default>{/if}</video>
+            onplaying={() => stalling = false} onresize={() => { if (adaptive && videoEl) adaptiveH = videoEl.videoWidth ? videoEl.videoHeight : 0; }} oncanplay={() => stalling = false}>{#if capOn && capTrack}<track kind="subtitles" src={capTrack.src} srclang={capTrack.lang} label={capTrack.label || capTrack.lang} default>{/if}</video>
           <div class="vo" class:hide={!vui} role="presentation" onclick={vTap}>
             <div class="vo-top"><span class="vo-title">{watching.title || watchInfo.title || ''}</span></div>
             <div class="vo-mid" role="presentation" onclick={(e) => e.stopPropagation()}>
@@ -1514,7 +1518,7 @@
               <span class="vo-t">{fmtT(vcur)}</span>
               <input data-testid="js-seek-input" class="vo-seek" type="range" min="0" max={vdur || 1} step="0.25" value={vcur} oninput={vSeekInput} onchange={vSeekChange} aria-label="seek" style="--p:{vdur ? (vcur / vdur) * 100 : 0}%" />
               <span class="vo-t">{fmtT(vdur)}</span>
-              {#if watchInfo?.hd}<button data-testid="js-vo-audio" class="vo-q" class:on={audioOnly} onclick={toggleAudioOnly} aria-label="audio only" aria-pressed={audioOnly}>audio</button>{#if !audioOnly}<button data-testid="js-vo-quality" class="vo-q" onclick={toggleQuality} aria-label="switch quality">{hdMode ? watchInfo.hd.quality : '360p'}</button>{/if}{/if}
+              {#if watchInfo?.hd}<button data-testid="js-vo-audio" class="vo-q" class:on={audioOnly} onclick={toggleAudioOnly} aria-label="audio only" aria-pressed={audioOnly}>audio</button>{#if !audioOnly}<button data-testid="js-vo-quality" class="vo-q" onclick={toggleQuality} aria-label="switch quality">{adaptive ? (adaptiveH ? adaptiveH + 'p' : 'auto') : hdMode ? watchInfo.hd.quality : '360p'}</button>{/if}{/if}
               {#if capTracks?.length}
                 {#if capTracks.length > 1}
                   <select data-testid="js-vo-cap" class="vo-q vo-cap" aria-label="caption language" onchange={(e) => pickCapSrc(e.currentTarget.value)}>
@@ -1569,6 +1573,9 @@ network {stats.net} · ready {stats.ready}</pre>
           <p class="sumfoot">this ai summary uses the captions and may be wrong.</p>
         </section>
       {/if}
+      {#if playBlocked && adaptive}
+        <p class="hdnote" data-testid="js-playblocked">hd recovered at lower quality - press play to start.</p>
+      {/if}
       {#if hdDropped}
         <p class="hdnote">playing at 360p because hd stopped. <button data-testid="js-hd-retry" class="linkbtn" onclick={() => { const at = videoEl?.currentTime || 0; hdDropped = false; hdMode = true; startHd(); videoEl?.addEventListener('loadedmetadata', () => { try { videoEl.currentTime = at; } catch {} }, { once: true }); }}>try hd again</button></p>
       {/if}
@@ -1589,7 +1596,7 @@ network {stats.net} · ready {stats.ready}</pre>
           <span>{linkCopied ? 'copied' : 'link'}</span>
         </button>
         {#if watchInfo?.hd}
-          {#if !audioOnly}<span class="qwrap"><button data-testid="js-quality" class="wlike" onclick={() => (qMenu = !qMenu)} aria-label="video quality" aria-expanded={qMenu}>{hdMode ? watchInfo.hd.quality : '360p'}{qTier === 'auto' ? '' : ' *'}</button>
+          {#if !audioOnly}<span class="qwrap"><button data-testid="js-quality" class="wlike" onclick={() => (qMenu = !qMenu)} aria-label="video quality" aria-expanded={qMenu}>{adaptive ? (adaptiveH ? adaptiveH + 'p' : 'auto') : hdMode ? watchInfo.hd.quality : '360p'}{qTier === 'auto' ? '' : ' *'}</button>
             {#if qMenu}<button data-testid="js-qbd" class="qbd" aria-label="close" onclick={() => (qMenu = false)}></button><span class="qmenu" role="menu">{#each QTIERS as [k, n, d]}<button data-testid="js-btn" role="menuitem" class:on={qTier === k} onclick={() => pickTier(k)}><b>{n}</b><i>{d}</i></button>{/each}</span>{/if}</span>{/if}
           <button data-testid="js-audio-only" class="wlike" class:liked={audioOnly} onclick={toggleAudioOnly} aria-label="audio only" aria-pressed={audioOnly}><span>audio only</span></button>
         {/if}
