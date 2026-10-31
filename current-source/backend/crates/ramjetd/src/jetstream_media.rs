@@ -44,6 +44,8 @@ pub fn router() -> Router<Shared> {
         .route("/api/apps/jetstream/thumb", get(thumb_id_handler).fallback(bad_method))
         .route("/api/jetstream/thumb", get(thumb_handler).fallback(bad_method))
         .route("/api/apps/jetstream/captions", get(captions_handler).fallback(bad_method))
+        .route("/api/apps/jetstream/manifest", get(manifest_handler).fallback(bad_method))
+        .route("/api/apps/jetstream/seg", get(seg_handler).fallback(bad_method))
 }
 
 async fn bad_method() -> Response { json_err(StatusCode::METHOD_NOT_ALLOWED, "bad method") }
@@ -120,7 +122,7 @@ fn user_permit(user: &str) -> Option<OwnedSemaphorePermit> {
                                                                           
 
 #[derive(Debug, PartialEq, Eq)]
-pub enum LegErr { BadUrl, Blocked, Timeout, Upstream, Expired, TooBig, Busy, Down }
+pub enum LegErr { BadUrl, Blocked, Timeout, Upstream, Expired, TooBig, Busy, Down, Drm }
 
 fn leg_err(e: LegErr) -> Response {
     let (c, m) = match e {
@@ -132,6 +134,7 @@ fn leg_err(e: LegErr) -> Response {
         LegErr::TooBig => (StatusCode::BAD_GATEWAY, "too big"),
         LegErr::Busy => (StatusCode::TOO_MANY_REQUESTS, "too many streams, try again in a moment"),
         LegErr::Down => (StatusCode::BAD_GATEWAY, "egress unavailable"),
+        LegErr::Drm => (StatusCode::UNAVAILABLE_FOR_LEGAL_REASONS, "drm streams are not supported"),
     };
     json_err(c, m)
 }
@@ -1611,6 +1614,390 @@ async fn stream_inner(State((st, _)): State<Shared>, method: Method, Query(q): Q
     resp
 }
 
+
+// ---------------------------------------------------------------- no-DRM HLS/DASH manifest legs
+// Playlists are buffered whole (capped) and every URI they carry - nested manifests,
+// segments, init maps, keys - is rewritten to a same-origin leg. Anything encrypted or
+// DRM-marked is refused outright; hosts stay pinned through the media policy.
+
+const MAX_MANIFEST: usize = 4_000_000;
+
+// ISO 23009-1 SegmentTemplate identifiers with an optional %0Nd-style format tag.
+// Anything else between paired '$' is NOT a template token and must not survive verbatim:
+// a span such as $x&y=1$ would otherwise leak a raw '&' into the outer query string and
+// split the u= parameter (query-splitting / misroute).
+fn dash_token_valid(inner: &str) -> bool {
+    if inner.is_empty() { return false; }
+    let (id, fmt_ok) = match inner.split_once('%') {
+        Some((id, fmt)) => {
+            let ok = match fmt.strip_suffix('d') {
+                Some(digits) => digits.bytes().all(|b| b.is_ascii_digit()),
+                None => false,
+            };
+            (id, ok)
+        }
+        None => (inner, true),
+    };
+    fmt_ok && matches!(id, "RepresentationID" | "Number" | "Bandwidth" | "Time" | "SubNumber" | "Index")
+}
+// template=true applies DASH client substitution semantics: valid $Identifier$ tokens
+// survive verbatim for the client's substitution and "$$" collapses to ONE literal '$'
+// (%24), matching how the client unescapes it. Malformed $...$ spans and lone '$' are
+// percent-encoded so no raw '&'/'=' can split u=. template=false (non-template URLs)
+// encodes every '$' losslessly so the value round-trips byte-exact.
+fn enc_q(v: &str, template: bool) -> String {
+    let b = v.as_bytes();
+    let mut o = String::with_capacity(v.len());
+    let mut i = 0;
+    while i < b.len() {
+        let c = b[i];
+        if c == b'$' && template {
+            if let Some(end) = v[i + 1..].find('$') {
+                let end = i + 1 + end;
+                let inner = &v[i + 1..end];
+                if inner.is_empty() {
+                    // "$$" is the escape for one literal '$' in client substitution
+                    o.push_str("%24");
+                    i = end + 1;
+                    continue;
+                }
+                if dash_token_valid(inner) {
+                    o.push_str(&v[i..=end]);
+                    i = end + 1;
+                    continue;
+                }
+            }
+            o.push_str("%24");
+            i += 1;
+            continue;
+        }
+        if c.is_ascii_alphanumeric() || matches!(c, b'-' | b'_' | b'.' | b'~') { o.push(c as char); } else { o.push_str(&format!("%{c:02X}")); }
+        i += 1;
+    }
+    o
+}
+fn xml_esc(s: &str) -> String {
+    let mut o = String::with_capacity(s.len());
+    for c in s.chars() { match c { '&' => o.push_str("&amp;"), '<' => o.push_str("&lt;"), '>' => o.push_str("&gt;"), '"' => o.push_str("&quot;"), _ => o.push(c) } }
+    o
+}
+fn xml_unesc(s: &str) -> String {
+    s.replace("&lt;", "<").replace("&gt;", ">").replace("&quot;", "\"").replace("&apos;", "'").replace("&amp;", "&")
+}
+fn seg_url(t: &Url, id: &str, template: bool) -> String {
+    let mut o = format!("/api/apps/jetstream/seg?u={}", enc_q(t.as_str(), template));
+    if !id.is_empty() { o.push_str("&id="); o.push_str(id); }
+    o
+}
+fn manifest_url_q(t: &Url, id: &str, template: bool) -> String {
+    let mut o = format!("/api/apps/jetstream/manifest?u={}", enc_q(t.as_str(), template));
+    if !id.is_empty() { o.push_str("&id="); o.push_str(id); }
+    o
+}
+fn is_manifest_path(t: &Url) -> bool { t.path().to_ascii_lowercase().ends_with(".m3u8") }
+fn is_mpd_path(t: &Url) -> bool { t.path().to_ascii_lowercase().ends_with(".mpd") }
+fn route_for(t: &Url, id: &str, template: bool) -> String { if is_manifest_path(t) || is_mpd_path(t) { manifest_url_q(t, id, template) } else { seg_url(t, id, template) } }
+fn resolve_uri(base: &Url, raw: &str) -> Result<Url, LegErr> {
+    let t = base.join(raw.trim()).map_err(|_| LegErr::BadUrl)?;
+    if t.as_str().len() > MAX_URL { return Err(LegErr::BadUrl); }
+    Ok(t)
+}
+
+fn hls_attr(attrs: &str, name: &str) -> Option<String> {
+    let mut s = attrs;
+    while let Some(i) = s.find(name) {
+        let after = &s[i + name.len()..];
+        let boundary = i == 0 || s.as_bytes()[i - 1] == b',';
+        if boundary && after.starts_with('=') {
+            let v = &after[1..];
+            if let Some(v) = v.strip_prefix('"') { let e = v.find('"')?; return Some(v[..e].to_string()); }
+            let e = v.find(',').unwrap_or(v.len());
+            return Some(v[..e].to_string());
+        }
+        s = &s[i + 1..];
+    }
+    None
+}
+fn hls_rewrite_uris(line: &str, base: &Url, id: &str, manifest: Option<bool>) -> Result<String, LegErr> {
+    let route = |t: &Url| match manifest { Some(true) => manifest_url_q(t, id, false), Some(false) => seg_url(t, id, false), None => route_for(t, id, false) };
+    let mut out = String::with_capacity(line.len());
+    let mut s = line;
+    while let Some(i) = s.find("URI=\"") {
+        out.push_str(&s[..i + 5]);
+        let rest = &s[i + 5..];
+        let Some(e) = rest.find('"') else { return Err(LegErr::BadUrl) };
+        let t = resolve_uri(base, &rest[..e])?;
+        out.push_str(&route(&t));
+        s = &rest[e..];
+    }
+    out.push_str(s);
+    Ok(out)
+}
+pub fn hls_rewrite(body: &str, base: &Url, id: &str) -> Result<String, LegErr> {
+    // HLS semantics: in a master playlist bare URIs are nested manifests; in a media playlist
+    // they are segments. Extension alone is not authoritative (extensionless playlists exist).
+    let is_master = body.contains("#EXT-X-STREAM-INF") || body.contains("#EXT-X-I-FRAME-STREAM-INF");
+    let mut expect_variant = false;
+    let mut out = String::with_capacity(body.len() + body.len() / 4);
+    for line in body.split('\n') {
+        let line = line.strip_suffix('\r').unwrap_or(line);
+        let t = line.trim_start();
+        if t.starts_with("#EXT-X-KEY:") || t.starts_with("#EXT-X-SESSION-KEY:") {
+            let attrs = &t[t.find(':').unwrap() + 1..];
+            let method = hls_attr(attrs, "METHOD").unwrap_or_default();
+            if method != "NONE" {
+                let kf = hls_attr(attrs, "KEYFORMAT").unwrap_or_else(|| "identity".to_string());
+                if method != "AES-128" || kf != "identity" { return Err(LegErr::Drm); }
+            }
+            out.push_str(&hls_rewrite_uris(line, base, id, Some(false))?);
+        } else if t.starts_with("#EXT-X-MEDIA:") || t.starts_with("#EXT-X-I-FRAME-STREAM-INF:") {
+            out.push_str(&hls_rewrite_uris(line, base, id, Some(true))?);
+        } else if t.starts_with("#EXT-X-MAP:") || t.starts_with("#EXT-X-PART:") || t.starts_with("#EXT-X-PRELOAD-HINT:") || t.starts_with("#EXT-X-SESSION-DATA:") {
+            out.push_str(&hls_rewrite_uris(line, base, id, Some(false))?);
+        } else if t.starts_with("#EXT-X-STREAM-INF:") {
+            expect_variant = true;
+            out.push_str(&hls_rewrite_uris(line, base, id, None)?);
+        } else if t.starts_with('#') {
+            out.push_str(&hls_rewrite_uris(line, base, id, None)?);
+        } else if t.is_empty() {
+            out.push_str(line);
+        } else if expect_variant || is_master {
+            expect_variant = false;
+            out.push_str(&manifest_url_q(&resolve_uri(base, t)?, id, false));
+        } else {
+            out.push_str(&route_for(&resolve_uri(base, t)?, id, false));
+        }
+        out.push('\n');
+    }
+    if !body.ends_with('\n') { out.pop(); }
+    Ok(out)
+}
+
+fn is_scope_tag(name: &str) -> bool { matches!(name, "MPD" | "Period" | "AdaptationSet" | "Representation") }
+fn xml_attrs_rewrite(inner: &str, base: &Url, id: &str) -> Result<String, LegErr> {
+    // DASH template semantics ($$ escape, $Identifier$ substitution) apply ONLY to
+    // SegmentTemplate media/initialization/index; every other URL is encoded losslessly.
+    let name_end = inner.find(|c: char| c.is_whitespace()).unwrap_or(inner.len());
+    let is_seg_template = &inner[..name_end] == "SegmentTemplate";
+    let mut out = String::with_capacity(inner.len());
+    let mut s = inner;
+    loop {
+        let mut best: Option<(usize, &'static str)> = None; // (attr value start, attr name)
+        for a in ["media", "initialization", "sourceURL", "index"] {
+            let mut off = 0;
+            while let Some(i) = s[off..].find(a) {
+                let i = i + off;
+                let before_ok = i > 0 && s.as_bytes()[i - 1].is_ascii_whitespace();
+                let rest = &s[i + a.len()..];
+                let trimmed = rest.trim_start();
+                if before_ok && trimmed.starts_with('=') {
+                    let v = &trimmed[1..];
+                    let v = v.trim_start();
+                    let vstart = s.len() - v.len();
+                    if best.map_or(true, |(bi, _)| vstart < bi) { best = Some((vstart, a)); }
+                    break;
+                }
+                off = i + 1;
+            }
+        }
+        let Some((vstart, aname)) = best else { out.push_str(s); break };
+        out.push_str(&s[..vstart]);
+        let rest = &s[vstart..];
+        let Some(q0) = rest.chars().next() else { return Err(LegErr::BadUrl) };
+        if q0 != '"' && q0 != '\'' { return Err(LegErr::BadUrl); }
+        out.push(q0);
+        let rest = &rest[1..];
+        let Some(e) = rest.find(q0) else { return Err(LegErr::BadUrl) };
+        let t = resolve_uri(base, &xml_unesc(&rest[..e]))?;
+        let template = is_seg_template && matches!(aname, "media" | "initialization" | "index");
+        out.push_str(&xml_esc(&route_for(&t, id, template)));
+        out.push(q0);
+        s = &rest[e + 1..];
+    }
+    Ok(out)
+}
+// DASH MPD rewrite with proper BaseURL scoping: nested MPD/Period/AdaptationSet/Representation
+// BaseURLs chain (each resolves against the enclosing effective base) and all URL-bearing
+// attributes resolve against the in-scope base. Anything we do not model (xlink) fails closed.
+pub fn dash_rewrite(body: &str, base: &Url, id: &str) -> Result<String, LegErr> {
+    if body.contains("<ContentProtection") { return Err(LegErr::Drm); }
+    if body.contains("xlink:href") { return Err(LegErr::Upstream); }
+    let mut out = String::with_capacity(body.len() + body.len() / 4);
+    // (inherited base for resolving this scope's BaseURLs, effective base for content, seen BaseURL in scope)
+    let mut stack: Vec<(Url, Url, bool)> = vec![(base.clone(), base.clone(), false)];
+    let mut s = body;
+    while !s.is_empty() {
+        let Some(lt) = s.find('<') else { out.push_str(s); break };
+        out.push_str(&s[..lt]);
+        s = &s[lt..];
+        if s.starts_with("<!--") {
+            let Some(e) = s.find("-->") else { return Err(LegErr::BadUrl) };
+            out.push_str(&s[..e + 3]); s = &s[e + 3..]; continue;
+        }
+        if s.starts_with("<?") {
+            let Some(e) = s.find("?>") else { return Err(LegErr::BadUrl) };
+            out.push_str(&s[..e + 2]); s = &s[e + 2..]; continue;
+        }
+        if s.starts_with("<!") {
+            let Some(e) = s.find('>') else { return Err(LegErr::BadUrl) };
+            out.push_str(&s[..e + 1]); s = &s[e + 1..]; continue;
+        }
+        if s.starts_with("</") {
+            let Some(e) = s.find('>') else { return Err(LegErr::BadUrl) };
+            let name = s[2..e].trim();
+            out.push_str(&s[..e + 1]); s = &s[e + 1..];
+            if is_scope_tag(name) && stack.len() > 1 { stack.pop(); }
+            continue;
+        }
+        let Some(gt) = s.find('>') else { return Err(LegErr::BadUrl) };
+        let selfclose = s[..gt].ends_with('/');
+        let inner_end = if selfclose { gt - 1 } else { gt };
+        let inner = &s[1..inner_end];
+        let name_end = inner.find(|c: char| c.is_whitespace()).unwrap_or(inner.len());
+        let name = &inner[..name_end];
+        let (inh_base, cur_base, seen_base) = stack.last().unwrap().clone();
+        if name == "BaseURL" && !selfclose {
+            out.push_str(&s[..gt + 1]);
+            s = &s[gt + 1..];
+            let Some(c) = s.find("</BaseURL>") else { return Err(LegErr::BadUrl) };
+            let inner_txt = s[..c].trim();
+            if !inner_txt.is_empty() {
+                // sibling BaseURLs are alternatives: each resolves against the inherited base,
+                // and only the first updates the scope's effective base
+                let abs = resolve_uri(&inh_base, &xml_unesc(inner_txt))?;
+                out.push_str(&xml_esc(&route_for(&abs, id, false)));
+                if !seen_base { let e = stack.last_mut().unwrap(); e.1 = abs; e.2 = true; }
+            }
+            out.push_str("</BaseURL>");
+            s = &s[c + 10..];
+            continue;
+        }
+        if name == "Location" && !selfclose {
+            out.push_str(&s[..gt + 1]);
+            s = &s[gt + 1..];
+            let Some(c) = s.find("</Location>") else { return Err(LegErr::BadUrl) };
+            let inner_txt = s[..c].trim();
+            if !inner_txt.is_empty() {
+                let abs = resolve_uri(&cur_base, &xml_unesc(inner_txt))?;
+                out.push_str(&xml_esc(&manifest_url_q(&abs, id, false)));
+            }
+            out.push_str("</Location>");
+            s = &s[c + 11..];
+            continue;
+        }
+        out.push('<');
+        out.push_str(&xml_attrs_rewrite(inner, &cur_base, id)?);
+        if selfclose { out.push('/'); }
+        out.push('>');
+        if is_scope_tag(name) && !selfclose { stack.push((cur_base.clone(), cur_base, false)); }
+        s = &s[gt + 1..];
+    }
+    Ok(out)
+}
+
+pub fn adaptive_pick(data: &Value) -> (Option<String>, Option<String>) {
+    let empty = vec![];
+    let fmts: Vec<&Value> = data.get("formats").and_then(Value::as_array).unwrap_or(&empty).iter().collect();
+    let mut hls = None;
+    let mut dash = None;
+    for f in fmts {
+        let p = vs(f, "protocol");
+        if hls.is_none() && p.starts_with("m3u8") { let u = vs(f, "url"); if !u.is_empty() && u.len() <= MAX_URL { hls = Some(u.to_string()); } }
+        if dash.is_none() && p.contains("dash") {
+            let pick = { let m = vs(f, "manifest_url"); if !m.is_empty() { m } else { vs(f, "url") } };
+            if !pick.is_empty() && pick.len() <= MAX_URL { dash = Some(pick.to_string()); }
+        }
+    }
+    (hls, dash)
+}
+
+struct AdaptiveEntry { hls: Option<String>, dash: Option<String>, expires: std::time::Instant }
+static ADAPTIVE: OnceLock<std::sync::Mutex<(HashMap<String, AdaptiveEntry>, std::collections::VecDeque<String>)>> = OnceLock::new();
+
+async fn adaptive_urls(st: &Arc<crate::AppState>, cfg: &ResolveCfg, user: &str, id: &str) -> Result<(Option<String>, Option<String>), String> {
+    if let Some(hit) = ADAPTIVE.get().and_then(|m| m.lock().unwrap().0.get(id).filter(|e| e.expires > std::time::Instant::now()).map(|e| (e.hls.clone(), e.dash.clone()))) { return Ok(hit); }
+    if st.rates.window(format!("resolve:{user}"), 60, 3600000).is_some() { return Err(HUMAN.to_string()); }
+    let data = run_ytdlp(cfg, &[], id).await?;
+    let (hls, dash) = adaptive_pick(&data);
+    if hls.is_none() && dash.is_none() { return Err(NO_STREAM.into()); }
+    let mut g = ADAPTIVE.get_or_init(Default::default).lock().unwrap();
+    if g.0.len() >= RESOLVE_CAP { if let Some(k) = g.1.pop_front() { g.0.remove(&k); } }
+    if g.0.insert(id.to_string(), AdaptiveEntry { hls: hls.clone(), dash: dash.clone(), expires: std::time::Instant::now() + RESOLVE_TTL }).is_none() { g.1.push_back(id.to_string()); }
+    Ok((hls, dash))
+}
+
+async fn manifest_fetch(st: &Arc<crate::AppState>, pol: &Policy, raw: &str, id: &str, track: Track) -> Result<Response, LegErr> {
+    let client = stream_client(st).map_err(|_| LegErr::Down)?;
+    let _ts = thumb_slot().map_err(|_| LegErr::Busy)?;
+    let (resp, final_u) = fetch(&client, pol, parse_u(raw)?, pol.media_ok, None, &[("user-agent", GV_UA)]).await?;
+    if resp.status().as_u16() != 200 { return Err(upstream_status(resp.status()).err().unwrap_or(LegErr::Upstream)); }
+    if resp.content_length().map_or(false, |n| n as usize > MAX_MANIFEST) { return Err(LegErr::TooBig); }
+    let ct = resp.headers().get("content-type").and_then(|v| v.to_str().ok()).unwrap_or("").split(';').next().unwrap_or("").trim().to_ascii_lowercase();
+    let body = read_capped(resp, None, MAX_MANIFEST).await?;
+    let text = String::from_utf8(body).map_err(|_| LegErr::Upstream)?;
+    let is_hls = ct.contains("mpegurl") || is_manifest_path(&final_u);
+    let is_dash = ct.contains("dash") || ct.contains("xml") || is_mpd_path(&final_u);
+    let (out_ct, out) = if is_hls && !is_dash { ("application/vnd.apple.mpegurl", hls_rewrite(&text, &final_u, id)?) }
+        else if is_dash && !is_hls { ("application/dash+xml", dash_rewrite(&text, &final_u, id)?) }
+        else if is_hls { ("application/vnd.apple.mpegurl", hls_rewrite(&text, &final_u, id)?) }
+        else { return Err(LegErr::Upstream) };
+    track(out.len());
+    Ok(Response::builder().status(200)
+        .header(header::CONTENT_TYPE, out_ct)
+        .header(header::CACHE_CONTROL, "private, no-store")
+        .header("x-content-type-options", "nosniff")
+        .header(header::CONTENT_LENGTH, out.len())
+        .body(Body::from(out)).unwrap())
+}
+
+async fn manifest_handler(State((st, a)): State<Shared>, method: Method, Query(q): Query<HashMap<String, String>>, headers: HeaderMap) -> Response {
+    let (t0, m, id) = (std::time::Instant::now(), method.clone(), q.get("id").map(String::clone).unwrap_or_default());
+    let r = manifest_inner(State((st.clone(), a)), method, Query(q), headers).await;
+    log_leg(&st, "/manifest", &m, &id, r.status(), t0);
+    r
+}
+async fn manifest_inner(State((st, _)): State<Shared>, method: Method, Query(q): Query<HashMap<String, String>>, headers: HeaderMap) -> Response {
+    if method != Method::GET { return json_err(StatusCode::METHOD_NOT_ALLOWED, "bad method"); }
+    let Some(user) = crate::auth_api::user(&st, &headers).or_else(|| crate::auth_api::devices::bearer_user(&st, &headers)) else { return json_err(StatusCode::UNAUTHORIZED, "not signed in") };
+    if st.guard.bytes_left(&user) <= 0 { return out_of_bandwidth(); }
+    let id = q.get("id").map(String::clone).unwrap_or_default();
+    let raw = if let Some(u) = q.get("u") {
+        if !id.is_empty() && !valid_id(&id) { return json_err(StatusCode::BAD_REQUEST, "bad video id"); }
+        u.clone()
+    } else if !id.is_empty() {
+        if !valid_id(&id) { return json_err(StatusCode::BAD_REQUEST, "bad video id"); }
+        let kind = q.get("kind").map(String::as_str).unwrap_or("hls");
+        if !["hls", "dash"].contains(&kind) { return json_err(StatusCode::BAD_REQUEST, "bad kind"); }
+        let cfg = cfg_of(&st);
+        let Ok((h, d)) = adaptive_urls(&st, &cfg, &user, &id).await else { return json_err(StatusCode::BAD_GATEWAY, HUMAN) };
+        match if kind == "hls" { h } else { d } { Some(u) => u, None => return json_err(StatusCode::NOT_FOUND, "no such stream") }
+    } else { return json_err(StatusCode::BAD_REQUEST, "bad url") };
+    match manifest_fetch(&st, handler_policy(), &raw, &id, track_for(&st, user)).await { Ok(r) => r, Err(e) => leg_err(e) }
+}
+
+async fn seg_handler(State((st, a)): State<Shared>, method: Method, Query(q): Query<HashMap<String, String>>, headers: HeaderMap) -> Response {
+    let (t0, m, id) = (std::time::Instant::now(), method.clone(), q.get("id").map(String::clone).unwrap_or_default());
+    let r = seg_inner(State((st.clone(), a)), method, Query(q), headers).await;
+    log_leg(&st, "/seg", &m, &id, r.status(), t0);
+    r
+}
+async fn seg_inner(State((st, _)): State<Shared>, method: Method, Query(q): Query<HashMap<String, String>>, headers: HeaderMap) -> Response {
+    if method != Method::GET && method != Method::HEAD { return json_err(StatusCode::METHOD_NOT_ALLOWED, "bad method"); }
+    let Some(user) = crate::auth_api::user(&st, &headers).or_else(|| crate::auth_api::devices::bearer_user(&st, &headers)) else { return json_err(StatusCode::UNAUTHORIZED, "not signed in") };
+    if st.guard.bytes_left(&user) <= 0 { return out_of_bandwidth(); }
+    let id = q.get("id").map(String::clone).unwrap_or_default();
+    if !id.is_empty() && !valid_id(&id) { return json_err(StatusCode::BAD_REQUEST, "bad video id"); }
+    let Some(raw) = q.get("u") else { return json_err(StatusCode::BAD_REQUEST, "bad url") };
+    let Ok(u) = parse_u(raw) else { return json_err(StatusCode::BAD_REQUEST, "bad url") };
+    let Ok(client) = stream_client(&st) else { return bodiless(502) };
+    let track = if id.is_empty() { track_for(&st, user.clone()) } else { track_pull(&st, user.clone(), id.clone()) };
+    if method == Method::HEAD { return gv_head(&client, handler_policy(), u.to_string(), range_of(&headers).as_deref(), None, 4 << 20).await; }
+    let Some(hold) = user_permit(&user) else { return bodiless(429) };
+    let resp = gv_proxy(&client, handler_policy(), u.to_string(), range_of(&headers).as_deref(), if_range_of(&headers).as_deref(), None, 4 << 20, track, Some(budget_for(&st, &user)), Some(hold)).await;
+    if resp.status().is_success() && !id.is_empty() { pull_notify(&user, &id); }
+    resp
+}
+
 #[cfg(test)]mod head_admission_tests{use super::*;
  #[tokio::test]async fn cold_head_does_not_resolve_or_stamp(){let st=Arc::new(crate::auth_api::devices::tests::fixture("cold-head-fixture"));let token="d".repeat(48);st.auth_db.device_insert("head-fixture-device","cold-head-fixture","tv","roku",&token).unwrap();let mut headers=HeaderMap::new();headers.insert("authorization",format!("Bearer {token}").parse().unwrap());for stream in [false,true]{let mut q=HashMap::new();q.insert("id".into(),"HEADFIXTURE".into());q.insert("kind".into(),"video".into());let r=if stream{stream_handler(State((st.clone(),Default::default())),Method::HEAD,Query(q),headers.clone()).await}else{vsrc_handler(State((st.clone(),Default::default())),Method::HEAD,Query(q),headers.clone()).await};assert_eq!(r.status(),StatusCode::SERVICE_UNAVAILABLE);assert_eq!(r.headers()[header::RETRY_AFTER],"1");assert_eq!(r.headers()[header::CACHE_CONTROL],"no-store");assert!(axum::body::to_bytes(r.into_body(),100).await.unwrap().is_empty());assert_eq!(TEST_PULL_CALLS.get_or_init(Default::default).lock().unwrap().get(&("cold-head-fixture".into(),"HEADFIXTURE".into())).copied().unwrap_or(0),0);assert!(!st.data_dir.join("jetstream-playback.json").exists());}if let Some(s)=RESOLVED.get(){let s=s.lock().unwrap();assert!(!s.map.contains_key("HEADFIXTURE")&&!s.inflight.contains_key("HEADFIXTURE"));}}
  #[tokio::test]async fn real_get_warms_production_head_handler(){
@@ -2845,5 +3232,174 @@ mod media_access_log_tests {
         assert!(after < MEDIA_LOG_CAP, "bounded: {after} < {MEDIA_LOG_CAP}");
         let body = std::fs::read_to_string(&p).unwrap();
         assert!(body.ends_with("ms\n"), "new line intact after trim");
+    }
+}
+
+#[cfg(test)]
+mod manifest_tests {
+    use super::*;
+    use std::os::unix::fs::PermissionsExt;
+
+    fn fix(user: &str) -> Arc<crate::AppState> {
+        let mut st = crate::auth_api::devices::tests::fixture(user);
+        st.egress_client = Some(reqwest::Client::builder().no_proxy().build().unwrap());
+        st.proxy_url = "test-direct".into();
+        Arc::new(st)
+    }
+    fn auth(st: &crate::AppState, user: &str) -> HeaderMap {
+        let token = "d".repeat(48);
+        st.auth_db.device_insert("mfix-device", user, "tv", "roku", &token).unwrap();
+        let mut h = HeaderMap::new();
+        h.insert("authorization", format!("Bearer {token}").parse().unwrap());
+        h
+    }
+    async fn serve(router: Router) -> String {
+        let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let a = l.local_addr().unwrap();
+        tokio::spawn(async move { axum::serve(l, router).await.ok(); });
+        format!("http://{a}")
+    }
+    fn seg_body() -> (axum::http::HeaderMap, &'static [u8]) {
+        let mut h = axum::http::HeaderMap::new();
+        h.insert("content-type", "video/mp2t".parse().unwrap());
+        (h, b"SEGMENTDATA")
+    }
+    async fn seg_handler_mock(headers: HeaderMap) -> Response {
+        let (h, body) = seg_body();
+        if let Some(r) = headers.get(header::RANGE).and_then(|v| v.to_str().ok()) {
+            let r = r.strip_prefix("bytes=").unwrap();
+            let (a, b) = r.split_once('-').unwrap();
+            let (a, b) = (a.parse::<usize>().unwrap(), b.parse::<usize>().unwrap().min(body.len() - 1));
+            return Response::builder().status(206)
+                .header("content-range", format!("bytes {a}-{b}/{}", body.len()))
+                .header("content-length", b - a + 1)
+                .header("etag", "\"v1\"")
+                .header("content-type", "video/mp2t")
+                .body(Body::from(body[a..=b].to_vec())).unwrap();
+        }
+        Response::builder().status(200)
+            .header("content-length", body.len())
+            .header("etag", "\"v1\"")
+            .header("content-type", "video/mp2t")
+            .body(Body::from(body.to_vec())).unwrap()
+    }
+    fn master() -> &'static str {
+        "#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID=\"aud\",URI=\"aud/index.m3u8\"\n#EXT-X-STREAM-INF:BANDWIDTH=1000,RESOLUTION=640x360\nv360/index.m3u8\n"
+    }
+    fn variant() -> &'static str {
+        "#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-MAP:URI=\"init.mp4\"\n#EXT-X-KEY:METHOD=NONE\n#EXTINF:4.0,\nseg1.ts\n#EXT-X-ENDLIST\n"
+    }
+    async fn mock() -> String {
+        let r = Router::new()
+            .route("/master.m3u8", get(|| async { ([("content-type", "application/vnd.apple.mpegurl")], master()) }))
+            .route("/v360/index.m3u8", get(|| async { ([("content-type", "application/vnd.apple.mpegurl")], variant()) }))
+            .route("/v360/seg1.ts", get(seg_handler_mock))
+            .route("/v360/init.mp4", get(|| async { ([("content-type", "video/mp4")], "INIT") }))
+            .route("/enc.m3u8", get(|| async { ([("content-type", "application/vnd.apple.mpegurl")], "#EXTM3U\n#EXT-X-KEY:METHOD=SAMPLE-AES,URI=\"k.bin\"\n#EXTINF:4.0,\ns.ts\n") }))
+            .route("/vod.mpd", get(|| async { ([("content-type", "application/dash+xml")], "<MPD><Period><AdaptationSet><Representation><BaseURL>v/</BaseURL><SegmentTemplate media=\"seg-$Number$.m4s\" initialization=\"init.mp4\"/></Representation></AdaptationSet></Period></MPD>") }))
+            .route("/drm.mpd", get(|| async { ([("content-type", "application/dash+xml")], "<MPD><Period><ContentProtection schemeIdUri=\"urn:widevine\"/></Period></MPD>") }));
+        serve(r).await
+    }
+
+    #[tokio::test]
+    async fn manifest_requires_auth() {
+        let st = fix("mfix-a");
+        let base = mock().await;
+        let mut q = HashMap::new();
+        q.insert("u".into(), format!("{base}/master.m3u8"));
+        let r = manifest_handler(State((st, Default::default())), Method::GET, Query(q), HeaderMap::new()).await;
+        assert_eq!(r.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn manifest_rewrites_nested_and_segments() {
+        let st = fix("mfix-b");
+        let h = auth(&st, "mfix-b");
+        let base = mock().await;
+        let mut q = HashMap::new();
+        q.insert("u".into(), format!("{base}/master.m3u8"));
+        let r = manifest_handler(State((st, Default::default())), Method::GET, Query(q), h).await;
+        assert_eq!(r.status(), StatusCode::OK);
+        assert_eq!(r.headers()["content-type"], "application/vnd.apple.mpegurl");
+        let body = axum::body::to_bytes(r.into_body(), usize::MAX).await.unwrap();
+        let text = String::from_utf8(body.to_vec()).unwrap();
+        assert!(text.contains("/api/apps/jetstream/manifest?u="), "{text}");
+        assert!(!text.contains("http://") && !text.contains("https://"), "{text}");
+    }
+
+    #[tokio::test]
+    async fn manifest_drm_refused() {
+        let st = fix("mfix-c");
+        let h = auth(&st, "mfix-c");
+        let base = mock().await;
+        let mut q = HashMap::new();
+        q.insert("u".into(), format!("{base}/enc.m3u8"));
+        let r = manifest_handler(State((st, Default::default())), Method::GET, Query(q), h).await;
+        assert_eq!(r.status(), StatusCode::UNAVAILABLE_FOR_LEGAL_REASONS);
+    }
+
+    #[tokio::test]
+    async fn manifest_dash_rewritten_and_drm_refused() {
+        let st = fix("mfix-d");
+        let h = auth(&st, "mfix-d");
+        let base = mock().await;
+        let mut q = HashMap::new();
+        q.insert("u".into(), format!("{base}/vod.mpd"));
+        let r = manifest_handler(State((st.clone(), Default::default())), Method::GET, Query(q), h.clone()).await;
+        assert_eq!(r.status(), StatusCode::OK);
+        assert_eq!(r.headers()["content-type"], "application/dash+xml");
+        let body = axum::body::to_bytes(r.into_body(), usize::MAX).await.unwrap();
+        let text = String::from_utf8(body.to_vec()).unwrap();
+        assert!(text.contains("/api/apps/jetstream/seg?u="), "{text}");
+        assert!(!text.contains("http://") && !text.contains("https://"), "{text}");
+        let mut q = HashMap::new();
+        q.insert("u".into(), format!("{base}/drm.mpd"));
+        let r = manifest_handler(State((st, Default::default())), Method::GET, Query(q), h).await;
+        assert_eq!(r.status(), StatusCode::UNAVAILABLE_FOR_LEGAL_REASONS);
+    }
+
+    #[tokio::test]
+    async fn seg_streams_full_and_range() {
+        let st = fix("mfix-e");
+        let h = auth(&st, "mfix-e");
+        let base = mock().await;
+        let mut q = HashMap::new();
+        q.insert("u".into(), format!("{base}/v360/seg1.ts"));
+        let r = seg_handler(State((st.clone(), Default::default())), Method::GET, Query(q.clone()), h.clone()).await;
+        assert_eq!(r.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(r.into_body(), usize::MAX).await.unwrap();
+        assert_eq!(body.as_ref(), b"SEGMENTDATA");
+        let mut h2 = h.clone();
+        h2.insert(header::RANGE, "bytes=2-5".parse().unwrap());
+        let r = seg_handler(State((st, Default::default())), Method::GET, Query(q), h2).await;
+        assert_eq!(r.status(), StatusCode::PARTIAL_CONTENT);
+        let body = axum::body::to_bytes(r.into_body(), usize::MAX).await.unwrap();
+        assert_eq!(body.as_ref(), b"GMEN");
+    }
+
+    #[tokio::test]
+    async fn manifest_id_mode_resolves_via_ytdlp() {
+        let base = mock().await;
+        let dir = std::env::temp_dir().join(format!("mfest-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let script = dir.join("yt-dlp");
+        std::fs::write(&script, format!("#!/bin/sh\ncat <<'JSON'\n{{\"formats\":[{{\"url\":\"{base}/master.m3u8\",\"protocol\":\"m3u8_native\",\"ext\":\"mp4\"}}]}}\nJSON\n")).unwrap();
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let mut st0 = crate::auth_api::devices::tests::fixture("mfix-f");
+        st0.egress_client = Some(reqwest::Client::builder().no_proxy().build().unwrap());
+        st0.proxy_url = "test-direct".into();
+        st0.ytdlp = script;
+        let st = Arc::new(st0);
+        let h = auth(&st, "mfix-f");
+        let mut q = HashMap::new();
+        q.insert("id".into(), "AAAAAAAAAAA".into());
+        q.insert("kind".into(), "hls".into());
+        let r = manifest_handler(State((st.clone(), Default::default())), Method::GET, Query(q), h.clone()).await;
+        assert_eq!(r.status(), StatusCode::OK);
+        let mut q = HashMap::new();
+        q.insert("id".into(), "AAAAAAAAAAA".into());
+        q.insert("kind".into(), "dash".into());
+        let r = manifest_handler(State((st, Default::default())), Method::GET, Query(q), h).await;
+        assert_eq!(r.status(), StatusCode::NOT_FOUND);
     }
 }
