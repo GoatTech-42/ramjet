@@ -1,0 +1,26 @@
+epoxy-tls rebuild-attempt custody + toolchain receipt (2026-10-30, this lane)
+
+checkout:
+  repo https://github.com/MercuryWorkshop/epoxy-tls (fresh git clone, real .git)
+  HEAD = 93d5a726894b2f16bad54c4a3801446cbbd22d26 (git rev-parse HEAD, verified)
+  worktree: no tracked modifications (git status --porcelain empty; no version patch was applied - build ran on the unmodified baseline)
+  Cargo.lock sha256 45e0f6ba7d4539517826776f8cc87909626601cf52d0556f0419506d06a189f4 (identical pre/post, identical to the archived source tarball's lock)
+  lock composition: 398 [[package]] = 392 registry + 2 git (h2-wasm 2852a7c9, hyper-util-wasm 07117dd9) + 4 path (epoxy-client 2.1.18, epoxy-server 2.0.0, simple-wisp-client 1.0.0, wisp-mux 6.0.0)
+
+toolchains used (actual, captured):
+  attempt A: nightly-x86_64-unknown-linux-gnu auto-resolved by rustup to 1.101.0-nightly (92b5b8c87 2026-10-29); cargo build failed in core ("panic_immediate_abort is now a real panic strategy"). NOTE: this run's build log was overwritten by attempt B; the failure is author-reported, not log-preserved.
+  attempt B: RUSTUP_TOOLCHAIN=nightly-2025-12-22 (rustc 1.94.0-nightly a6525d526 2025-12-21, the publish-day nightly), RUSTUP_AUTO_INSTALL=0; same core compile_error. logged in rebuild-attempt-build.log (this packet).
+  wasm-bindgen CLI 0.2.100 (prebuilt, rustwasm/wasm-bindgen release asset); wasm-opt binaryen version_125 (newest release predating the 2025-12-22 publish). build never reached the wasm-bindgen/wasm-opt stages (cargo failed first).
+  cargo fetch --locked (attempt B toolchain): completed, exit 0.
+
+what the two attempts do and do not show:
+  shown: the committed build.sh fails under these two specific toolchain/flag combinations.
+  NOT shown: that no buildable configuration exists. the publisher may have used an older nightly (pre panic_immediate_abort stabilization), adjusted flags, or a different environment. correspondence of the shipped binary to 93d5a726 source remains an evidence-supported lead, unproven.
+
+cache note: the shared cargo cache holds 622 crate dirs; 392 = exactly the lock's registry pins (all verified present, name-version matched). the 230 additional dirs are outside this lock and are attributed to the earlier attempt-A resolution pass; they are excluded from the license inventory.
+
+cache provenance (adapted build, honest): compilation ran across two invocations of the same command - a foreground
+run killed by a 115s harness timeout during wasm-opt (all crate compilation completed in this run), then a background
+run that reused the cargo incremental cache (its "Finished in 0.32s" line is a no-op recheck, NOT a fresh compile) and
+ran the wasm-opt converge chain to completion. this is NOT a single from-clean compile; all inputs are pinned and
+recorded above (source commit, adaptation patch, --locked lockfile, toolchain, wasm-bindgen CLI, binaryen, clang).

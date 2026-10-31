@@ -50,3 +50,8 @@ third-party components shipped in the frontend and their actual licenses:
 corresponding source: AGPL section 13 source offers are made from the
 running app's settings page (advanced > source code), which links to the
 published commit containing this exact source.
+  * epoxy transport wasm/glue (CANDIDATE BUILD ONLY, disposable test assembly): locally source-built from
+    MercuryWorkshop/epoxy-tls @ 93d5a726894b2f16bad54c4a3801446cbbd22d26 + documented flag-migration patch
+    (rust PR 146317/147470). AGPL-3.0-only. Cargo.lock sha256 45e0f6ba...; recipe + receipts in
+    vendor/vendor-source-preparation/epoxy-tls-source/. wasm 337afcb0...; glue bundle f26cdf17...;
+    generated info version "2.1.18-1" (no npm-release relabeling).

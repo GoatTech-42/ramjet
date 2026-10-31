@@ -1,0 +1,14 @@
+{
+  "name": "@mercuryworkshop/epoxy-tls",
+  "version": "2.1.18-1+owned.93d5a726",
+  "description": "EXPERIMENTAL locally source-built full variant for candidate QA only; source MercuryWorkshop/epoxy-tls @ 93d5a726 + flag-migration patch (PR 146317); NOT the npm 2.1.19-1 release",
+  "main": "./full/epoxy-bundled.js",
+  "module": "./full/epoxy-bundled.js",
+  "types": "./full/epoxy-bundled.d.ts",
+  "exports": {
+    ".": {"import": "./full/epoxy-bundled.js", "types": "./full/epoxy-bundled.d.ts"},
+    "./epoxy": {"import": "./full/epoxy.js", "types": "./full/epoxy.d.ts"},
+    "./epoxy-bundled": {"import": "./full/epoxy-bundled.js", "types": "./full/epoxy-bundled.d.ts"}
+  },
+  "license": "AGPL-3.0-only"
+}

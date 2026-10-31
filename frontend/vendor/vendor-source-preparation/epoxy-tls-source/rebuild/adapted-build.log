@@ -1,0 +1,11 @@
+mkdir: cannot create directory 'out/': File exists
+    Finished `release` profile [optimized + debuginfo] target(s) in 0.32s
+[epx] cargo finished
+[epx] wasm-bindgen finished
+
+real	3m49.061s
+user	3m45.977s
+sys	0m2.289s
+[epx] wasm-opt finished
+[epx] done!
+BUILD_EXIT=0

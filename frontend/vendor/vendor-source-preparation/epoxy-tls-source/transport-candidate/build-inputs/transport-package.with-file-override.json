@@ -1,0 +1,34 @@
+{
+  "name": "@mercuryworkshop/epoxy-transport",
+  "version": "3.0.1",
+  "description": "a bare transport that implements end-to-end encryption with epoxy-tls and wisp [EXPERIMENTAL candidate build against owned epoxy pair]",
+  "main": "./dist/index.mjs",
+  "keywords": [],
+  "author": "",
+  "type": "module",
+  "license": "AGPL-3.0-only",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/MercuryWorkshop/epoxy-transport.git"
+  },
+  "dependencies": {
+    "@mercuryworkshop/epoxy-tls": "file:../epoxy-tls-owned"
+  },
+  "devDependencies": {
+    "@mercuryworkshop/proxy-transports": "^1.0.2",
+    "esbuild": "^0.25.8",
+    "esbuild-plugin-d.ts": "^1.3.1",
+    "esbuild-plugin-umd-wrapper": "^3.0.0",
+    "typescript": "^5.9.3"
+  },
+  "exports": {
+    ".": {
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "node esbuild.bundle.mjs"
+  }
+}

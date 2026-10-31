@@ -1,0 +1,16 @@
+mkdir: cannot create directory 'out/': File exists
+ Downloading crates ...
+  Downloaded rustc-demangle v0.1.26
+  Downloaded dlmalloc v0.2.11
+  Downloaded rustc-literal-escaper v0.0.5
+  Downloaded hashbrown v0.16.1
+  Downloaded libc v0.2.178
+   Compiling compiler_builtins v0.1.160 (/home/sandbox/.rustup/toolchains/nightly-2025-12-22-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/compiler-builtins/compiler-builtins)
+   Compiling core v0.0.0 (/home/sandbox/.rustup/toolchains/nightly-2025-12-22-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core)
+error: panic_immediate_abort is now a real panic strategy! Enable it with `panic = "immediate-abort"` in Cargo.toml, or with the compiler flags `-Zunstable-options -Cpanic=immediate-abort`. In both cases, you still need to build core, e.g. with `-Zbuild-std`
+  --> /home/sandbox/.rustup/toolchains/nightly-2025-12-22-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/panicking.rs:36:1
+   |
+36 | / compile_error!(
+37 | |     "panic_immediate_abort is now a real panic strategy! \
+38 | |     Enable it with `panic = \"immediate-abort\"` in Cargo.toml, \
+39 | |     or with the compiler flags `-Zunstable-options -Cpanic=immediate-abort`. \
