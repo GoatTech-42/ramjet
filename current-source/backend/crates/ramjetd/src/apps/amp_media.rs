@@ -359,11 +359,16 @@ async fn src_audius(st: &AppState, q: &str) -> Result<Vec<Value>, ()> {
 }
 
 static SC_CID: Mutex<(String, Option<std::time::Instant>)> = Mutex::new((String::new(), None));
-async fn sc_text(st: &AppState, url: &str) -> Result<String, &'static str> {
+// Homepage HTML is small; the client_id-bearing app JS is currently ~2.8MiB. Scripts get
+// their own finite cap (global BODY_CAP must NOT grow for unrelated legs); if a script
+// grows past it the fetch fails and the walk continues to the next script.
+const SC_SCRIPT_CAP: usize = 4 * BODY_CAP;
+async fn sc_text_cap(st: &AppState, url: &str, cap: usize) -> Result<String, &'static str> {
     let r = guarded_open(st, reqwest::Method::GET, url, &[("user-agent", WEB_UA.into())], None, TOTAL).await?;
-    let b = tokio::time::timeout(TOTAL, read_capped(r, BODY_CAP)).await.map_err(|_| "upstream error")??;
+    let b = tokio::time::timeout(TOTAL, read_capped(r, cap)).await.map_err(|_| "upstream error")??;
     Ok(String::from_utf8_lossy(&b).into_owned())
 }
+async fn sc_text(st: &AppState, url: &str) -> Result<String, &'static str> { sc_text_cap(st, url, BODY_CAP).await }
 static SC_LOCK: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(1);                                   
 static SC_FAIL: Mutex<Option<std::time::Instant>> = Mutex::new(None);                                                   
 async fn sc_client_id(st: &AppState, force: bool) -> Result<String, &'static str> {
@@ -388,15 +393,20 @@ async fn sc_client_id(st: &AppState, force: bool) -> Result<String, &'static str
         }
     }
 }
+fn sc_script_srcs(html: &str) -> Vec<String> {
+    let re_s = regex::Regex::new(r#"<script[^>]+src="(https://a-v2\.sndcdn\.com/[^"]+\.js)""#).unwrap();
+    re_s.captures_iter(html).map(|c| c[1].to_string()).collect()
+}
+fn sc_extract_cid(js: &str) -> Option<String> {
+    let (r1, r2) = (regex::Regex::new(r#"client_id\s*[:=]\s*"([a-zA-Z0-9]{32})""#).unwrap(), regex::Regex::new(r#"client_id\s*[:=]\s*"([a-zA-Z0-9]{24,40})""#).unwrap());
+    let m = r1.captures(js).or_else(|| r2.captures(js))?;
+    Some(m[1].to_string())
+}
 async fn sc_scrape(st: &AppState) -> Result<String, &'static str> {
     let html = sc_text(st, "https://soundcloud.com/").await?;
-    let re_s = regex::Regex::new(r#"<script[^>]+src="(https://a-v2\.sndcdn\.com/[^"]+\.js)""#).unwrap();
-    let srcs: Vec<String> = re_s.captures_iter(&html).map(|c| c[1].to_string()).collect();
-    let (r1, r2) = (regex::Regex::new(r#"client_id\s*[:=]\s*"([a-zA-Z0-9]{32})""#).unwrap(), regex::Regex::new(r#"client_id\s*[:=]\s*"([a-zA-Z0-9]{24,40})""#).unwrap());
-    for src in srcs.iter().rev() {
-        if let Ok(js) = sc_text(st, src).await {
-            if let Some(m) = r1.captures(&js).or_else(|| r2.captures(&js)) {
-                let id = m[1].to_string();
+    for src in sc_script_srcs(&html).iter().rev() {
+        if let Ok(js) = sc_text_cap(st, src, SC_SCRIPT_CAP).await {
+            if let Some(id) = sc_extract_cid(&js) {
                 *SC_CID.lock().unwrap() = (id.clone(), Some(std::time::Instant::now()));
                 return Ok(id);
             }
@@ -404,17 +414,77 @@ async fn sc_scrape(st: &AppState) -> Result<String, &'static str> {
     }
     Err("no soundcloud client_id")
 }
+// api-v2 rejects a bad/expired client_id with 401 (observed) or 403: either means the
+// cached id may be stale, so force one re-scrape and retry once. Any other status, and any
+// failure on the second attempt, fails closed.
+fn sc_cid_retry(code: u16, attempt: u32) -> bool { matches!(code, 401 | 403) && attempt == 0 }
 async fn sc_fetch_json(st: &AppState, up: &str) -> Result<ONode, &'static str> {
     let sep = if up.contains('?') { '&' } else { '?' };
     let mut cid = sc_client_id(st, false).await?;
     for attempt in 0..2 {
         let r = guarded_open(st, reqwest::Method::GET, &format!("{up}{sep}client_id={cid}"), &[("user-agent", WEB_UA.into())], None, Duration::from_secs(15)).await?;
-        if r.status().as_u16() == 403 && attempt == 0 { cid = sc_client_id(st, true).await?; continue; }
+        if sc_cid_retry(r.status().as_u16(), attempt) { cid = sc_client_id(st, true).await?; continue; }
         if !r.status().is_success() { return Err("upstream error"); }
         let b = tokio::time::timeout(Duration::from_secs(15), read_capped(r, 4 * BODY_CAP)).await.map_err(|_| "upstream error")??;
         return serde_json::from_slice(&b).map_err(|_| "upstream error");
     }
     Err("upstream error")
+}
+#[cfg(test)]
+mod sc_retry_tests {
+    use super::{sc_cid_retry, sc_extract_cid, sc_script_srcs, BODY_CAP, SC_SCRIPT_CAP};
+    #[test]
+    fn cid_refresh_retries_401_and_403_once() {
+        // api-v2 answers a bad/expired client_id with 401 (observed), older docs say 403:
+        // both must trigger exactly one forced re-scrape + retry
+        assert!(sc_cid_retry(401, 0));
+        assert!(sc_cid_retry(403, 0));
+    }
+    #[test]
+    fn script_discovery_extracts_id_from_oversized_asset() {
+        // regression: the actual client_id-bearing script is ~2.8MiB, larger than the 1MiB
+        // BODY_CAP that previously rejected it before the regex ever ran
+        let big = format!("/*{}*/client_id:\"{}\"", "x".repeat(BODY_CAP), "a".repeat(32));
+        assert!(big.len() > BODY_CAP, "fixture must exceed the old 1MiB cap");
+        assert!(big.len() <= SC_SCRIPT_CAP, "script cap must admit the current asset");
+        assert_eq!(sc_extract_cid(&big).as_deref(), Some("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"));
+        // scripts under either cap but without an id still yield nothing (walk continues)
+        assert_eq!(sc_extract_cid("var x=1;"), None);
+        // 24-40 char fallback shape also matches
+        let alt = format!("client_id = \"{}\"", "b".repeat(24));
+        assert_eq!(sc_extract_cid(&alt).as_deref(), Some("bbbbbbbbbbbbbbbbbbbbbbbb"));
+        // homepage script srcs are found in document order (walk reverses them)
+        let html = r#"<html><script src="https://a-v2.sndcdn.com/assets/1-a.js"></script><script src="https://a-v2.sndcdn.com/assets/2-b.js"></script></html>"#;
+        assert_eq!(sc_script_srcs(html), vec!["https://a-v2.sndcdn.com/assets/1-a.js".to_string(), "https://a-v2.sndcdn.com/assets/2-b.js".to_string()]);
+    }
+    #[tokio::test]
+    async fn script_fetch_capped_body_gate_matches_discovery_cap() {
+        // faithful regression for the live root cause: the real ID-bearing script is ~2.8MiB.
+        // The actual read_capped used by sc_text_cap must REJECT that body at the old 1MiB
+        // BODY_CAP and ADMIT it at SC_SCRIPT_CAP, after which the id extracts.
+        use super::read_capped;
+        let body = format!("/*{}*/client_id:\"{}\"", "x".repeat(2 * BODY_CAP), "a".repeat(32));
+        assert!(body.len() > BODY_CAP && body.len() <= SC_SCRIPT_CAP, "fixture must sit between the two caps");
+        let b2 = body.clone();
+        let app = axum::Router::new().route("/asset.js", axum::routing::get(move || { let b = b2.clone(); async move { b } }));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}/asset.js", listener.local_addr().unwrap());
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap(); });
+        let client = reqwest::Client::new();
+        let too_big = client.get(&url).send().await.unwrap();
+        assert!(read_capped(too_big, BODY_CAP).await.is_err(), "1MiB cap must reject the oversized asset (the original failure)");
+        let fits = client.get(&url).send().await.unwrap();
+        let got = read_capped(fits, SC_SCRIPT_CAP).await.unwrap();
+        assert_eq!(sc_extract_cid(&String::from_utf8_lossy(&got)).as_deref(), Some("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"));
+        server.abort();
+    }
+    #[test]
+    fn cid_refresh_never_retries_twice_or_other_statuses() {
+        // second attempt with a fresh id must fail closed, and non-auth statuses never retry
+        assert!(!sc_cid_retry(401, 1));
+        assert!(!sc_cid_retry(403, 1));
+        for code in [200u16, 400, 404, 429, 500, 502, 503] { assert!(!sc_cid_retry(code, 0), "{code}"); }
+    }
 }
 async fn src_soundcloud(st: &AppState, q: &str) -> Result<Vec<Value>, ()> {
     sc_fetch_json(st, &format!("https://api-v2.soundcloud.com/search/tracks?q={}&limit=24", urlenc(q))).await.map_err(|_| ()).and_then(|v| parse_soundcloud(&v))
