@@ -1904,9 +1904,24 @@ pub fn adaptive_pick(data: &Value) -> (Option<String>, Option<String>) {
     // player); an audio-only playlist stays a last-resort fallback so genuine
     // audio-only videos still resolve.
     let carries_video = |f: &Value| { let v = vs(f, "vcodec"); !v.is_empty() && v != "none" };
-    for want_video in [true, false] {
+    let height = |f: &Value| f.get("height").and_then(Value::as_u64).unwrap_or(0);
+    // pass 1: best video-carrying playlist per protocol by declared height (a
+    // 144p rendition listed first must not win over the 720p one); when no
+    // heights are declared this degenerates to first-match.
+    for f in &fmts {
+        if !carries_video(f) { continue; }
+        let p = vs(f, "protocol");
+        let h = height(f);
+        if p.starts_with("m3u8") { let u = vs(f, "url"); if !u.is_empty() && u.len() <= MAX_URL && hls.as_ref().map_or(true, |(bh, _): &(u64, String)| h > *bh) { hls = Some((h, u.to_string())); } }
+        if p.contains("dash") {
+            let pick = { let m = vs(f, "manifest_url"); if !m.is_empty() { m } else { vs(f, "url") } };
+            if !pick.is_empty() && pick.len() <= MAX_URL && dash.as_ref().map_or(true, |(bh, _): &(u64, String)| h > *bh) { dash = Some((h, pick.to_string())); }
+        }
+    }
+    let (mut hls, mut dash) = (hls.map(|(_, u)| u), dash.map(|(_, u)| u));
+    // pass 2 (old first-match): audio-only last resort, or formats that declare no vcodec.
+    if hls.is_none() || dash.is_none() {
         for f in &fmts {
-            if want_video && !carries_video(f) { continue; }
             let p = vs(f, "protocol");
             if hls.is_none() && p.starts_with("m3u8") { let u = vs(f, "url"); if !u.is_empty() && u.len() <= MAX_URL { hls = Some(u.to_string()); } }
             if dash.is_none() && p.contains("dash") {
@@ -1914,7 +1929,6 @@ pub fn adaptive_pick(data: &Value) -> (Option<String>, Option<String>) {
                 if !pick.is_empty() && pick.len() <= MAX_URL { dash = Some(pick.to_string()); }
             }
         }
-        if hls.is_some() && dash.is_some() { break; }
     }
     (hls, dash)
 }

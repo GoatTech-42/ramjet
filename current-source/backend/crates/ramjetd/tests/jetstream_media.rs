@@ -857,6 +857,28 @@ fn adaptive_prefers_video_carrying_playlists() {
 }
 
 #[test]
+fn adaptive_prefers_highest_declared_height() {
+    // regression: youtube lists the lowest-quality rendition first (itag 602,
+    // 256x144 vp9); first-match-with-video still served 144p for an hd recovery.
+    // the best declared height must win per protocol.
+    let d = json!({"formats": [
+        {"url": "https://manifest.googlevideo.com/hls-144.m3u8", "protocol": "m3u8_native", "vcodec": "vp09", "height": 144},
+        {"url": "https://manifest.googlevideo.com/hls-720.m3u8", "protocol": "m3u8_native", "vcodec": "avc1", "height": 720},
+        {"url": "https://rr1.googlevideo.com/dash-360", "protocol": "http_dash_segments", "manifest_url": "https://manifest.googlevideo.com/360.mpd", "vcodec": "avc1", "height": 360},
+        {"url": "https://rr1.googlevideo.com/dash-1080", "protocol": "http_dash_segments", "manifest_url": "https://manifest.googlevideo.com/1080.mpd", "vcodec": "avc1", "height": 1080}
+    ]});
+    let (hls, dash) = adaptive_pick(&d);
+    assert_eq!(hls.as_deref(), Some("https://manifest.googlevideo.com/hls-720.m3u8"));
+    assert_eq!(dash.as_deref(), Some("https://manifest.googlevideo.com/1080.mpd"));
+    // no heights declared: first video-carrying match stands (old order preserved)
+    let (h, _d) = adaptive_pick(&json!({"formats": [
+        {"url": "https://manifest.googlevideo.com/hls-a.m3u8", "protocol": "m3u8_native", "vcodec": "avc1"},
+        {"url": "https://manifest.googlevideo.com/hls-b.m3u8", "protocol": "m3u8_native", "vcodec": "avc1"}
+    ]}));
+    assert_eq!(h.as_deref(), Some("https://manifest.googlevideo.com/hls-a.m3u8"));
+}
+
+#[test]
 fn hls_rewrites_nested_segments_and_keys() {
     let base = u("https://manifest.googlevideo.com/master.m3u8");
     let body = "#EXTM3U\n#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID=\"aud\",URI=\"aud/index.m3u8\"\n#EXT-X-STREAM-INF:BANDWIDTH=1\nv360/index.m3u8\n";
