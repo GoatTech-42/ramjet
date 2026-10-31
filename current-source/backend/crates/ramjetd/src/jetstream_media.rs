@@ -1900,13 +1900,21 @@ pub fn adaptive_pick(data: &Value) -> (Option<String>, Option<String>) {
     let fmts: Vec<&Value> = data.get("formats").and_then(Value::as_array).unwrap_or(&empty).iter().collect();
     let mut hls = None;
     let mut dash = None;
-    for f in fmts {
-        let p = vs(f, "protocol");
-        if hls.is_none() && p.starts_with("m3u8") { let u = vs(f, "url"); if !u.is_empty() && u.len() <= MAX_URL { hls = Some(u.to_string()); } }
-        if dash.is_none() && p.contains("dash") {
-            let pick = { let m = vs(f, "manifest_url"); if !m.is_empty() { m } else { vs(f, "url") } };
-            if !pick.is_empty() && pick.len() <= MAX_URL { dash = Some(pick.to_string()); }
+    // two passes: prefer playlists that carry video (the recovery consumer is a video
+    // player); an audio-only playlist stays a last-resort fallback so genuine
+    // audio-only videos still resolve.
+    let carries_video = |f: &Value| { let v = vs(f, "vcodec"); !v.is_empty() && v != "none" };
+    for want_video in [true, false] {
+        for f in &fmts {
+            if want_video && !carries_video(f) { continue; }
+            let p = vs(f, "protocol");
+            if hls.is_none() && p.starts_with("m3u8") { let u = vs(f, "url"); if !u.is_empty() && u.len() <= MAX_URL { hls = Some(u.to_string()); } }
+            if dash.is_none() && p.contains("dash") {
+                let pick = { let m = vs(f, "manifest_url"); if !m.is_empty() { m } else { vs(f, "url") } };
+                if !pick.is_empty() && pick.len() <= MAX_URL { dash = Some(pick.to_string()); }
+            }
         }
+        if hls.is_some() && dash.is_some() { break; }
     }
     (hls, dash)
 }

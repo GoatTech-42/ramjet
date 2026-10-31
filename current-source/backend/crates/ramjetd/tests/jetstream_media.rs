@@ -836,6 +836,27 @@ fn adaptive_picks_hls_and_dash_manifests() {
 }
 
 #[test]
+fn adaptive_prefers_video_carrying_playlists() {
+    // regression: youtube lists audio-only hls (itag 233/139, vcodec "none") ahead of
+    // video-carrying ones; the first-match pick served an audio-only playlist for a
+    // video recovery, leaving a poster + audio. video-carrying must win.
+    let d = json!({"formats": [
+        {"url": "https://manifest.googlevideo.com/hls-audio.m3u8", "protocol": "m3u8_native", "vcodec": "none", "acodec": "mp4a"},
+        {"url": "https://manifest.googlevideo.com/hls-video.m3u8", "protocol": "m3u8_native", "vcodec": "avc1", "acodec": "mp4a"},
+        {"url": "https://rr1.googlevideo.com/dash-audio", "protocol": "http_dash_segments", "manifest_url": "https://manifest.googlevideo.com/audio.mpd", "vcodec": "none"},
+        {"url": "https://rr1.googlevideo.com/dash-video", "protocol": "http_dash_segments", "manifest_url": "https://manifest.googlevideo.com/video.mpd", "vcodec": "avc1"}
+    ]});
+    let (hls, dash) = adaptive_pick(&d);
+    assert_eq!(hls.as_deref(), Some("https://manifest.googlevideo.com/hls-video.m3u8"));
+    assert_eq!(dash.as_deref(), Some("https://manifest.googlevideo.com/video.mpd"));
+    // genuine audio-only videos still resolve (fallback preserved)
+    let (h, _dd) = adaptive_pick(&json!({"formats": [
+        {"url": "https://manifest.googlevideo.com/hls-audio.m3u8", "protocol": "m3u8_native", "vcodec": "none", "acodec": "mp4a"}
+    ]}));
+    assert_eq!(h.as_deref(), Some("https://manifest.googlevideo.com/hls-audio.m3u8"));
+}
+
+#[test]
 fn hls_rewrites_nested_segments_and_keys() {
     let base = u("https://manifest.googlevideo.com/master.m3u8");
     let body = "#EXTM3U\n#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID=\"aud\",URI=\"aud/index.m3u8\"\n#EXT-X-STREAM-INF:BANDWIDTH=1\nv360/index.m3u8\n";
