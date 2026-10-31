@@ -818,3 +818,241 @@ async fn ytdlp_stdout_is_capped_while_collecting() {
     assert!(t.elapsed() < Duration::from_secs(10));
     assert_eq!(YTDLP_OUT_MAX, 32 * 1024 * 1024);
 }
+
+// ---------------------------------------------------------------- no-DRM HLS/DASH manifest legs
+
+#[test]
+fn adaptive_picks_hls_and_dash_manifests() {
+    let d = json!({"formats": [
+        {"url": "https://rr1.googlevideo.com/v.mp4", "protocol": "https", "vcodec": "avc1", "acodec": "mp4a", "ext": "mp4"},
+        {"url": "https://manifest.googlevideo.com/hls.m3u8", "protocol": "m3u8_native", "vcodec": "avc1", "acodec": "mp4a"},
+        {"url": "https://rr1.googlevideo.com/dash-frag", "protocol": "http_dash_segments", "manifest_url": "https://manifest.googlevideo.com/vod.mpd", "vcodec": "avc1"}
+    ]});
+    let (hls, dash) = adaptive_pick(&d);
+    assert_eq!(hls.as_deref(), Some("https://manifest.googlevideo.com/hls.m3u8"));
+    assert_eq!(dash.as_deref(), Some("https://manifest.googlevideo.com/vod.mpd"));
+    let (h, dd) = adaptive_pick(&json!({"formats": [{"url": "https://rr1.googlevideo.com/v.mp4", "protocol": "https"}]}));
+    assert!(h.is_none() && dd.is_none());
+}
+
+#[test]
+fn hls_rewrites_nested_segments_and_keys() {
+    let base = u("https://manifest.googlevideo.com/master.m3u8");
+    let body = "#EXTM3U\n#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID=\"aud\",URI=\"aud/index.m3u8\"\n#EXT-X-STREAM-INF:BANDWIDTH=1\nv360/index.m3u8\n";
+    let out = hls_rewrite(body, &base, "AAAAAAAAAAA").unwrap();
+    assert!(out.contains("/api/apps/jetstream/manifest?u=https%3A%2F%2Fmanifest.googlevideo.com%2Faud%2Findex.m3u8&id=AAAAAAAAAAA"), "{out}");
+    assert!(out.contains("/api/apps/jetstream/manifest?u=https%3A%2F%2Fmanifest.googlevideo.com%2Fv360%2Findex.m3u8&id=AAAAAAAAAAA"), "{out}");
+    assert!(!out.contains("googlevideo.com/aud"), "{out}");
+
+    let base = u("https://rr1.googlevideo.com/v360/index.m3u8");
+    let body = "#EXTM3U\n#EXT-X-MAP:URI=\"init.mp4\"\n#EXT-X-KEY:METHOD=AES-128,URI=\"https://rr1.googlevideo.com/v360/key.bin\",IV=0x01\n#EXTINF:4.0,\nseg1.ts\n";
+    let out = hls_rewrite(body, &base, "").unwrap();
+    assert!(out.contains("#EXT-X-MAP:URI=\"/api/apps/jetstream/seg?u=https%3A%2F%2Frr1.googlevideo.com%2Fv360%2Finit.mp4\""), "{out}");
+    assert!(out.contains("#EXT-X-KEY:METHOD=AES-128,URI=\"/api/apps/jetstream/seg?u=https%3A%2F%2Frr1.googlevideo.com%2Fv360%2Fkey.bin\",IV=0x01"), "{out}");
+    assert!(out.contains("\n/api/apps/jetstream/seg?u=https%3A%2F%2Frr1.googlevideo.com%2Fv360%2Fseg1.ts\n"), "{out}");
+}
+
+#[test]
+fn hls_refuses_drm() {
+    let base = u("https://rr1.googlevideo.com/i.m3u8");
+    assert_eq!(hls_rewrite("#EXTM3U\n#EXT-X-KEY:METHOD=SAMPLE-AES,URI=\"k\"\n#EXTINF:1,\ns.ts\n", &base, ""), Err(LegErr::Drm));
+    assert_eq!(hls_rewrite("#EXTM3U\n#EXT-X-KEY:METHOD=AES-128,URI=\"k\",KEYFORMAT=\"com.apple.streamingkeydelivery\"\n#EXTINF:1,\ns.ts\n", &base, ""), Err(LegErr::Drm));
+    assert_eq!(hls_rewrite("#EXTM3U\n#EXT-X-SESSION-KEY:METHOD=AES-128,URI=\"k\",KEYFORMAT=\"identity\"\n#EXTINF:1,\ns.ts\n", &base, "").map(|_| ()), Ok(()));
+}
+
+#[test]
+fn dash_rewrites_base_and_segments_and_refuses_drm() {
+    let base = u("https://manifest.googlevideo.com/vod.mpd");
+    let body = "<MPD><Period><AdaptationSet><BaseURL>https://rr1.googlevideo.com/vid/</BaseURL><SegmentTemplate media=\"seg-$Number$.m4s\" initialization=\"init.mp4\" index=\"idx.mpd\"/></AdaptationSet><SegmentList><SegmentURL media=\"s1.m4s\" sourceURL=\"src1.m4s\"/></SegmentList></Period></MPD>";
+    let out = dash_rewrite(body, &base, "AAAAAAAAAAA").unwrap();
+    assert!(out.contains("/api/apps/jetstream/seg?u=https%3A%2F%2Frr1.googlevideo.com%2Fvid%2F"), "{out}");
+    assert!(out.contains("seg-$Number$.m4s"), "{out}");
+    assert!(out.contains("/api/apps/jetstream/seg?u=https%3A%2F%2Frr1.googlevideo.com%2Fvid%2Finit.mp4"), "{out}");
+    assert!(out.contains("/api/apps/jetstream/seg?u=https%3A%2F%2Fmanifest.googlevideo.com%2Fs1.m4s"), "{out}");
+    assert!(!out.contains("sourceURL=\"src1.m4s\""), "{out}");
+    assert_eq!(dash_rewrite("<MPD><Period><ContentProtection schemeIdUri=\"urn:widevine\"/></Period></MPD>", &base, ""), Err(LegErr::Drm));
+}
+
+// ---------------------------------------------------------------- no-DRM HLS/DASH manifest legs v2 (F-1/F-2/F-3)
+
+fn dec_q(v: &str) -> String {
+    let v = v.replace('+', " ");
+    let mut out = Vec::new();
+    let b = v.as_bytes();
+    let mut i = 0;
+    while i < b.len() {
+        if b[i] == b'%' && i + 2 < b.len() {
+            out.push(u8::from_str_radix(&v[i + 1..i + 3], 16).unwrap());
+            i += 3;
+        } else { out.push(b[i]); i += 1; }
+    }
+    String::from_utf8(out).unwrap()
+}
+fn u_param(proxied: &str) -> String {
+    let q = proxied.split_once('?').map(|x| x.1).unwrap_or("");
+    let raw = q.split('&').find(|p| p.starts_with("u=")).map(|p| &p[2..]).unwrap_or("");
+    dec_q(raw)
+}
+
+// Simulates DASH client template substitution (ISO 23009-1): "$$" unescapes to one literal
+// '$', and any $Identifier...$ token is replaced by the given substitution value.
+fn client_substitute(t: &str, num: &str) -> String {
+    let b = t.as_bytes();
+    let mut o = String::with_capacity(t.len());
+    let mut i = 0;
+    while i < b.len() {
+        if b[i] == b'$' {
+            if i + 1 < b.len() && b[i + 1] == b'$' { o.push('$'); i += 2; continue; }
+            if let Some(end) = t[i + 1..].find('$') { o.push_str(num); i = i + 1 + end + 1; continue; }
+            o.push('$'); i += 1; continue;
+        }
+        o.push(b[i] as char); i += 1;
+    }
+    o
+}
+
+#[test]
+fn dash_template_tokens_survive_unescaped() {
+    let base = u("https://manifest.googlevideo.com/vod.mpd");
+    let body = r#"<MPD><Period><AdaptationSet><Representation><BaseURL>https://rr1.googlevideo.com/vid/</BaseURL><SegmentTemplate media="seg-$Number%05d$.m4s" initialization="init.mp4"/></Representation></AdaptationSet></Period></MPD>"#;
+    let out = dash_rewrite(body, &base, "").unwrap();
+    assert!(out.contains("seg-$Number%05d$.m4s"), "{out}");
+    assert!(!out.contains("%24Number%24") && !out.contains("%2505d"), "{out}");
+    // simulate the client substituting the token and dereferencing the proxy URL
+    let media = out.split_once("media=\"").unwrap().1.split_once('"').unwrap().0;
+    let after_sub = media.replace("$Number%05d$", "00042");
+    assert_eq!(u_param(&after_sub), "https://rr1.googlevideo.com/vid/seg-00042.m4s");
+}
+
+#[test]
+fn dash_malformed_dollar_span_cannot_split_query() {
+    let base = u("https://manifest.googlevideo.com/vod.mpd");
+    // "$x&y=1$" is not a DASH template token: it must be fully percent-encoded so the raw
+    // '&' cannot split the outer u= query parameter, and the URL must round-trip byte-exact.
+    let body = r#"<MPD><Period><AdaptationSet><Representation><BaseURL>https://rr1.googlevideo.com/vid/</BaseURL><SegmentTemplate media="seg-$x&amp;y=1$.m4s" initialization="in$$it.mp4"/></Representation></AdaptationSet></Period></MPD>"#;
+    let out = dash_rewrite(body, &base, "").unwrap();
+    let media = out.split_once("media=\"").unwrap().1.split_once('"').unwrap().0;
+    assert!(!media.contains("$x&y=1$"), "{media}");
+    assert!(media.contains("%24x%26y%3D1%24"), "{media}");
+    assert_eq!(u_param(media), "https://rr1.googlevideo.com/vid/seg-$x&y=1$.m4s");
+    // "$$" is the escape for ONE literal '$': no raw pair survives for the client to
+    // unescape, and after (no-op) substitution the proxy URL dereferences to one dollar
+    let init = out.split_once("initialization=\"").unwrap().1.split_once('"').unwrap().0;
+    assert!(!init.contains("$$"), "{init}");
+    assert_eq!(u_param(&client_substitute(init, "1")), "https://rr1.googlevideo.com/vid/in$it.mp4");
+    // outside SegmentTemplate, "$$" is plain text and must round-trip byte-exact
+    let out2 = dash_rewrite(r#"<MPD><Period><AdaptationSet><Representation><BaseURL>https://rr1.googlevideo.com/vid/</BaseURL><SegmentList><SegmentURL media="p$$q.m4s"/></SegmentList></Representation></AdaptationSet></Period></MPD>"#, &base, "").unwrap();
+    let su = out2.split_once("media=\"").unwrap().1.split_once('"').unwrap().0;
+    assert_eq!(u_param(su), "https://rr1.googlevideo.com/vid/p$$q.m4s");
+}
+
+#[test]
+fn dash_valid_tokens_verbatim_while_malformed_span_encoded() {
+    let base = u("https://manifest.googlevideo.com/vod.mpd");
+    let body = r#"<MPD><Period><AdaptationSet><Representation><BaseURL>https://rr1.googlevideo.com/vid/</BaseURL><SegmentTemplate media="seg-$Number%05d$-%2F-$bogus&amp;a=b$.m4s"/></Representation></AdaptationSet></Period></MPD>"#;
+    let out = dash_rewrite(body, &base, "").unwrap();
+    // the valid format-tagged token still survives verbatim for client substitution
+    assert!(out.contains("$Number%05d$"), "{out}");
+    // the malformed span is fully encoded, including its '$', '&' and '='
+    assert!(out.contains("%24bogus%26a%3Db%24"), "{out}");
+    assert!(!out.contains("$bogus"), "{out}");
+    // simulate client substitution, then the whole URL round-trips byte-exact
+    let media = out.split_once("media=\"").unwrap().1.split_once('"').unwrap().0;
+    let after_sub = media.replace("$Number%05d$", "00042");
+    assert_eq!(u_param(&after_sub), "https://rr1.googlevideo.com/vid/seg-00042-%2F-$bogus&a=b$.m4s");
+}
+
+#[test]
+fn dash_dollar_escape_substitutes_to_single_literal_dollar() {
+    let base = u("https://manifest.googlevideo.com/vod.mpd");
+    // original template spec semantics: "$$" -> one literal '$', "$Number%02d$" -> number
+    let body = r#"<MPD><Period><AdaptationSet><Representation><BaseURL>https://rr1.googlevideo.com/vid/</BaseURL><SegmentTemplate media="s-$$-$Number%02d$-x$$.m4s"/></Representation></AdaptationSet></Period></MPD>"#;
+    let out = dash_rewrite(body, &base, "").unwrap();
+    let media = out.split_once("media=\"").unwrap().1.split_once('"').unwrap().0;
+    // no raw "$$" survives for the client to unescape into a doubled dollar
+    assert!(!media.contains("$$"), "{media}");
+    // the valid token stays verbatim so the client substitutes it
+    assert!(media.contains("$Number%02d$"), "{media}");
+    // client substitution -> dereference -> exactly the spec-mandated upstream URL
+    let after_sub = client_substitute(media, "07");
+    assert_eq!(u_param(&after_sub), "https://rr1.googlevideo.com/vid/s-$-07-x$.m4s");
+}
+
+#[test]
+fn dash_baseurl_scoping_chains() {
+    let base = u("https://manifest.googlevideo.com/vod.mpd");
+    let body = r#"<MPD><BaseURL>https://cdn1.googlevideo.com/root/</BaseURL><Period><AdaptationSet><Representation><BaseURL>vid/hd/</BaseURL><SegmentTemplate media="seg-$Number$.m4s" initialization="init.mp4"/><SegmentList><SegmentURL media="s1.m4s" sourceURL="src1.m4s"/></SegmentList></Representation></AdaptationSet></Period></MPD>"#;
+    let out = dash_rewrite(body, &base, "AAAAAAAAAAA").unwrap();
+    // BaseURL text is proxied and later URLs resolve against the chained absolute upstream
+    assert!(out.contains("<BaseURL>/api/apps/jetstream/seg?u="), "{out}");
+    let media = out.split_once("media=\"").unwrap().1.split_once('"').unwrap().0;
+    assert_eq!(u_param(&media.replace("$Number$", "1")), "https://cdn1.googlevideo.com/root/vid/hd/seg-1.m4s");
+    let init = out.split_once("initialization=\"").unwrap().1.split_once('"').unwrap().0;
+    assert_eq!(u_param(init), "https://cdn1.googlevideo.com/root/vid/hd/init.mp4");
+    let src = out.split_once("sourceURL=\"").unwrap().1.split_once('"').unwrap().0;
+    assert_eq!(u_param(src), "https://cdn1.googlevideo.com/root/vid/hd/src1.m4s");
+    assert!(!out.contains("manifest.googlevideo.com/vid"), "{out}");
+}
+
+#[test]
+fn dash_xlink_fails_closed() {
+    let base = u("https://manifest.googlevideo.com/vod.mpd");
+    let body = r#"<MPD xmlns:xlink="http://www.w3.org/1999/xlink"><Period xlink:href="remote.mpd"/></MPD>"#;
+    assert_eq!(dash_rewrite(body, &base, ""), Err(LegErr::Upstream));
+}
+
+#[test]
+fn hls_extensionless_nested_manifest_and_segment_routing() {
+    let master = u("https://manifest.googlevideo.com/master.m3u8");
+    let body = "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=1\nv/playlist\n";
+    let out = hls_rewrite(body, &master, "").unwrap();
+    assert!(out.contains("/api/apps/jetstream/manifest?u="), "{out}");
+    let line = out.lines().find(|l| l.starts_with("/api/")).unwrap();
+    assert_eq!(u_param(line), "https://manifest.googlevideo.com/v/playlist");
+
+    let media_base = u("https://rr1.googlevideo.com/v/index.m3u8");
+    let body = "#EXTM3U\n#EXTINF:4.0,\nchunk1\n";
+    let out = hls_rewrite(body, &media_base, "").unwrap();
+    let line = out.lines().find(|l| l.starts_with("/api/")).unwrap();
+    assert!(line.starts_with("/api/apps/jetstream/seg?u="), "{line}");
+    assert_eq!(u_param(line), "https://rr1.googlevideo.com/v/chunk1");
+}
+
+// ---------------------------------------------------------------- v3 residuals (R-1/R-2/F-4)
+
+#[test]
+fn dash_location_is_rewritten_not_verbatim() {
+    let base = u("https://manifest.googlevideo.com/vod.mpd");
+    let body = r#"<MPD><Location>https://manifest.googlevideo.com/vod2.mpd</Location><Period><AdaptationSet><Representation><SegmentTemplate media="seg-$Number$.m4s"/></Representation></AdaptationSet></Period></MPD>"#;
+    let out = dash_rewrite(body, &base, "AAAAAAAAAAA").unwrap();
+    assert!(!out.contains("<Location>https://"), "{out}");
+    let loc = out.split_once("<Location>").unwrap().1.split_once("</Location>").unwrap().0;
+    assert!(loc.starts_with("/api/apps/jetstream/manifest?u="), "{loc}");
+    assert_eq!(u_param(loc), "https://manifest.googlevideo.com/vod2.mpd");
+}
+
+#[test]
+fn dash_sibling_baseurls_do_not_chain() {
+    let base = u("https://manifest.googlevideo.com/vod.mpd");
+    let body = r#"<MPD><Period><AdaptationSet><BaseURL>cdn1/vid/</BaseURL><BaseURL>cdn2/vid/</BaseURL><SegmentTemplate media="seg-$Number$.m4s"/></AdaptationSet></Period></MPD>"#;
+    let out = dash_rewrite(body, &base, "").unwrap();
+    let mut burls = out.split("<BaseURL>").skip(1).map(|p| p.split_once("</BaseURL>").unwrap().0);
+    assert_eq!(u_param(burls.next().unwrap()), "https://manifest.googlevideo.com/cdn1/vid/");
+    assert_eq!(u_param(burls.next().unwrap()), "https://manifest.googlevideo.com/cdn2/vid/");
+    // content resolves against the first (effective) base, not the second sibling
+    let media = out.split_once("media=\"").unwrap().1.split_once('"').unwrap().0;
+    assert_eq!(u_param(media), "https://manifest.googlevideo.com/cdn1/vid/seg-$Number$.m4s");
+}
+
+#[test]
+fn dash_preencoded_octets_round_trip() {
+    let base = u("https://manifest.googlevideo.com/vod.mpd");
+    let body = r#"<MPD><Period><AdaptationSet><Representation><BaseURL>https://rr1.googlevideo.com/vid/</BaseURL><SegmentTemplate media="seg-$Number%05d$.m4s" initialization="in%20it.mp4?x=a%3Db"/></Representation></AdaptationSet></Period></MPD>"#;
+    let out = dash_rewrite(body, &base, "").unwrap();
+    let init = out.split_once("initialization=\"").unwrap().1.split_once('"').unwrap().0;
+    assert_eq!(u_param(init), "https://rr1.googlevideo.com/vid/in%20it.mp4?x=a%3Db");
+    let media = out.split_once("media=\"").unwrap().1.split_once('"').unwrap().0;
+    assert!(media.contains("seg-$Number%05d$.m4s"), "{media}");
+    let after_sub = media.replace("$Number%05d$", "00007");
+    assert_eq!(u_param(&after_sub), "https://rr1.googlevideo.com/vid/seg-00007.m4s");
+}
