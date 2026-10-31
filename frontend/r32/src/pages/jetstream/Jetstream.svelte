@@ -6,6 +6,7 @@
   import '../../tokens.css';
   import { onMount, tick } from "svelte";
   import { api, errCopy } from '../../lib/api.js';
+  import { attachBridgeHls } from '../../lib/jetstream-hls.mjs';
   import { createWatchTracker } from './watch-tracker.js';
   import { createWatchReporter } from './watch-reporter.js';
   import { createSearchPager, searchUrl } from './search-pager.js';
@@ -235,7 +236,7 @@
     const v = videoEl; if (!v) { stats = null; return; }
     let buf = 0; try { for (let i = 0; i < v.buffered.length; i++) if (v.buffered.start(i) <= v.currentTime + 0.5 && v.buffered.end(i) >= v.currentTime) buf = v.buffered.end(i) - v.currentTime; } catch {}
     const q = v.getVideoPlaybackQuality?.();
-    stats = { res: v.videoWidth ? v.videoWidth + 'x' + v.videoHeight : 'audio', buf: buf.toFixed(1), dropped: q ? q.droppedVideoFrames + '/' + q.totalVideoFrames : 'n/a', src: audioOnly ? 'audio only (server)' : hdMode ? 'hd video + audio (server)' : '360p combined (server)', rate: v.playbackRate, state: v.paused ? 'paused' : 'playing', net: v.networkState, ready: v.readyState };
+    stats = { res: v.videoWidth ? v.videoWidth + 'x' + v.videoHeight : 'audio', buf: buf.toFixed(1), dropped: q ? q.droppedVideoFrames + '/' + q.totalVideoFrames : 'n/a', src: audioOnly ? 'audio only (server)' : adaptive ? 'adaptive hls (server)' : hdMode ? 'hd video + audio (server)' : '360p combined (server)', rate: v.playbackRate, state: v.paused ? 'paused' : 'playing', net: v.networkState, ready: v.readyState };
   }
   function toggleStats() {
     statsOpen = !statsOpen; clearInterval(statsTimer);
@@ -959,6 +960,7 @@
       loadingWatch = false;
       if (!watching || !autoplay) return; // closed the player while the next one was resolving
       error = ''; portrait = false; streamError = false; hdDropped = false; stalling = false;
+      dropHls(); hlsTriedFor = '';
       watching = cand; watchInfo = r.data;
       recordWatch(cand);
       loadCaps(cand.id);
@@ -977,6 +979,7 @@
       dropDeadEverywhere(v.id);
       error = errCopy(r, "can't load this one"); watching = null; return;
     }
+    dropHls(); hlsTriedFor = '';
     watchInfo = r.data;
     recordWatch(v);
     loadCaps(v.id);
@@ -1005,6 +1008,53 @@
       document.removeEventListener('click', audioBridge);
       audioBridge = null;
     }
+  }
+
+  // hd recovery: ONE adaptive attempt through the reviewed media bridge before
+  // the 360p drop. the bridge serves a same-origin rewritten manifest, so this
+  // also works on networks that filter googlevideo. any failure - including
+  // "this video has no hls" - lands on the exact old 360p behavior. hls.js is
+  // lazy-loaded so the page chunk stays as it was.
+  let hlsHandle = null;
+  let hlsTriedFor = '';
+  let adaptive = $state(false); // true while the bridge manifest is what plays
+  let HlsRef = null;
+
+  function dropHls() {
+    if (!hlsHandle) return;
+    const h = hlsHandle;
+    hlsHandle = null;
+    adaptive = false;
+    h.destroy();
+  }
+
+  function dropTo360(at) { // the pre-hls drop, verbatim
+    dropHls();
+    hdMode = false; hdDropped = true; stalling = false;
+    startFallback();
+    if (at != null && videoEl) videoEl.addEventListener('loadedmetadata', () => { try { videoEl.currentTime = at; } catch {} }, { once: true });
+  }
+
+  async function dropToAdaptive(at, why) {
+    if (!watchInfo || !watching || audioOnly || hlsTriedFor === watching.id) { dropTo360(at); return; }
+    hlsTriedFor = watching.id;
+    const id = watching.id;
+    const keep = at ?? (videoEl ? videoEl.currentTime || 0 : 0);
+    const native = (() => { try { return !!videoEl?.canPlayType?.('application/vnd.apple.mpegurl'); } catch { return false; } })();
+    if (!native) { try { HlsRef ??= (await import('hls.js')).default; } catch { HlsRef = null; } }
+    if (watching?.id !== id || hlsHandle || hdDropped) return; // navigated away, already attached, or a concurrent error already landed on 360p
+    dropAudio();
+    clearWatchDog();
+    watchDirect = false;
+    videoEl.muted = false; // the bridge manifest carries its own audio
+    const h = attachBridgeHls({
+      video: videoEl, id, Hls: native ? null : HlsRef, startAt: keep,
+      onReady: () => { if (watching?.id === id) { adaptive = true; hdMode = false; stalling = false; videoEl?.play?.().catch(() => {}); } },
+      onFatal: () => { if (hlsHandle === h) hlsHandle = null; if (watching?.id === id) dropTo360(keep); },
+    });
+    if (!h) { dropTo360(at); return; } // no hls engine here at all
+    hlsHandle = h;
+    api('/api/apps/jetstream/clientlog', { method: 'POST', body: { kind: 'hd-adaptive-hls', id, why: why || '', ua: navigator.userAgent } }).catch(() => {});
   }
 
   function syncAudio(hard) {
@@ -1043,7 +1093,7 @@
     document.body.appendChild(au);
     const mine = au;
     mine.addEventListener('error', () => {
-      if (au === mine && watchInfo?.stream) { hdMode = false; hdDropped = true; startFallback(); }
+      if (au === mine && watchInfo?.stream) dropToAdaptive(null, 'audio-error');
     });
     videoEl.muted = true;
     videoEl.src = watchInfo.hd.video;
@@ -1107,6 +1157,7 @@
   function startHd() {
     if (!watchInfo?.hd || !videoEl) return;
     if (audioOnly) { startAudioOnly(); return; }
+    dropHls();
     dropAudio();
     watchDirect = !directDead && !!watchInfo.hd.directVideo;
     au = new Audio(watchInfo.hd.directAudio || watchInfo.hd.audio);
@@ -1117,7 +1168,7 @@
     mine.addEventListener('error', () => {
       if (au !== mine) return;
       if (watchDirect) { hdToProxy('audio-error'); return; }
-      if (watchInfo?.stream) { hdMode = false; hdDropped = true; startFallback(); }
+      if (watchInfo?.stream) dropToAdaptive(null, 'audio-error');
     });
     videoEl.muted = true;
     videoEl.src = watchInfo.hd.directVideo || watchInfo.hd.video;
@@ -1133,6 +1184,7 @@
 
   function startFallback() {
     if (!watchInfo || !videoEl) return;
+    dropHls();
     dropAudio();
     watchDirect = !directDead && !!watchInfo.direct;
     videoEl.muted = false;
@@ -1151,16 +1203,16 @@
     if (hdStallTimes.length >= 3) {
       hdStallTimes = [];
       const at = videoEl.currentTime;
-      hdMode = false; hdDropped = true; stalling = false; startFallback();
-      videoEl.addEventListener('loadedmetadata', () => { try { videoEl.currentTime = at; } catch {} }, { once: true });
+      dropToAdaptive(at, 'stalls');
       api('/api/apps/jetstream/clientlog', { method: 'POST', body: { kind: 'hd-stall-drop', id: watching?.id || '', vw: 0, vh: 0, hd: true } }).catch(() => {});
     }
   }
 
   function onVidError() {
     if (!watchInfo || streamError) return;
+    if (hlsHandle) return; // hls.js owns element errors while it drives the video
     if (watchDirect) { if (hdMode) hdToProxy('video-error'); else muxedToProxy('video-error'); return; }
-    if (hdMode && watchInfo.stream) { hdMode = false; hdDropped = true; startFallback(); return; }
+    if (hdMode && watchInfo.stream) { dropToAdaptive(null, 'video-error'); return; }
     if (autoplay) { skipDeadInAutoplay(watching?.id); return; }
     stalling = false;
     streamError = true;
@@ -1187,9 +1239,9 @@
 
   // safety net: whatever path closes the player, the hidden audio half of an HD
   // pair must die with it (it is a detached <audio>, so removing <video> never stops it).
-  $effect(() => { if (!watching) dropAudio(); });
+  $effect(() => { if (!watching) { dropAudio(); dropHls(); } });
   $effect(() => {
-    const kill = () => { dropAudio(); try { videoEl?.pause(); } catch {} };
+    const kill = () => { dropAudio(); dropHls(); try { videoEl?.pause(); } catch {} };
     window.addEventListener('pagehide', kill);
     return () => { window.removeEventListener('pagehide', kill); dropAudio(); };
   });
