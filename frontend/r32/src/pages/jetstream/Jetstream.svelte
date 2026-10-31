@@ -1574,7 +1574,7 @@ network {stats.net} · ready {stats.ready}</pre>
         </section>
       {/if}
       {#if playBlocked && adaptive}
-        <p class="hdnote" data-testid="js-playblocked">hd recovered at lower quality - press play to start.</p>
+        <p class="hdnote" data-testid="js-playblocked">hd recovered - press play to start.</p>
       {/if}
       {#if hdDropped}
         <p class="hdnote">playing at 360p because hd stopped. <button data-testid="js-hd-retry" class="linkbtn" onclick={() => { const at = videoEl?.currentTime || 0; hdDropped = false; hdMode = true; startHd(); videoEl?.addEventListener('loadedmetadata', () => { try { videoEl.currentTime = at; } catch {} }, { once: true }); }}>try hd again</button></p>
