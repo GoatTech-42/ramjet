@@ -1,0 +1,42 @@
+epoxy-tls net transport: source offer, build inputs, and repair candidate (2026-10-31)
+
+scope: corresponding source and build inputs for the epoxy-tls net transport
+wasm used by this project, plus the repaired candidate bundle replacing the
+upstream-deprecated artifact. measurements, scope, and limitations only.
+
+artifact of record (current production, DEPRECATED upstream):
+  @mercuryworkshop/epoxy-tls 2.1.19-1, full/epoxy.wasm
+  sha256 4e26f08ff06635cddc70b4449145490fd9a00b01fbfe318c2f62b0d22800508e (1,267,216 B)
+  deprecated upstream: trusts the compromised eMudhra intermediate CAs (Oct 2026).
+  see ROLLBACK.md: retained for availability recovery only, not a security state.
+
+artifact of record (repair):
+  @mercuryworkshop/epoxy-tls 2.1.20-1 npm tarball
+  sha256 a5c215ddb07a3123a04d5fe3df8a9f54d20a0e306200714c710fee10c00616b5
+  registry integrity sha512-4xRxm8KGcLdHpVrTC2SG0+7khJFH6J6z6XlUsBJSb6Prj3ejVtsVbiWmGkZQcza+F9JZIKmL+i3KC9hHryZ01Q==
+  embedded full/epoxy.wasm sha256 de1487e3e10b002583598bbbb1cda3cb257ed407339bcc7578be6a04638a984f (1,251,857 B)
+
+repair candidate bundle (embedded-wasm shape, stitch alias unchanged):
+  repair-candidate/index.mjs sha256 0e80cef54868b83fa9daccd9438757ec48bc07f62b61cd49d5160f69ad6c5dee (1,717,548 B)
+  repair-candidate/index.d.ts sha256 f0f3deea16f37ba273da18a0b7dabd968e13e3abe8b99ec499ce12037b0cd88b
+  build inputs: node v22.23.3, esbuild ^0.25.8, typescript ^5.9.3,
+  @mercuryworkshop/epoxy-transport 3.0.1, dependency override to the
+  integrity-verified 2.1.20-1 tarball above.
+
+packet contents (sha256, actual bytes in this directory):
+d5c7d191b5a5c6f7b9b0280688fe477f45dc60a599e9beef34a0f2d0e0c60fff  epoxy-tls-93d5a726-source.tar.gz
+599746a5f0d04c94ca2d40a0555c5dcc68235fbac7b7c09526388a06d454d2fc  epoxy-tls-9cde724a-source.tar.gz
+c0f504240a9a5566bb07aa2ab1c53355a1479a5c09292836424a66aa8fc43b95  deps/h2-wasm-2852a7c94b92f0433a1e2e5107ff4fe56db09cc7.tar.gz
+0632cc66c667a1184faaf27af30b0d9be6e9a315067f7c50e0b9a21137f0fe6f  deps/hyper-util-wasm-07117dd90174688341c27df2fdeb023c71015e4a.tar.gz
+8486a10c4393cee1c25392769ddd3b2d6c242d6ec7928e1414efff7dfb2f07ef  AGPL-3.0-only.txt
+cdf3e6ee3210ce21e193e6d7eaf33fb753953b26ea8d62421e6f5e784ab52963  NOTICE-PROVENANCE.md
+febb72c0729c8411df5b7fba0dd432bba6bb00069c296f6a6aa0760f87896cb6  ROLLBACK.md
+0e80cef54868b83fa9daccd9438757ec48bc07f62b61cd49d5160f69ad6c5dee  repair-candidate/index.mjs
+f0f3deea16f37ba273da18a0b7dabd968e13e3abe8b99ec499ce12037b0cd88b  repair-candidate/index.d.ts
+binding and limits: see NOTICE-PROVENANCE.md. in short: in-bytes build
+declaration (version 2.1.20-1, commit 9cde724aea1a0f5e46b1c962b3d19ca1389af074)
+plus a byte-identical independently fetched codeload archive of that commit;
+both git-dependency archives byte-identical across independent fetches; no
+byte-rebuild proof; eMudhra chain rejection NOT verified by benign runtime QA
+and the negative-chain coverage bound remains unverified; no legal-sufficiency
+claim.
