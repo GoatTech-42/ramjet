@@ -8,6 +8,7 @@
   import { buildAlbumPage, albumQuery } from '../../lib/album.js';
   import { buildArtistPage, primaryArtist } from '../../lib/artist.js';
 import { whyStopped as probeWhy, handleTrackError } from '../../lib/amp-error-logic.mjs';
+  import { sourceSplit } from '../../lib/amp-sources.mjs';
   let qf = $state(false);
   import '../../tokens.css';
   import { onMount, tick } from 'svelte';
@@ -21,6 +22,7 @@ import { whyStopped as probeWhy, handleTrackError } from '../../lib/amp-error-lo
   let busy = $state(false);
   let error = $state('');
   let srcEmpty = $state([]); // sources that answered with nothing, shown as 'nothing from <source>'
+  let srcFailed = $state([]); // sources the envelope names as failed: "couldn't load", never 'no results'
   let soft = $state(''); // an honest 'still rebuilding' empty state, not an error banner
   let artBad = $state({}); // art urls that failed or answered 204: keep the placeholder
   let searched = $state(false);
@@ -381,7 +383,7 @@ import { whyStopped as probeWhy, handleTrackError } from '../../lib/amp-error-lo
     if (busy || !q.trim()) return;
     plGen++;   // a playlist open still in flight must not reopen over this search
     recentQ = addSearch('amp-searches', q);
-    busy = true; error = ''; soft = ''; srcEmpty = []; searched = false; sections = [];
+    busy = true; error = ''; soft = ''; srcEmpty = []; srcFailed = []; searched = false; sections = [];
     view = 'search'; plId = ''; plName = ''; artistPage = null; albumPage = null;
     const r = await api(`/api/apps/amp/search?q=${encodeURIComponent(q.trim())}`);
     busy = false; searched = true;
@@ -393,7 +395,8 @@ import { whyStopped as probeWhy, handleTrackError } from '../../lib/amp-error-lo
       for (const it of d[src] || []) flat.push(it);
     }
     sections = flat;
-    srcEmpty = ['youtube', 'soundcloud', 'audius'].filter((k) => !(d[k] || []).length);
+    const split = sourceSplit(r.data.results, r.data.failed);   // failed catalogs say so; only the rest can be 'no results'
+    srcEmpty = split.empty; srcFailed = split.failed;
   }
 
   function chip(c) { q = c; search(); }
@@ -410,7 +413,7 @@ import { whyStopped as probeWhy, handleTrackError } from '../../lib/amp-error-lo
     if (!page.total) { note('no songs listed for this artist. showing search results.'); return; }
     artistPage = page;
     sections = page.tracks;
-    srcEmpty = ['youtube', 'soundcloud', 'audius'].filter((k, i) => !page.counts[['yt', 'sc', 'au'][i]]);
+    srcEmpty = ['youtube', 'soundcloud', 'audius'].filter((k, i) => !srcFailed.includes(k) && !page.counts[['yt', 'sc', 'au'][i]]);   // a failed source keeps its 'couldn't load', not a narrowing zero
     view = 'artist';
   }
 
@@ -427,7 +430,7 @@ import { whyStopped as probeWhy, handleTrackError } from '../../lib/amp-error-lo
     if (!page.total) { note('no songs found for this album. showing search results.'); return; }
     albumPage = page;
     sections = page.tracks;
-    srcEmpty = [];
+    srcEmpty = []; srcFailed = [];   // the album view is yt-only by construction; a yt failure never reaches here (page.total 0 returns early)
     view = 'album';
   }
 
@@ -590,7 +593,7 @@ import { whyStopped as probeWhy, handleTrackError } from '../../lib/amp-error-lo
 
     {#if error}<p class="error">{error}{#if error !== 'slow down a bit.' && error !== "this device can't do that" && error !== "this part isn't ready yet."} <button class="retrylink" data-testid="amp-search-retry" onclick={search}>try again</button>{/if}</p>{/if}
     {#if soft}<p class="dim">{soft}</p>{/if}
-    {#if searched && !error && !soft}{#each srcEmpty as s}<p class="dim">no results from {s}</p>{/each}{/if}
+    {#if searched && !error && !soft}{#each srcFailed as s}<p class="dim">couldn't load {s}.</p>{/each}{#each srcEmpty as s}<p class="dim">no results from {s}</p>{/each}{/if}
 
     {#if !searched && !busy}
       {#if recents.length}
