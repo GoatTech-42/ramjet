@@ -13,3 +13,14 @@ export async function api(path, { method = 'GET', body } = {}) {
     return { ok: false, status: 0, data: { error: 'no connection - check your wifi' } };
   }
 }
+
+export function errCopy(r, fallback) {
+  const st = r && r.status;
+  if (st === 0) return 'no connection. check your network.';
+  if (st === 429) return 'slow down a bit.'; // fixed copy: server text never renders
+  if (st === 403) return "this device can't do that";
+  if (st === 401) return 'your session ended. sign in again.';
+  if (st === 404) return "that isn't there anymore.";
+  if (st === 501) return "this part isn't ready yet.";
+  return fallback || 'something went wrong. try again.';
+}

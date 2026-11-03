@@ -3,14 +3,20 @@
   import Recent from '../../lib/Recent.svelte';
   let qf = $state(false);
   import '../../tokens.css';
-  import { onMount } from 'svelte';
-  import { api } from '../../lib/api.js';
+  import { onMount, tick } from 'svelte';
+  import { api, errCopy } from '../../lib/api.js';
+  import { makeMore, moreBump, moreFirstPage, moreCapture, moreApply, moreAutoOk, moreAutoSpend } from '../../lib/amp-more.mjs';
 
   let q = $state('');
   let sections = $state([]);
   let busy = $state(false);
   let error = $state('');
   let searched = $state(false);
+  let searchedQ = $state('');
+  const more = makeMore(); // continuation { gen, cursor }: a late page applies only if the generation is unchanged
+  let auBusy = $state(false);
+  let auNote = $state('');
+  let auRetry = $state(false);
 
   // the queue is whatever was below the tapped row - tap a song and the
   // rest of the list plays after it, like dropping a needle on a list
@@ -47,7 +53,10 @@
       else if (e.key === 'ArrowLeft' && el) { el.currentTime = Math.max(0, el.currentTime - 5); }
     };
     window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    // infinite scroll: near the list end, continue audius - the only source with a real cursor. first-page-only sources simply end.
+    const onScroll = () => { if (searched && view === 'search' && more.cursor && !auBusy && window.innerHeight + window.scrollY > document.documentElement.scrollHeight - 900) moreAudius(); };
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => { window.removeEventListener('keydown', onKey); window.removeEventListener('scroll', onScroll); };
   });
 
   function note(msg) {
@@ -73,6 +82,7 @@
   }
 
   async function openPlaylist(p) {
+    moreBump(more);   // a late continuation page must never land on the playlist's list
     const r = await api('/api/apps/amp/playlists/tracks?id=' + encodeURIComponent(p.id));
     if (!r.ok) { note(r.data?.error || 'could not open it'); return; }
     view = 'playlist'; plId = p.id; plName = r.data.playlist.name;
@@ -81,6 +91,7 @@
   }
 
   function backHome() {
+    moreBump(more);
     view = 'search'; plId = ''; plName = '';
     sections = []; searched = false; error = '';
     loadPlaylists();
@@ -235,6 +246,7 @@
     if (busy || !q.trim()) return;
     recentQ = addSearch('amp-searches', q);
     busy = true; error = ''; searched = false; sections = [];
+    searchedQ = q.trim(); moreBump(more); auNote = ''; auRetry = false;
     view = 'search'; plId = ''; plName = '';
     const r = await api(`/api/apps/amp/search?q=${encodeURIComponent(q.trim())}`);
     busy = false; searched = true;
@@ -246,6 +258,32 @@
     }
     sections = flat;
     if (!flat.length) error = 'nothing found for that one';
+    moreFirstPage(more, r.data.next);   // yt/sc cursors are null by contract - nothing to continue for them
+    recheckMore();   // a first page that does not fill the viewport fires no scroll event - check once, bounded
+  }
+
+  // short pages can leave the viewport unfilled, so no scroll event ever fires: re-check near-bottom
+  // after results land, and continue only while the last page added new rows or a real scroll happens.
+  async function recheckMore() {
+    await tick();
+    if (searched && view === 'search' && more.cursor && !auBusy && moreAutoOk(more) && window.innerHeight + window.scrollY > document.documentElement.scrollHeight - 900) { moreAutoSpend(more); moreAudius(); }
+  }
+
+  // more songs: continue audius only. a cursored answer carries just audius rows; a short or empty page ends the cursor (next.audius null).
+  async function moreAudius() {
+    if (busy || auBusy || !more.cursor || !searched || view !== 'search') return;
+    const cq = searchedQ, cap = moreCapture(more);
+    auBusy = true; auNote = ''; auRetry = false;
+    const r = await api(`/api/apps/amp/search?q=${encodeURIComponent(cq)}&cursor=${encodeURIComponent(cap.cursor)}`);
+    auBusy = false;
+    if (view !== 'search') return;   // the list was replaced (playlist) while the page was in flight - never append onto it
+    const d = moreApply(more, cap, r.status, r.data);
+    if (d.type === 'stale') return;   // a newer search or view moved on - drop the late page, even when the same query re-minted the same cursor
+    if (d.type === 'end') { auNote = errCopy(r, 'those results stopped answering.'); return; }   // no retry: an unrecognized cursor fails identically
+    if (d.type === 'error') { auNote = errCopy(r, "couldn't load more songs."); auRetry = true; return; }
+    const have = new Set(sections.map((it) => it.key));
+    const add = d.rows.filter((it) => !have.has(it.key));
+    if (add.length) { sections = [...sections, ...add]; recheckMore(); }   // keep filling only while pages actually grow the list - no request loop
   }
 
   function chip(c) { q = c; search(); }
@@ -485,6 +523,10 @@
         </button>
       {/each}
     </div>
+    {#if view === 'search' && searched}
+      {#if auBusy}<p class="dim" data-testid="amp-more-loading">loading more songs...</p>{/if}
+      {#if auNote}<p class="dim" data-testid="amp-more-note">{auNote} {#if auRetry}<button class="retrylink" data-testid="amp-more-retry" onclick={moreAudius}>try again</button>{/if}</p>{/if}
+    {/if}
   </main>
 
   {#if saveTarget}
@@ -695,4 +737,6 @@
     .wrap .pls { grid-template-columns: repeat(4, minmax(0, 1fr)); }
   }
   form.search { position: relative; }
+  .retrylink { background: none; border: 0; padding: 0; font: inherit; color: inherit; text-decoration: underline; cursor: pointer; }
+  .retrylink:focus-visible { outline: 2px solid var(--rj-text); outline-offset: 2px; }
 </style>
