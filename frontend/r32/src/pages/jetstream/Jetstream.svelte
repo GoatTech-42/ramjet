@@ -2,6 +2,7 @@
   import { netLite } from '../../lib/netlite.js';
   import { readSearches, addSearch, clearSearches } from '../../lib/searchhist.js';
   import Recent from '../../lib/Recent.svelte';
+  import Suggest from '../../lib/Suggest.svelte';
   let qf = $state(false);
   import '../../tokens.css';
   import { onMount, tick } from "svelte";
@@ -838,6 +839,34 @@
   }
 
   let recentQ = $state(readSearches('js-searches'));
+  // live youtube search suggestions (backend /suggest already serves them; this wires the box)
+  let sugg = $state([]);
+  let suggHi = $state(-1);
+  let suggSeq = 0, suggTimer;
+  function suggStop() { clearTimeout(suggTimer); suggSeq++; sugg = []; suggHi = -1; }
+  function onQInput() {
+    clearTimeout(suggTimer);
+    sugg = []; suggHi = -1; // the old list must not stay selectable while a new fetch is pending
+    const want = q.trim();
+    if (!want) { suggSeq++; return; }
+    const seq = ++suggSeq;
+    suggTimer = setTimeout(async () => {
+      const r = await api(`/api/apps/jetstream/suggest?q=${encodeURIComponent(want.slice(0, 120))}`);
+      if (seq !== suggSeq) return; // a newer keystroke owns the dropdown now
+      sugg = r.ok && Array.isArray(r.data?.suggestions) ? r.data.suggestions.filter((x) => typeof x === 'string').slice(0, 8) : [];
+      suggHi = -1;
+    }, 250);
+  }
+  function onQKey(e) {
+    if (e.key === 'Escape') { suggStop(); return; }
+    if (!sugg.length) return;
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      suggHi = e.key === 'ArrowDown' ? (suggHi + 1) % sugg.length : (suggHi <= 0 ? sugg.length - 1 : suggHi - 1);
+      q = sugg[suggHi];
+    }
+  }
+  function pickSugg(s) { suggStop(); q = s; search({ preventDefault() {} }); }
   const pager = createSearchPager((query, token) => api(searchUrl(query, token)));
   let moreBusy = $state(false), moreErr = $state(''), moreCapped = $state(false), moreNoRetry = $state(false);
   function syncPager() { const v = pager.view(); results = v.items; moreBusy = v.busy; moreErr = v.items.length ? v.err : ''; moreNoRetry = !!v.noRetry; moreCapped = v.capped; return v; }
@@ -845,6 +874,7 @@
   async function search(e) {
     e?.preventDefault();
     if (busy || !q.trim()) return;
+    suggStop();
     recentQ = addSearch('js-searches', q);
     error = ''; moreErr = ''; back(); chanPage = null; plPage = null; subsPage = null;   // back() bumps the intent: tokens are taken only after it
     busy = true;
@@ -1489,8 +1519,9 @@
   </header>
 
   <form class="bar" onsubmit={search}>
-    <input data-testid="js-search-input" bind:value={q} onfocus={() => (qf = true)} onblur={() => setTimeout(() => (qf = false), 150)} aria-label="search videos or channels" placeholder="search videos or channels" enterkeyhint="search" autocapitalize="off" autocomplete="off" />
-    <Recent items={recentQ} query={q} focused={qf} onpick={(r) => { q = r; qf = false; search({ preventDefault() {} }); }} onclear={() => (recentQ = clearSearches('js-searches'))} />
+    <input data-testid="js-search-input" bind:value={q} oninput={onQInput} onkeydown={onQKey} onfocus={() => (qf = true)} onblur={() => setTimeout(() => (qf = false), 150)} aria-label="search videos or channels" placeholder="search videos or channels" enterkeyhint="search" autocapitalize="off" autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded={qf && sugg.length > 0} aria-controls="js-sugg-list" aria-activedescendant={suggHi >= 0 && sugg.length ? `js-sugg-opt-${suggHi}` : undefined} />
+    <Recent items={recentQ} query={q} focused={qf && !sugg.length} onpick={(r) => { q = r; qf = false; search({ preventDefault() {} }); }} onclear={() => (recentQ = clearSearches('js-searches'))} />
+    <Suggest items={sugg} focused={qf} hi={suggHi} onpick={pickSugg} />
     <button data-testid="js-search-go" type="submit" disabled={busy} aria-busy={busy}>search</button>
   </form>
 
