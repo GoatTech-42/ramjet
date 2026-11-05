@@ -8,6 +8,7 @@
   import { buildAlbumPage, albumQuery } from '../../lib/album.js';
   import { buildArtistPage, primaryArtist } from '../../lib/artist.js';
 import { whyStopped as probeWhy, handleTrackError } from '../../lib/amp-error-logic.mjs';
+  import { sourceSplit } from '../../lib/amp-sources.mjs';
   let qf = $state(false);
   import '../../tokens.css';
   import { onMount, tick } from 'svelte';
@@ -15,15 +16,20 @@ import { whyStopped as probeWhy, handleTrackError } from '../../lib/amp-error-lo
   import { saveQueue, loadQueue } from '../../lib/queue-persist.js';
   import { encodeShare, decodeShare, importPlaylist } from '../../lib/share.js';
   import { api, errCopy } from '../../lib/api.js';
+  import { makeMore, moreBump, moreFirstPage, moreCapture, moreApply, moreAutoOk, moreAutoSpend } from '../../lib/amp-more.mjs';
 
   let q = $state('');
   let sections = $state([]);
   let busy = $state(false);
   let error = $state('');
   let srcEmpty = $state([]); // sources that answered with nothing, shown as 'nothing from <source>'
+  let srcFailed = $state([]); // sources the envelope names as failed: "couldn't load", never 'no results'
   let soft = $state(''); // an honest 'still rebuilding' empty state, not an error banner
   let artBad = $state({}); // art urls that failed or answered 204: keep the placeholder
   let searched = $state(false);
+  let searchedQ = $state('');
+  const more = makeMore();
+  let auBusy = $state(false), auNote = $state(''), auRetry = $state(false);
 
   // the queue is whatever was below the tapped row - tap a song and the
   // rest of the list plays after it, like dropping a needle on a list
@@ -62,12 +68,14 @@ import { whyStopped as probeWhy, handleTrackError } from '../../lib/amp-error-lo
       else if (a === 'seek-back' && el) { el.currentTime = Math.max(0, el.currentTime - 5); }
     };
     window.addEventListener('keydown', onKey);
+    const onScroll = () => { if (searched && view === 'search' && more.cursor && !auBusy && window.innerHeight + window.scrollY > document.documentElement.scrollHeight - 900) moreAudius(); };
+    window.addEventListener('scroll', onScroll, { passive: true });
     // DIV-21: tab hidden/shown or page leaving - the UI must say what the element is really doing, and the position is saved
     const onVis = () => { syncUi(); checkSleep(); if (document.visibilityState === 'hidden') persist(); };
     const onHide = () => { syncUi(); persist(); };
     document.addEventListener('visibilitychange', onVis);
     window.addEventListener('pagehide', onHide);
-    return () => { window.removeEventListener('keydown', onKey); document.removeEventListener('visibilitychange', onVis); window.removeEventListener('pagehide', onHide); };
+    return () => { window.removeEventListener('scroll', onScroll); window.removeEventListener('keydown', onKey); document.removeEventListener('visibilitychange', onVis); window.removeEventListener('pagehide', onHide); };
   });
 
   function note(msg) {
@@ -115,6 +123,7 @@ import { whyStopped as probeWhy, handleTrackError } from '../../lib/amp-error-lo
 
   let plGen = 0; // bumped on every playlist open and on leaving: only the newest response may apply
   async function openPlaylist(p) {
+    moreBump(more);
     const g = ++plGen;
     const r = await api('/api/apps/amp/playlists/tracks?id=' + encodeURIComponent(p.id));
     if (g !== plGen) return;
@@ -125,6 +134,7 @@ import { whyStopped as probeWhy, handleTrackError } from '../../lib/amp-error-lo
   }
 
   function backHome() {
+    moreBump(more);
     plGen++;
     view = 'search'; plId = ''; plName = ''; artistPage = null; albumPage = null;
     sections = []; searched = false; error = '';
@@ -376,12 +386,13 @@ import { whyStopped as probeWhy, handleTrackError } from '../../lib/amp-error-lo
   }
 
   let recentQ = $state(readSearches('amp-searches'));
-  async function search(e) {
+  async function search(e, continueSearch = true) {
     e?.preventDefault();
     if (busy || !q.trim()) return;
+    searchedQ = q.trim(); moreBump(more); auBusy = false; auNote = ''; auRetry = false;
     plGen++;   // a playlist open still in flight must not reopen over this search
     recentQ = addSearch('amp-searches', q);
-    busy = true; error = ''; soft = ''; srcEmpty = []; searched = false; sections = [];
+    busy = true; error = ''; soft = ''; srcEmpty = []; srcFailed = []; searched = false; sections = [];
     view = 'search'; plId = ''; plName = ''; artistPage = null; albumPage = null;
     const r = await api(`/api/apps/amp/search?q=${encodeURIComponent(q.trim())}`);
     busy = false; searched = true;
@@ -393,7 +404,37 @@ import { whyStopped as probeWhy, handleTrackError } from '../../lib/amp-error-lo
       for (const it of d[src] || []) flat.push(it);
     }
     sections = flat;
-    srcEmpty = ['youtube', 'soundcloud', 'audius'].filter((k) => !(d[k] || []).length);
+    const split = sourceSplit(r.data.results, r.data.failed);   // failed catalogs say so; only the rest can be 'no results'
+    srcEmpty = split.empty; srcFailed = split.failed;
+    if (continueSearch) {
+      moreFirstPage(more, r.data.next);
+      recheckMore();
+    }
+  }
+
+  // short pages can leave the viewport unfilled, so no scroll event ever fires: re-check near-bottom
+  // after results land, and continue only while the last page added new rows or a real scroll happens.
+  async function recheckMore() {
+    await tick();
+    if (searched && view === 'search' && more.cursor && !auBusy && moreAutoOk(more) && window.innerHeight + window.scrollY > document.documentElement.scrollHeight - 900) { moreAutoSpend(more); moreAudius(); }
+  }
+
+  // more songs: continue audius only. a cursored answer carries just audius rows; a short or empty page ends the cursor (next.audius null).
+  async function moreAudius() {
+    if (busy || auBusy || !more.cursor || !searched || view !== 'search') return;
+    const cq = searchedQ, cap = moreCapture(more);
+    auBusy = true; auNote = ''; auRetry = false;
+    const r = await api(`/api/apps/amp/search?q=${encodeURIComponent(cq)}&cursor=${encodeURIComponent(cap.cursor)}`);
+    if (cap.gen !== more.gen) return; // an old request cannot release the current generation's busy state
+    auBusy = false;
+    if (view !== 'search') return;   // the list was replaced (playlist) while the page was in flight - never append onto it
+    const d = moreApply(more, cap, r.status, r.data);
+    if (d.type === 'stale') return;   // a newer search or view moved on - drop the late page, even when the same query re-minted the same cursor
+    if (d.type === 'end') { auNote = errCopy(r, 'those results stopped answering.'); return; }   // no retry: an unrecognized cursor fails identically
+    if (d.type === 'error') { auNote = errCopy(r, "couldn't load more songs."); auRetry = true; return; }
+    const have = new Set(sections.map((it) => it.key));
+    const add = d.rows.filter((it) => !have.has(it.key));
+    if (add.length) { sections = [...sections, ...add]; recheckMore(); }   // keep filling only while pages actually grow the list - no request loop
   }
 
   function chip(c) { q = c; search(); }
@@ -404,13 +445,13 @@ import { whyStopped as probeWhy, handleTrackError } from '../../lib/amp-error-lo
     if (!a || busy) return;   // search() ignores calls while busy, so sections would be stale
     plGen++;   // a playlist open still in flight must not reopen over this page
     q = a;
-    await search();
+    await search(undefined, false);
     if (error || soft) return;
     const page = buildArtistPage(sections, a);
     if (!page.total) { note('no songs listed for this artist. showing search results.'); return; }
     artistPage = page;
     sections = page.tracks;
-    srcEmpty = ['youtube', 'soundcloud', 'audius'].filter((k, i) => !page.counts[['yt', 'sc', 'au'][i]]);
+    srcEmpty = ['youtube', 'soundcloud', 'audius'].filter((k, i) => !srcFailed.includes(k) && !page.counts[['yt', 'sc', 'au'][i]]);   // a failed source keeps its 'couldn't load', not a narrowing zero
     view = 'artist';
   }
 
@@ -421,13 +462,13 @@ import { whyStopped as probeWhy, handleTrackError } from '../../lib/amp-error-lo
     const who = primaryArtist(artist);
     if (!who || !String(album || '').trim() || busy) return;
     q = albumQuery(who, album);
-    await search();
+    await search(undefined, false);
     if (error || soft) return;
     const page = buildAlbumPage(sections, who, album);
     if (!page.total) { note('no songs found for this album. showing search results.'); return; }
     albumPage = page;
     sections = page.tracks;
-    srcEmpty = [];
+    srcEmpty = []; srcFailed = [];   // the album view is yt-only by construction; a yt failure never reaches here (page.total 0 returns early)
     view = 'album';
   }
 
@@ -590,7 +631,7 @@ import { whyStopped as probeWhy, handleTrackError } from '../../lib/amp-error-lo
 
     {#if error}<p class="error">{error}{#if error !== 'slow down a bit.' && error !== "this device can't do that" && error !== "this part isn't ready yet."} <button class="retrylink" data-testid="amp-search-retry" onclick={search}>try again</button>{/if}</p>{/if}
     {#if soft}<p class="dim">{soft}</p>{/if}
-    {#if searched && !error && !soft}{#each srcEmpty as s}<p class="dim">no results from {s}</p>{/each}{/if}
+    {#if searched && !error && !soft}{#each srcFailed as s}<p class="dim">couldn't load {s}.</p>{/each}{#each srcEmpty as s}<p class="dim">no results from {s}</p>{/each}{/if}
 
     {#if !searched && !busy}
       {#if recents.length}
@@ -688,6 +729,10 @@ import { whyStopped as probeWhy, handleTrackError } from '../../lib/amp-error-lo
           onmove={(d) => movePl(i, d)} onremove={() => removeFromPlaylist(i)} onart={(u) => { artBad[u] = true; }} />
       {/each}
     </div>
+    {#if view === 'search' && searched}
+      {#if auBusy}<p class="dim" data-testid="amp-more-loading">loading more songs...</p>{/if}
+      {#if auNote}<p class="dim" data-testid="amp-more-note">{auNote} {#if auRetry}<button class="retrylink" data-testid="amp-more-retry" onclick={moreAudius}>try again</button>{/if}</p>{/if}
+    {/if}
   </main>
 
   {#if saveTarget}
@@ -829,8 +874,6 @@ import { whyStopped as probeWhy, handleTrackError } from '../../lib/amp-error-lo
   .imp textarea, .sharebox { width: 100%; box-sizing: border-box; background: var(--rj-surface); border: 1px solid var(--rj-border); color: var(--rj-text); border-radius: 10px; padding: 12px 16px; font: inherit; font-size: 16px; resize: vertical; }
   .sharebox { margin-top: 10px; }
   .impline { margin: 0; font-size: 13px; color: var(--rj-text-dim); }
-  .retrylink { background: none; border: 0; padding: 0; font: inherit; color: inherit; text-decoration: underline; cursor: pointer; }
-  .retrylink:focus-visible { outline: 2px solid var(--rj-text); outline-offset: 2px; }
   .impbtns { display: flex; gap: 8px; }
   .impbtns button { background: var(--rj-surface); border: 1px solid var(--rj-hairline); color: var(--rj-text-dim); border-radius: 10px; padding: 0 18px; font-size: 14px; min-height: 44px; }
   .impbtns button.primary, .newpl button[type=submit] { background: var(--rj-accent); border-color: var(--rj-accent); color: var(--rj-accent-ink); font-weight: 600; }
