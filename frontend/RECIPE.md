@@ -1,25 +1,27 @@
-# build recipe (as run for this candidate)
+# build recipe
 
-node/npm: node 22+, npm 10+. two source trees, one staged output.
+node/npm: node 22+, npm 10+. two source trees (frontend/r32, frontend/hub), one staged output. all paths are relative to the repository root, and each numbered block below starts from the repository root (if running them in one shell, `cd` back to the root between blocks).
 
-## 1. r32 app pages (/source/r32)
+## 1. r32 app pages (frontend/r32)
+    cd frontend/r32
     npm ci
     npx vite build
-  emits r32/dist: pages/<page>/<page>.html for 10 pages + assets + engine statics (scramjet/, epoxy/, libcurl/, controller/, skin/, browse-sw.js, root statics from src/public).
+  emits frontend/r32/dist: pages/<page>/<page>.html for 10 pages + assets + engine statics (scramjet/, epoxy/, libcurl/, controller/, skin/, browse-sw.js, root statics from src/public).
 
-## 2. c7 hub shell (/source/hub)
+## 2. c7 hub shell (frontend/hub)
+    cd frontend/hub
     npm ci
     RAMJET_SOURCE_SHA=<7-char git sha> RAMJET_COMMIT=<commit> RAMJET_IMAGE_TAG=<image tag> npm run build
     (production also sets RAMJET_SOURCE_URL=<read-backed published commit url> - the AGPL s13 corresponding-source offer shown in settings > advanced; empty hides the row)
-  emits hub/dist: index.html, assets (index-*.js/css), pages/{index,settings}.
+  emits frontend/hub/dist: index.html, assets (index-*.js/css), pages/{index,settings}.
   this candidate used 0000000 / 0000000 / parity-check deliberately; production supplies real identity.
 
-## 3. stitch (/source/hub/scripts/stitch-r32.mjs + build-stamp.mjs)
-    cd hub && RAMJET_COMMIT=<commit> RAMJET_IMAGE_TAG=<tag> \
-      node scripts/stitch-r32.mjs <r32-dist> <hub-dist> <staged-out> <manifest-out>
+## 3. stitch (frontend/hub/scripts/stitch-r32.mjs + build-stamp.mjs)
+    cd frontend/hub && RAMJET_COMMIT=<commit> RAMJET_IMAGE_TAG=<tag> \
+      node scripts/stitch-r32.mjs ../r32/dist dist <staged-out> <manifest-out>
   - copies hub dist, then engine dirs from r32 dist with served-path renames
     (scramjet->assets/codec, epoxy->assets/net, libcurl->assets/net2, controller->assets/player with api/worker/inject renames, skin->skin)
-  - single input per engine static: staged/assets/net2/index.mjs is the same file as source/r32/src/public/libcurl/index.mjs, carried through r32/dist/libcurl/index.mjs by the vite build and renamed by stitch. there is no second, separately served copy of net2 (or any engine static).
+  - single input per engine static: staged/assets/net2/index.mjs is the same file as frontend/r32/src/public/libcurl/index.mjs, carried through r32/dist/libcurl/index.mjs by the vite build and renamed by stitch. there is no second, separately served copy of net2 (or any engine static).
   - browse-sw.js -> a/player-boot.js
   - applies the counted cross-reference rewrites inside engine files (hard-fails on count mismatch)
   - strips engine sourcemap refs

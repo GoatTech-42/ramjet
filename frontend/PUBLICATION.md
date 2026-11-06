@@ -1,10 +1,9 @@
 # ramjet frontend - publication notes
 
 this directory is the corresponding source for the ramjet frontend, published
-under the GNU Affero General Public License v3 (see LICENSE). it is published
-additively alongside the backend source on this branch; the backend content
-and its own notices are unchanged. nothing here promotes anything to the
-default branch.
+under the GNU Affero General Public License v3 (see LICENSE). it lives on
+`main`, the default branch, alongside the backend source; the backend content
+and its own notices are unchanged.
 
 ## layout
 
