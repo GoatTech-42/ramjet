@@ -1,8 +1,8 @@
 # Current Rust source preservation
 
-`backend/` preserves the Rust daemon and shared crypto workspace used for the current accepted backend build. This branch does not replace the legacy default branch or change a running deployment.
+`backend/` preserves the Rust daemon and shared crypto workspace used for the current accepted backend build. This snapshot lives on `main`, the default branch, and does not change a running deployment.
 
-This is a bounded backend source snapshot, not a complete migration of the current product. The original project frontend source is not included here, and the compiled frontend and its third-party source/license obligations are still separate work.
+This is a bounded backend source snapshot, not a complete migration of the current product. The published frontend source (hub shell and r32 app pages, with its notices and build recipe) is not part of this snapshot; it lives in `frontend/` at the repository root (see `frontend/PUBLICATION.md`).
 
 Private workflow comments were removed from Rust and Cargo manifests. A test device display label and one test assertion diagnostic were made generic. Those edits have separate snapshot hashes; these public bytes are not the exact original compiler input. Production authentication defaults and ordinary code are retained.
 
