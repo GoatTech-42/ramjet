@@ -4,10 +4,16 @@
 // Same splitter the player bar and quick-search chips already use, so "artist" means one thing everywhere.
 export const ARTIST_SPLIT = /,|&| feat\.? /i;
 
+const FOLD = { '\u00f8': 'o', '\u00e6': 'ae', '\u0153': 'oe', '\u0142': 'l', '\u00df': 'ss', '\u0111': 'd', '\u00f0': 'd', '\u00fe': 'th' };   // letters NFKD does not decompose
+// Letters and digits of ANY script are kept: the old [a-z0-9] filter turned every CJK, Cyrillic, Greek or Hangul name
+// into "" and the artist page could never match it. Marks stay except the Latin accent block, so kana voicing marks are
+// not lost. A name with no letters or digits at all ("!!!") falls back to its trimmed lowercase text instead of "".
 export function norm(s) {
-  return String(s ?? '')
-    .normalize('NFKD').replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+  const t = String(s ?? '');
+  const n = t.normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+    .replace(/[\u00f8\u00e6\u0153\u0142\u00df\u0111\u00f0\u00fe]/g, (c) => FOLD[c])
+    .replace(/[^\p{L}\p{N}\p{M}]+/gu, ' ').trim();
+  return n || (/\S/.test(t) && !/[\p{L}\p{N}]/u.test(t) ? t.trim().toLowerCase() : '');
 }
 
 // "Daft Punk, Pharrell Williams" -> "Daft Punk". Display casing is kept.
