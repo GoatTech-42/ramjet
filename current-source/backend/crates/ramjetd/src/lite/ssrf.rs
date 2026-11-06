@@ -79,7 +79,7 @@ pub async fn safe_lookup(host: &str) -> Result<IpAddr, String> {
         if blocked_ip(ip) { return Err("blocked address".into()); }
         return Ok(ip);
     }
-    let addr = resolve_host(host).await?.into_iter().find(|a| a.is_ipv4()).ok_or("no address".to_string())?;                          
+    let addr = resolve_host(host).await?.into_iter().find(|a| a.is_ipv4()).ok_or("no address".to_string())?;
     if blocked_ip(addr) { return Err("blocked address".into()); }
     Ok(addr)
 }
