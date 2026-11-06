@@ -7,6 +7,8 @@
   let me = $state(''), rooms = $state([]), friends = $state([]), incoming = $state([]), outgoing = $state([]);
   let loaded = $state(false), err = $state('');
   let deferred = $state(false);
+  let stateErr = $state(''), stateKnown = $state(false), stateLoading = $state(false);
+  let stateSeq = 0;
   let cur = $state(null);
   let msgs = $state([]), lastId = 0, listEl, composer = $state('');
   // bumped every time the visible room session changes (open, close); an in-flight response
@@ -47,9 +49,13 @@
   const proxied = (u) => B + 'gifimg?u=' + encodeURIComponent(u);
 
   async function loadState() {
+    const seq = ++stateSeq;
+    stateLoading = true;
     const r = await call('state');
-    if (!r.ok) { if (r.status === 501) deferred = true; err = errCopy(r, "your chats couldn't load."); loaded = true; return; }
-    deferred = false;
+    if (seq !== stateSeq) return;
+    stateLoading = false;
+    if (!r.ok) { deferred = r.status === 501; stateErr = errCopy(r, "your chats couldn't load."); loaded = true; return; }
+    deferred = false; stateErr = ''; stateKnown = true;
     const d = r.data;
     me = d.me; rooms = d.rooms; friends = d.friends; incoming = d.incoming; outgoing = d.outgoing;
     if (cur) { const f = rooms.find((x) => x.id === cur.id); if (f) cur = f; else { roomGen++; cur = null; resetRoomView(); } }
@@ -318,7 +324,7 @@
       const r = rooms.find((x) => x.id === location.hash.slice(1));
       if (r) openRoom(r);
     });
-    const t = setInterval(() => { if (cur) { pull(false); if (++pollN % 3 === 0) reloadAll(); } else if (loaded && !deferred) loadState(); }, 3000);
+    const t = setInterval(() => { if (cur) { pull(false); if (++pollN % 3 === 0) reloadAll(); } else if (loaded && !deferred && !stateLoading) loadState(); }, 3000);
     return () => { clearInterval(t); roomGen++; };
   });
 </script>
@@ -335,11 +341,18 @@
     </header>
     {#if !loaded}
       <p class="hint">loading</p>
-    {:else if deferred}
-      <div class="defer">
-        <p class="hint mid">{err || "this part isn't ready yet."}</p>
+    {:else if deferred || (!stateKnown && stateErr)}
+      <div class="defer" role="status">
+        <p class="hint mid">{stateErr}</p>
+        <button class="pill" disabled={stateLoading} onclick={loadState}>{stateLoading ? 'loading' : 'try again'}</button>
       </div>
     {:else}
+      {#if stateErr}
+        <div class="state-error" role="status">
+          <p class="bad">{stateErr} showing your last loaded chats.</p>
+          <button class="pill" disabled={stateLoading} onclick={loadState}>{stateLoading ? 'loading' : 'try again'}</button>
+        </div>
+      {/if}
       <nav class="tabs">
         <button class:on={tab === 'chats'} onclick={() => (tab = 'chats')}>groups{#if groups.reduce((a, r) => a + (r.unread || 0), 0)}<i class="badge">{groups.reduce((a, r) => a + (r.unread || 0), 0)}</i>{/if}</button>
         <button class:on={tab === 'dms'} onclick={() => (tab = 'dms')}>messages{#if dms.reduce((a, r) => a + (r.unread || 0), 0)}<i class="badge">{dms.reduce((a, r) => a + (r.unread || 0), 0)}</i>{/if}</button>
@@ -585,6 +598,8 @@
   .go.sm { width: auto; padding: 8px 20px; }
   .mini { background: none; color: var(--rj-text); border: 1px solid var(--rj-border); border-radius: 999px; padding: 5px 12px; font-family: var(--rj-mono); font-size: 12px; }
   .bad { color: var(--rj-danger); font-size: 13.5px; margin: 4px 0; }
+  .state-error { padding: 12px 16px; }
+  .state-error p { margin: 0 0 8px; }
   .bar-err { padding: 0 16px; }
 
   .list { flex: 1; overflow-y: auto; padding: 14px 14px 6px; display: flex; flex-direction: column; gap: 3px; }
