@@ -7,8 +7,20 @@
   let me = $state(''), rooms = $state([]), friends = $state([]), incoming = $state([]), outgoing = $state([]);
   let loaded = $state(false), err = $state('');
   let deferred = $state(false);
+  let stateErr = $state(''), stateKnown = $state(false), stateLoading = $state(false);
+  let stateSeq = 0;
   let cur = $state(null);
   let msgs = $state([]), lastId = 0, listEl, composer = $state('');
+  // bumped every time the visible room session changes (open, close); an in-flight response
+  // from an older session is discarded, so a late reply can never paint another room's screen
+  let roomGen = 0;
+  // response ordering within a session: every request is stamped, and a response older than
+  // one already applied is stale - a late full reload cannot push the list or cursor backwards
+  // past newer incremental pulls
+  let reqSeq = 0, appliedSeq = 0;
+  // every room transition resets the whole per-room view: an edit in progress, an unsent draft
+  // or a reply reference from one room must never leak into the next
+  const resetRoomView = () => { msgs = []; lastId = 0; composer = ''; editing = null; replyTo = null; selMsg = 0; readSent = 0; };
   let sheet = $state(''), sheetErr = $state('');
   let draftName = $state(''), draftCode = $state(''), addName = $state('');
   let members = $state([]), person = $state('');
@@ -37,28 +49,41 @@
   const proxied = (u) => B + 'gifimg?u=' + encodeURIComponent(u);
 
   async function loadState() {
+    const seq = ++stateSeq;
+    stateLoading = true;
     const r = await call('state');
-    if (!r.ok) { if (r.status === 501) deferred = true; err = errCopy(r, "your chats couldn't load."); loaded = true; return; }
-    deferred = false;
+    if (seq !== stateSeq) return;
+    stateLoading = false;
+    if (!r.ok) { deferred = r.status === 501; stateErr = errCopy(r, "your chats couldn't load."); loaded = true; return; }
+    deferred = false; stateErr = ''; stateKnown = true;
     const d = r.data;
     me = d.me; rooms = d.rooms; friends = d.friends; incoming = d.incoming; outgoing = d.outgoing;
-    if (cur) { const f = rooms.find((x) => x.id === cur.id); if (f) cur = f; else cur = null; }
+    if (cur) { const f = rooms.find((x) => x.id === cur.id); if (f) cur = f; else { roomGen++; cur = null; resetRoomView(); } }
     loaded = true;
   }
   async function openRoom(r) {
-    cur = r; msgs = []; lastId = 0; sheet = ''; replyTo = null; selMsg = 0; readSent = 0;
+    roomGen++;
+    cur = r; resetRoomView(); sheet = '';
     history.replaceState(null, '', '#' + r.id);
     await pull(true);
   }
-  function closeRoom() { cur = null; msgs = []; history.replaceState(null, '', location.pathname); loadState(); }
+  function closeRoom() { roomGen++; cur = null; resetRoomView(); history.replaceState(null, '', location.pathname); loadState(); }
   async function pull(scroll) {
     if (!cur) return;
-    const id = cur.id;
+    const id = cur.id, gen = roomGen, seq = ++reqSeq;
     const r = await call('msgs?room=' + id + '&after=' + lastId);
-    if (!r.ok || !cur || cur.id !== id) return;
-    if (r.data.msgs.length) {
+    // the generation check closes A->B->A: a stale reply from this room's PREVIOUS session
+    // passes the id check but must not append to the new session or move its cursor.
+    // the sequence check closes same-session races: a response older than one already applied
+    // (a slow pull behind a full reload) is stale too
+    if (!r.ok || !cur || cur.id !== id || gen !== roomGen || seq < appliedSeq) return;
+    appliedSeq = seq;
+    // overlapping pulls can carry the same tail (both asked from the same cursor); append
+    // only what is actually past the cursor, never a duplicate
+    const fresh = r.data.msgs.filter((x) => x.id > lastId);
+    if (fresh.length) {
       const stick = !listEl || listEl.scrollHeight - listEl.scrollTop - listEl.clientHeight < 140;
-      msgs = [...msgs, ...r.data.msgs];
+      msgs = [...msgs, ...fresh];
       lastId = msgs[msgs.length - 1].id;
       markRead();
       if (scroll || stick) { await tick(); if (listEl) listEl.scrollTop = listEl.scrollHeight; }
@@ -75,18 +100,29 @@
     cur = { ...cur, unread: 0 };
   }
   async function reloadAll() {
-    const r = await call('msgs?room=' + cur.id + '&after=0');
-    if (r.ok) { msgs = r.data.msgs; if (msgs.length) lastId = msgs[msgs.length - 1].id; }
+    if (!cur) return;
+    const id = cur.id, gen = roomGen, seq = ++reqSeq;
+    const r = await call('msgs?room=' + id + '&after=0');
+    // same session ownership as pull: a reload started in one room must not replace another's,
+    // and a reload that lands behind a newer applied response must not roll the list back
+    if (!r.ok || !cur || cur.id !== id || gen !== roomGen || seq < appliedSeq) return;
+    appliedSeq = seq;
+    msgs = r.data.msgs;
+    // a valid empty reload means the room has no messages - the cursor resets with it
+    lastId = msgs.length ? msgs[msgs.length - 1].id : 0;
   }
   function flash(t) { err = t; setTimeout(() => { if (err === t) err = ''; }, 3500); }
   async function post(body) {
     if (!cur || sending) return false;
     sending = true;
-    const r = await call('msg', { room: cur.id, ...(replyTo ? { reply: replyTo.id } : {}), ...body });
+    const id = cur.id, gen = roomGen, rt = replyTo;
+    const r = await call('msg', { room: id, ...(rt ? { reply: rt.id } : {}), ...body });
     sending = false;
     if (!r.ok) { flash(errCopy(r, "your message couldn't be sent.")); return false; }
-    replyTo = null;
-    await pull(true);
+    // refresh the room the message went to only while it is still the open session - and the
+    // reply reference is that session's composer state, so it clears with the same guard and
+    // only if it is still the one this send consumed
+    if (cur && cur.id === id && gen === roomGen) { if (replyTo === rt) replyTo = null; await pull(true); }
     return true;
   }
 
@@ -130,22 +166,26 @@
   const tapSel = (m) => { if (lpFired) { lpFired = false; return; } selMsg = selMsg === m.id ? 0 : m.id; };
   async function sendText() {
     const t = composer.trim();
-    if (!t) return;
+    if (!t || !cur) return;
+    const id = cur.id, gen = roomGen;
     if (editing) {
       const e = editing; editing = null; composer = '';
-      const r = await call('editmsg', { room: cur.id, msg: e.id, text: t });
-      if (!r.ok) { flash(errCopy(r, "your message couldn't be saved.")); composer = t; return; }
-      await reloadAll(); return;
+      const r = await call('editmsg', { room: id, msg: e.id, text: t });
+      if (!r.ok) { flash(errCopy(r, "your message couldn't be saved.")); if (cur && cur.id === id && gen === roomGen) composer = t; return; }
+      if (cur && cur.id === id && gen === roomGen) await reloadAll();
+      return;
     }
     composer = '';
-    if (!(await post({ type: 'text', text: t }))) composer = t;
+    // a failed send restores the draft only in the session it was written in
+    if (!(await post({ type: 'text', text: t })) && cur && cur.id === id && gen === roomGen) composer = t;
   }
   function onKey(e) { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendText(); } }
 
   async function pickPhoto(e) {
     const f = e.target.files && e.target.files[0];
     e.target.value = '';
-    if (!f) return;
+    if (!f || !cur) return;
+    const id = cur.id, gen = roomGen;
     const bmp = await createImageBitmap(f).catch(() => null);
     if (!bmp) { flash("this image couldn't be opened."); return; }
     let scale = Math.min(1, 1280 / Math.max(bmp.width, bmp.height)), q = 0.8, data = '';
@@ -158,6 +198,8 @@
       scale *= 0.8; q = Math.max(0.5, q - 0.08);
     }
     if (data.length * 0.75 >= 440 * 1024) { flash('image too big'); return; }
+    // the room may have changed during the decode: abort rather than redirect the photo
+    if (!cur || cur.id !== id || gen !== roomGen) { flash("room changed - the photo wasn't sent."); return; }
     await post({ type: 'image', data });
   }
   let gifTimer;
@@ -165,7 +207,10 @@
     clearTimeout(gifTimer);
     gifTimer = setTimeout(async () => {
       if (!gifQ.trim()) { gifs = []; return; }
+      const id = cur && cur.id, gen = roomGen;
       const r = await call('gifsearch?q=' + encodeURIComponent(gifQ.trim()));
+      // results paint only while their origin session is still open; a stale search is dropped
+      if (!cur || cur.id !== id || gen !== roomGen) { if (!r.ok) flash(errCopy(r, "gifs couldn't load.")); return; }
       gifs = r.ok ? r.data.gifs : [];
       if (!r.ok) sheetErr = errCopy(r, "gifs couldn't load.");
     }, 350);
@@ -174,30 +219,34 @@
   async function sendPoll() {
     const opts = pollOpts.map((o) => o.trim()).filter(Boolean);
     if (!pollQ.trim() || opts.length < 2) { sheetErr = 'a question and two options'; return; }
+    const id = cur && cur.id, gen = roomGen;
     sheet = '';
     await post({ type: 'poll', question: pollQ.trim(), options: opts });
-    pollQ = ''; pollOpts = ['', ''];
+    // the poll draft is sheet state of the session that sent it; clear it only there
+    if (cur && cur.id === id && gen === roomGen) { pollQ = ''; pollOpts = ['', '']; }
   }
   const EMOJI = ['\u2764\ufe0f', '\ud83d\ude02', '\ud83d\udc4d', '\ud83d\ude2e', '\ud83d\ude22', '\ud83d\udd25'];
   async function react(m, e) {
     selMsg = 0;
-    const r = await call('react', { room: cur.id, msg: m.id, emoji: e });
+    const id = cur.id, gen = roomGen;
+    const r = await call('react', { room: id, msg: m.id, emoji: e });
     if (!r.ok) { flash(errCopy(r, "your reaction couldn't be saved.")); return; }
-    await reloadAll();
+    if (cur && cur.id === id && gen === roomGen) await reloadAll();
   }
   async function delMsg(m) {
     if (!confirm('delete this message for everyone?')) return;
     selMsg = 0;
-    const r = await call('delmsg', { room: cur.id, msg: m.id });
+    const id = cur.id, gen = roomGen;
+    const r = await call('delmsg', { room: id, msg: m.id });
     if (!r.ok) { flash(errCopy(r, "your message couldn't be deleted.")); return; }
-    await reloadAll();
+    if (cur && cur.id === id && gen === roomGen) await reloadAll();
   }
   function startReply(m) {
     replyTo = { id: m.id, from: m.from, text: m.type === 'text' ? m.text : m.type === 'image' ? 'photo' : m.type === 'gif' ? 'gif' : m.type === 'poll' ? 'poll' : '' };
     selMsg = 0;
     tick().then(() => document.querySelector('.composer textarea')?.focus());
   }
-  async function vote(m, i) { await call('vote', { room: cur.id, msg: m.id, option: i }); await reloadAll(); }
+  async function vote(m, i) { const id = cur.id, gen = roomGen; await call('vote', { room: id, msg: m.id, option: i }); if (cur && cur.id === id && gen === roomGen) await reloadAll(); }
 
   async function createGroup() {
     if (!draftName.trim()) return;
@@ -238,21 +287,36 @@
     await loadState(); tab = 'dms'; openRoom(r.data.room);
   }
   async function showGroup() {
-    const r = await call('members?room=' + cur.id);
+    if (!cur) return;
+    const id = cur.id, gen = roomGen;
+    const r = await call('members?room=' + id);
+    // opening the sheet is a view move for the session that asked; a stale reply drops it
+    if (!cur || cur.id !== id || gen !== roomGen) return;
     if (r.ok) members = r.data.members;
     sheet = 'group'; sheetErr = '';
   }
   async function leaveGroup() {
     if (!confirm('leave ' + cur.title + '?')) return;
-    await call('leave', { room: cur.id }); sheet = ''; closeRoom();
+    const id = cur.id, gen = roomGen;
+    const r = await call('leave', { room: id });
+    if (!r.ok) { const copy = errCopy(r, 'failed'); if (cur && cur.id === id && gen === roomGen) sheetErr = copy; else flash(copy); return; }
+    // close and dismiss the sheet only if the room we left is still the open session;
+    // a stale success just refreshes the list and never touches the current sheet
+    if (cur && cur.id === id && gen === roomGen) { sheet = ''; closeRoom(); } else loadState();
   }
   async function delRoom() {
     if (!confirm('delete ' + cur.title + ' for everyone?')) return;
-    await call('delete', { room: cur.id }); sheet = ''; closeRoom();
+    const id = cur.id, gen = roomGen;
+    const r = await call('delete', { room: id });
+    if (!r.ok) { const copy = errCopy(r, 'failed'); if (cur && cur.id === id && gen === roomGen) sheetErr = copy; else flash(copy); return; }
+    if (cur && cur.id === id && gen === roomGen) { sheet = ''; closeRoom(); } else loadState();
   }
   async function inviteTo(n) {
-    const r = await call('invite', { room: cur.id, user: n });
-    sheetErr = r.ok ? 'invite sent to ' + n : errCopy(r, 'failed');
+    if (!cur) return;
+    const id = cur.id, gen = roomGen;
+    const r = await call('invite', { room: id, user: n });
+    const copy = r.ok ? 'invite sent to ' + n : errCopy(r, 'failed');
+    if (cur && cur.id === id && gen === roomGen) sheetErr = copy; else flash(copy);
   }
 
   onMount(() => {
@@ -260,8 +324,8 @@
       const r = rooms.find((x) => x.id === location.hash.slice(1));
       if (r) openRoom(r);
     });
-    const t = setInterval(() => { if (cur) { pull(false); if (++pollN % 3 === 0) reloadAll(); } else if (loaded && !deferred) loadState(); }, 3000);
-    return () => clearInterval(t);
+    const t = setInterval(() => { if (cur) { pull(false); if (++pollN % 3 === 0) reloadAll(); } else if (loaded && !deferred && !stateLoading) loadState(); }, 3000);
+    return () => { clearInterval(t); roomGen++; };
   });
 </script>
 
@@ -277,11 +341,18 @@
     </header>
     {#if !loaded}
       <p class="hint">loading</p>
-    {:else if deferred}
-      <div class="defer">
-        <p class="hint mid">{err || "this part isn't ready yet."}</p>
+    {:else if deferred || (!stateKnown && stateErr)}
+      <div class="defer" role="status">
+        <p class="hint mid">{stateErr}</p>
+        <button class="pill" disabled={stateLoading} onclick={loadState}>{stateLoading ? 'loading' : 'try again'}</button>
       </div>
     {:else}
+      {#if stateErr}
+        <div class="state-error" role="status">
+          <p class="bad">{stateErr} showing your last loaded chats.</p>
+          <button class="pill" disabled={stateLoading} onclick={loadState}>{stateLoading ? 'loading' : 'try again'}</button>
+        </div>
+      {/if}
       <nav class="tabs">
         <button class:on={tab === 'chats'} onclick={() => (tab = 'chats')}>groups{#if groups.reduce((a, r) => a + (r.unread || 0), 0)}<i class="badge">{groups.reduce((a, r) => a + (r.unread || 0), 0)}</i>{/if}</button>
         <button class:on={tab === 'dms'} onclick={() => (tab = 'dms')}>messages{#if dms.reduce((a, r) => a + (r.unread || 0), 0)}<i class="badge">{dms.reduce((a, r) => a + (r.unread || 0), 0)}</i>{/if}</button>
@@ -527,6 +598,8 @@
   .go.sm { width: auto; padding: 8px 20px; }
   .mini { background: none; color: var(--rj-text); border: 1px solid var(--rj-border); border-radius: 999px; padding: 5px 12px; font-family: var(--rj-mono); font-size: 12px; }
   .bad { color: var(--rj-danger); font-size: 13.5px; margin: 4px 0; }
+  .state-error { padding: 12px 16px; }
+  .state-error p { margin: 0 0 8px; }
   .bar-err { padding: 0 16px; }
 
   .list { flex: 1; overflow-y: auto; padding: 14px 14px 6px; display: flex; flex-direction: column; gap: 3px; }
