@@ -12,7 +12,17 @@ Self-hosted web hub: one login, a themed home, and the apps behind it.
 
 Press Ctrl/Cmd-K for the command palette.
 
-## Run
+## Source and build entry points
+
+This repository contains the legacy Node application alongside the published Rust backend and frontend source trees. They have separate build paths:
+
+- [Rust backend source and build notes](current-source/README.md): the Cargo workspace is in `current-source/backend/`.
+- [Frontend publication notes](frontend/PUBLICATION.md) and [frontend build recipe](frontend/RECIPE.md): the hub and r32 source trees are built and stitched separately.
+- The root `package.json`, `Dockerfile` and `docker-compose.yml` below build and run the legacy Node application. They do not build the Rust daemon or the published frontend recipe.
+
+These source/build pointers do not establish that a branch was deployed or that a newly built artifact passed runtime qualification. Use the exact source revision and its qualification evidence; do not treat the root Docker build as a current-product deployment recipe.
+
+## Legacy Node application: run
 
 Node 20+ (the Dockerfile pins node:20-bookworm-slim).
 
@@ -37,4 +47,4 @@ A Dockerfile and docker-compose.yml are included for container runs; the image b
 ## Notes
 
 - Thumbnails: settings > data saver (auto / on / off). On or auto-on-cellular sends smaller thumbnails and video.
-- main is the current branch. rebuild-v2 is an older, separate line.
+- `main` is the default source branch. A branch name alone does not identify the deployed artifact or prove runtime qualification. `rebuild-v2` is an older, separate line.
