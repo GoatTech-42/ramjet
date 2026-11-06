@@ -1,6 +1,6 @@
 # build recipe
 
-node/npm: node 22+, npm 10+. two source trees (frontend/r32, frontend/hub), one staged output. all paths are relative to the repository root.
+node/npm: node 22+, npm 10+. two source trees (frontend/r32, frontend/hub), one staged output. all paths are relative to the repository root, and each numbered block below starts from the repository root (if running them in one shell, `cd` back to the root between blocks).
 
 ## 1. r32 app pages (frontend/r32)
     cd frontend/r32
