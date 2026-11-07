@@ -210,8 +210,9 @@
     })();
   }
 
-  // transport: ws (default, box-side fetch over one multiplexed socket, with a box-side asset cache), epoxy (set rj-transport=epoxy) or libcurl (http/2 + connection reuse). pick with
-  // localStorage rj-transport = 'curl' while it is being compared.
+  // transport: ws (default, box-side fetch over one multiplexed socket, with a box-side asset cache) or server (/api/pfetch).
+  // the epoxy/libcurl experiments need a stock wisp endpoint this box doesn't serve - selecting them fails fast
+  // with a clear message instead of opening a socket that never answers.
   // nothing engine-side loads until the first submit: no scripts, worker,
   // ticket fetch or socket at tab-open. startEngine() is the first-submit boot.
   let engineP = null;
@@ -236,7 +237,7 @@
         newTab();
         boot = '';
       } catch (e) {
-        if (!cancelled && attempts < 2) { // one automatic retry, then give up loudly
+        if (!cancelled && attempts < 2 && !(e && e.noRetry)) { // one automatic retry for retryable errors, then give up loudly
           attempts += 1;
           boot = 'retrying...';
           await new Promise((r) => setTimeout(r, 2500));
