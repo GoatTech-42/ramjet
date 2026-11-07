@@ -357,4 +357,4 @@ export async function connect({ setBoot, cancelled, getAdOk }) {
         if (cancelled()) { clearTimeout(kill); unpin(); try { controller.setupMessagePort = () => {}; } catch {} try { transport.close && transport.close(); } catch {} return {}; }
   clearTimeout(kill);
   return { controller };
-        }
+}
